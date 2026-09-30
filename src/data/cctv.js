@@ -66,6 +66,14 @@ import {
   unregisterPickOwner,
 } from './pickRegistry.js';
 import { resolveEllipsoidalGround } from './terrainHeights.js';
+import {
+  planeDimensions,
+  planeSupportPoints,
+  poseHash,
+  projectPoint,
+  requiredPlaneLift,
+  SUPPORT_KEYS,
+} from './cctvFootprint.js';
 import { cachedGroundFloor, resolveGroundFloorCells, warmGroundFloor } from './groundFloor.js';
 import { sampleMeshFloorCells } from './meshFloorSampler.js';
 import { horizonOccluder } from './iconOrientation.js';
@@ -189,11 +197,18 @@ export const CCTV_CALIBRATION_STORAGE_KEY_V2 = 'godsEyeView.cctv.calibration.v2'
 // full 1080p texture re-upload because Cesium re-uploads only on a NEW image
 // object reference).
 const PROJECTION_TEXTURE_SWAP_MS = 1000;
-const PROJECTION_VERT_ASPECT = PROJECTION_CANVAS_WIDTH / PROJECTION_CANVAS_HEIGHT;
-// V2 frustum geometry (design §2a/§6): the far-cap center + corners never sink
-// below groundAlt + this clearance, so a fabricated pitch (-24°) cannot bury
-// the monitor plane in the 3D tiles. Exported for the unit suite.
+// V2 frustum geometry (design §2a/§6): every point of the monitor plane stays
+// at least this far above the ground under it, so a fabricated pitch (-24°)
+// cannot bury the plane in the 3D tiles. Exported for the unit suite.
 export const FRUSTUM_GROUND_CLEARANCE_M = 2;
+// Most the ground measured under the plane may lift it beyond what the ground
+// at its own mount requires (metres). A tower under the far edge would
+// otherwise send the plane hundreds of metres up; past this the plane accepts
+// the intersection. Upstream's value (12790b36). Exported for the unit suite.
+export const PLANE_FOOTPRINT_LIFT_CAP_M = 60;
+// A footprint measured partly from the geoid fallback (terrain proxy outage)
+// is asked again after this long, on the next activation or pose commit.
+const FOOTPRINT_RETRY_MS = 60_000;
 // `CCTV_FOCUS_RESULT` moved to ../cctvFocusRequest.js, beside the activation
 // codes it pairs with, so the voice actions can read a focus outcome without
 // importing this 211 kB layer. Re-exported here: it is part of this layer's
@@ -995,35 +1010,6 @@ function ensureCameraPose(camera) {
 }
 
 /**
- * Projects a point along a bearing from a given lat/lon by a distance.
- * Uses the spherical-earth direct geodesic formula (R = 6371 km).
- * @param {number} latDeg - Origin latitude (degrees).
- * @param {number} lonDeg - Origin longitude (degrees).
- * @param {number} bearingDeg - Azimuth from north (degrees).
- * @param {number} distanceM - Distance in metres.
- * @returns {{ lat: number, lon: number }} Destination in degrees.
- */
-function projectPoint(latDeg, lonDeg, bearingDeg, distanceM) {
-  const angular = distanceM / 6371000;
-  const bearing = toRad(bearingDeg);
-  const lat1 = toRad(latDeg);
-  const lon1 = toRad(lonDeg);
-
-  const sinLat2 = Math.sin(lat1) * Math.cos(angular)
-    + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing);
-  const lat2 = Math.asin(sinLat2);
-
-  const y = Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1);
-  const x = Math.cos(angular) - Math.sin(lat1) * sinLat2;
-  const lon2 = lon1 + Math.atan2(y, x);
-
-  return {
-    lat: Cesium.Math.toDegrees(lat2),
-    lon: Cesium.Math.toDegrees(lon2),
-  };
-}
-
-/**
  * V2 core geometry (design §2a): computes the pitched frustum pyramid — mount
  * point, far-cap (monitor plane) center, and the 4 far-plane corners — purely
  * from the calibrated pose + a caller-supplied ground altitude. ZERO scene
@@ -1037,79 +1023,133 @@ function projectPoint(latDeg, lonDeg, bearingDeg, distanceM) {
  *   vFov      = 2·atan(tan(hFov/2) / (16/9))   → halfH = R·tan(vFov/2)
  *   upOffset  = cos(pitch)·halfH vertical + (−sin(pitch))·halfH along heading
  *   corners   = (capCenter ∓ halfW toward heading∓90°) ± upOffset
- * The cap CENTER altitude clamps to ≥ groundAltM + 2 m (§6 risk: fabricated
- * pitch must never bury the plane's anchor); corners derive rigidly from the
- * clamped center so the wireframe rays always terminate on the plane's
- * corners — the bottom pair may dip below ground (tiles occlude it).
+ * The whole rectangle is then lifted RIGIDLY by the smallest amount that puts
+ * each of its nine support points (a 3×3 grid, see cctvFootprint.js) at least
+ * FRUSTUM_GROUND_CLEARANCE_M above the ground under it, so the wireframe rays
+ * still terminate exactly on the plane's corners. Where nothing was measured
+ * under the plane, the ground at the mount stands in: the bottom edge then
+ * clears the mount's ground. The part of the lift that only the measured
+ * footprint asks for is capped at PLANE_FOOTPRINT_LIFT_CAP_M.
  *
  * @param {Object} camera - Pose: lat, lon, headingDeg, pitchDeg, fovDeg,
  *   rangeM, mountHeightM.
  * @param {number} groundAltM - Ground altitude at the mount (metres).
  * @param {number|null} [rangeOverrideM=null] - Obstruction-probe clamp: caps the
  *   effective range (never lengthens it).
+ * @param {Record<string, number>|null} [groundUnderPlane=null] - Ground altitude
+ *   under each support point (`bl`…`tr`), measured for this exact pose.
  * @returns {{ rangeM: number, vFovDeg: number, halfW: number, halfH: number,
  *   mount: {lat:number,lon:number,alt:number},
  *   capCenter: {lat:number,lon:number,alt:number},
  *   corners: { tl: Object, tr: Object, br: Object, bl: Object },
- *   topCenter: {lat:number,lon:number,alt:number}, groundAltM: number }}
+ *   topCenter: {lat:number,lon:number,alt:number}, groundAltM: number,
+ *   liftM: number, footprintLiftM: number, limitingKey: string|null }}
+ *   `footprintLiftM` is the part of `liftM` the measured ground added (after
+ *   the cap); `limitingKey` names the support point that set the lift.
  */
-export function computeFrustumGeometry(camera, groundAltM, rangeOverrideM = null) {
+export function computeFrustumGeometry(camera, groundAltM, rangeOverrideM = null, groundUnderPlane = null) {
   const ground = safeNumber(groundAltM, 0);
   const poseRange = Math.max(1, safeNumber(camera.rangeM, 700));
   const override = safeNumber(rangeOverrideM, NaN);
   const R = Number.isFinite(override) && override > 0 ? Math.min(poseRange, override) : poseRange;
-  const pitch = toRad(clamp(safeNumber(camera.pitchDeg, -17), -89, 89));
-  const hFov = toRad(clamp(safeNumber(camera.fovDeg, 74), 8, 160));
+  const dims = planeDimensions({
+    rangeM: R,
+    pitchDeg: clamp(safeNumber(camera.pitchDeg, -17), -89, 89),
+    fovDeg: clamp(safeNumber(camera.fovDeg, 74), 8, 160),
+  });
   const heading = safeNumber(camera.headingDeg, 0);
   const mountAlt = ground + safeNumber(camera.mountHeightM, 24);
 
-  const horiz = R * Math.cos(pitch);
-  const vert = R * Math.sin(pitch);
-  const capLL = projectPoint(camera.lat, camera.lon, heading, horiz);
-  const capAlt = mountAlt + vert;
+  const capLL = projectPoint(camera.lat, camera.lon, heading, dims.horiz);
+  const capAlt = mountAlt + dims.vert;
+  const capL = projectPoint(capLL.lat, capLL.lon, heading - 90, dims.halfW);
+  const capR = projectPoint(capLL.lat, capLL.lon, heading + 90, dims.halfW);
 
-  const halfW = R * Math.tan(hFov / 2);
-  const vFovRad = 2 * Math.atan(Math.tan(hFov / 2) / PROJECTION_VERT_ASPECT);
-  const halfH = R * Math.tan(vFovRad / 2);
-
-  // In-plane "up" of the pitched cap, decomposed into a vertical part and a
-  // horizontal part along the heading (pitch < 0 tilts the cap's top forward).
-  const upVert = Math.cos(pitch) * halfH;
-  const upHoriz = -Math.sin(pitch) * halfH;
-
-  const capL = projectPoint(capLL.lat, capLL.lon, heading - 90, halfW);
-  const capR = projectPoint(capLL.lat, capLL.lon, heading + 90, halfW);
-  // Ground clamp (§6 risk): lift the CAP CENTER once so a fabricated pitch
-  // never buries the plane's anchor — then derive the corners RIGIDLY from the
-  // lifted center. Clamping each corner independently flattened the wireframe
-  // into a ground-hugging fan while the rigid plane kept its height (owner
-  // field test 2026-07-04): the corner rays must always terminate exactly on
-  // the monitor plane's corners. The bottom pair may dip below ground; the 3D
-  // tiles occlude that portion, exactly as they do for the plane itself.
-  const minAlt = ground + FRUSTUM_GROUND_CLEARANCE_M;
-  const capAltClamped = Math.max(minAlt, capAlt);
-  const corner = (base, sign) => {
-    const ll = projectPoint(base.lat, base.lon, heading, sign * upHoriz);
-    return { lat: ll.lat, lon: ll.lon, alt: capAltClamped + sign * upVert };
+  // Two lifts: what the mount's own ground demands (always honoured), plus
+  // whatever the ground measured under the plane adds, capped so a building
+  // under the far edge cannot send the plane into the sky. The old rule
+  // lifted the center alone and left the bottom half of the frame underground
+  // (upstream field test 2026-09-13); a rigid lift keeps the rectangle whole.
+  const base = requiredPlaneLift(capAlt, dims, null, ground, FRUSTUM_GROUND_CLEARANCE_M);
+  const measured = requiredPlaneLift(capAlt, dims, groundUnderPlane, ground, FRUSTUM_GROUND_CLEARANCE_M);
+  const footprintLiftM = Math.min(PLANE_FOOTPRINT_LIFT_CAP_M, Math.max(0, measured.liftM - base.liftM));
+  const liftM = base.liftM + footprintLiftM;
+  const limitingKey = footprintLiftM > 0 ? measured.limitingKey : base.limitingKey;
+  const capAltLifted = capAlt + liftM;
+  const corner = (anchor, sign) => {
+    const ll = projectPoint(anchor.lat, anchor.lon, heading, sign * dims.upHoriz);
+    return { lat: ll.lat, lon: ll.lon, alt: capAltLifted + sign * dims.upVert };
   };
 
-  const topCenter = corner(capLL, 1);
   return {
     rangeM: R,
-    vFovDeg: Cesium.Math.toDegrees(vFovRad),
-    halfW,
-    halfH,
+    vFovDeg: dims.vFovDeg,
+    halfW: dims.halfW,
+    halfH: dims.halfH,
     mount: { lat: camera.lat, lon: camera.lon, alt: mountAlt },
-    capCenter: { lat: capLL.lat, lon: capLL.lon, alt: capAltClamped },
+    capCenter: { lat: capLL.lat, lon: capLL.lon, alt: capAltLifted },
     corners: {
       tl: corner(capL, 1),
       tr: corner(capR, 1),
       br: corner(capR, -1),
       bl: corner(capL, -1),
     },
-    topCenter,
+    topCenter: corner(capLL, 1),
     groundAltM: ground,
+    liftM,
+    footprintLiftM,
+    limitingKey,
   };
+}
+
+/**
+ * The pose the monitor plane is rendered with: the calibrated camera plus the
+ * activation probe's range clamp. A footprint measurement is valid for exactly
+ * this pose and no other.
+ * @param {Object} record - Camera record.
+ * @returns {{ lat: number, lon: number, headingDeg: number, pitchDeg: number,
+ *   fovDeg: number, rangeM: number, mountHeightM: number }}
+ */
+export function footprintPose(record) {
+  const { camera } = record;
+  const override = safeNumber(record.probeClampRangeM, NaN);
+  const rangeM = Number.isFinite(override) && override > 0
+    ? Math.min(camera.rangeM, override)
+    : camera.rangeM;
+  return {
+    lat: camera.lat,
+    lon: camera.lon,
+    headingDeg: camera.headingDeg,
+    pitchDeg: camera.pitchDeg,
+    fovDeg: camera.fovDeg,
+    rangeM,
+    mountHeightM: camera.mountHeightM,
+  };
+}
+
+/**
+ * Ground measured under the plane's support points for the record's CURRENT
+ * pose, or null when none was measured or the pose has changed since (a
+ * calibration edit or a new probe clamp moves the footprint).
+ * @param {Object} record - Camera record.
+ * @returns {Record<string, number>|null}
+ */
+function footprintGroundFor(record) {
+  const measured = record?.footprintGround;
+  if (!measured || measured.poseHash !== poseHash(footprintPose(record))) return null;
+  return measured.supports || null;
+}
+
+/**
+ * The record's frustum geometry on a given mount ground, with its probe clamp
+ * and the ground measured under its plane. Every geometry write goes through
+ * here so the plane never forgets its footprint.
+ * @param {Object} record - Camera record.
+ * @param {number} groundAltM - Ground altitude at the mount (metres).
+ * @returns {Object} computeFrustumGeometry result.
+ */
+function frustumGeometryFor(record, groundAltM) {
+  return computeFrustumGeometry(record.camera, groundAltM, record.probeClampRangeM, footprintGroundFor(record));
 }
 
 /**
@@ -1726,7 +1766,7 @@ function updatePlanePlacement(record) {
   const runtime = record?.projection;
   if (!runtime?.planeEntity) return;
   const geometry = record.frustumGeometry
-    || computeFrustumGeometry(record.camera, groundAltFor(record), record.probeClampRangeM);
+    || frustumGeometryFor(record, groundAltFor(record));
   const positions = record.frustumPositions || frustumCartesians(geometry);
   runtime.planeEntity.position = positions.capCenter;
   runtime.planeEntity.orientation = planeOrientationFor(record.camera, positions.capCenter);
@@ -1809,7 +1849,7 @@ function createProjectionPlane(record, runtime, geometry, positions) {
 export function _createCctvProjectionPlaneForTest(viewer, record) {
   _viewer = viewer;
   const geometry = record.frustumGeometry
-    || computeFrustumGeometry(record.camera, groundAltFor(record), record.probeClampRangeM);
+    || frustumGeometryFor(record, groundAltFor(record));
   const positions = record.frustumPositions || frustumCartesians(geometry);
   record.frustumGeometry = geometry;
   record.frustumPositions = positions;
@@ -1923,7 +1963,7 @@ function createProjectionRuntime(record) {
   // feeds start on the placeholder canvas and switch to double-buffer swaps
   // at <=1Hz.
   const geometry = record.frustumGeometry
-    || computeFrustumGeometry(record.camera, groundAltFor(record), record.probeClampRangeM);
+    || frustumGeometryFor(record, groundAltFor(record));
   const positions = record.frustumPositions || frustumCartesians(geometry);
   runtime.planeMaterial = new Cesium.ImageMaterialProperty({
     image: (mode === 'video' && runtime.video) ? runtime.video : canvas,
@@ -2242,7 +2282,7 @@ function stopProjectionLoop() {
  * @param {number} groundAltM - Ground altitude at the mount (metres).
  */
 function applyFrustumGeometry(record, groundAltM) {
-  const geometry = computeFrustumGeometry(record.camera, groundAltM, record.probeClampRangeM);
+  const geometry = frustumGeometryFor(record, groundAltM);
   const positions = frustumCartesians(geometry);
   record.frustumGeometry = geometry;
   record.frustumPositions = positions;
@@ -2289,8 +2329,9 @@ function applyFrustumGeometry(record, groundAltM) {
  *    camera-height, and acceptance gates. Geometry reads only
  *    `cachedGroundFloor`, never a CCTV-owned point sample.
  *
- * v2 samples ONLY the mount — the far cap hangs in the air off mountAlt. No
- * timer, no deadband: this function is called only from the staggered
+ * This samples the mount only; the ground under the plane itself comes from
+ * resolveFootprintGround, on activation and pose commits. No timer, no
+ * deadband: this function is called only from the staggered
  * geometry queue (the enable-time drain + update()'s one-shot tiles-ready
  * completion re-enqueue), from explicit pose-edit call sites, and from the
  * map-stack regime-change handler.
@@ -2340,6 +2381,61 @@ function updateRecordGeometry(record, options = {}) {
   if (Number.isFinite(cachedFloor)) {
     record.groundSamples['google-3d'] = ground;
   }
+}
+
+/**
+ * Resolves the ground under the monitor plane's nine support points for the
+ * record's CURRENT pose from the Re:Earth DEM (`/api/terrain/heights`,
+ * network-cached, never a scene query), then rewrites the geometry so the
+ * rigid lift accounts for ground rising under the plane — a camera looking
+ * up a hillside. On demand only: activation, a committed calibration edit, a
+ * surface change. Without it the plane clears the mount's ground alone.
+ *
+ * A result for a pose that has since changed, or for a torn-down record, is
+ * dropped. A result partly from the geoid fallback (proxy outage) stands, and
+ * is asked again after FOOTPRINT_RETRY_MS. Never rejects.
+ * @param {Object} record - Camera record.
+ * @returns {Promise<void>}
+ */
+async function resolveFootprintGround(record) {
+  if (!record?.camera) return;
+  const pose = footprintPose(record);
+  const hash = poseHash(pose);
+  const existing = record.footprintGround;
+  if (existing?.poseHash === hash && (!existing.provisional || Date.now() < existing.retryAt)) return;
+  const revision = (record.footprintRevision || 0) + 1;
+  record.footprintRevision = revision;
+  const { supports } = planeSupportPoints(pose);
+  let results = null;
+  try {
+    results = await resolveEllipsoidalGround(SUPPORT_KEYS.map((key) => ({
+      lat: supports[key].lat,
+      lon: supports[key].lon,
+    })));
+  } catch {
+    results = null;
+  }
+  if (!Array.isArray(results)) return;
+  if (record.footprintRevision !== revision) return;
+  if (_recordById.get(record.camera.id) !== record) return;
+  if (poseHash(footprintPose(record)) !== hash) return;
+  const under = {};
+  let fromDem = 0;
+  results.forEach((result, index) => {
+    if (!Number.isFinite(result?.ellipsoid)) return;
+    under[SUPPORT_KEYS[index]] = result.ellipsoid;
+    if (result.source === 'reearth') fromDem += 1;
+  });
+  const provisional = fromDem < SUPPORT_KEYS.length;
+  record.footprintGround = {
+    poseHash: hash,
+    supports: under,
+    provisional,
+    retryAt: provisional ? Date.now() + FOOTPRINT_RETRY_MS : 0,
+  };
+  applyFrustumGeometry(record, groundAltFor(record));
+  refreshCoverageStyles();
+  notifyListeners();
 }
 
 /**
@@ -3980,6 +4076,8 @@ function applyCalibrationPatch(record, patch, options = {}) {
   } else {
     applyFrustumGeometry(record, groundAltFor(record));
   }
+  // The edited pose stands on new ground; measure under it once.
+  void resolveFootprintGround(record);
   refreshProjectionImage(record, true);
   return true;
 }
@@ -4008,6 +4106,8 @@ function ensureGizmo() {
     endPatch: (draggedRecord) => {
       const record = liveRecord(draggedRecord);
       if (!record) return;
+      // The drag moved the plane's footprint; measure under the released pose.
+      void resolveFootprintGround(record);
       if (record.calibrationAnchorDirty) {
         record.calibrationAnchorDirty = false;
         resolveCommittedGroundAnchor(record);
@@ -4170,6 +4270,9 @@ export function setActiveCamera(cameraId) {
   // until update()'s one-shot tiles-ready completion pass re-grounds it.
   rearmGroundResolution(record);
   updateRecordGeometry(record);
+  // The ground under the plane itself — only the camera the user is looking
+  // at ever asks.
+  void resolveFootprintGround(record);
   record.activationDone = true;
   refreshCoverageStyles();
   // The newly active camera leaves the ambient ring (its monitor plane takes
@@ -4238,11 +4341,7 @@ function buildCoverageEntities(record) {
   let geometry = record.frustumGeometry;
   let positions = record.frustumPositions;
   if (!geometry || !positions) {
-    geometry = computeFrustumGeometry(
-      camera,
-      groundPriorAltFor(record),
-      record.probeClampRangeM
-    );
+    geometry = frustumGeometryFor(record, groundPriorAltFor(record));
     positions = frustumCartesians(geometry);
     record.frustumGeometry = geometry;
     record.frustumPositions = positions;
@@ -4825,9 +4924,9 @@ export function focusCctvRecord(viewer, record, duration = 2.2) {
     return CCTV_FOCUS_RESULT.TRACKING_HOLDS_VIEW;
   }
   const { camera } = record;
-  const range = Math.max(280, camera.rangeM * 1.18);
+  const { sphere, range } = cctvFocusFrame(record);
   viewer.camera.flyToBoundingSphere(
-    new Cesium.BoundingSphere(record.position, Math.max(40, camera.rangeM * 0.36)),
+    sphere,
     {
       offset: new Cesium.HeadingPitchRange(
         toRad(camera.headingDeg),
@@ -4839,6 +4938,29 @@ export function focusCctvRecord(viewer, record, duration = 2.2) {
     }
   );
   return CCTV_FOCUS_RESULT.FOCUSED;
+}
+
+/**
+ * What « Cadrer » looks at, and from how far: the camera's mount AND its
+ * monitor plane. The ground lift raises the plane well above the mount (a
+ * Lyon camera: bottom edge 17 m, top edge 137 m above the ground under it),
+ * so a view aimed at the mount alone cut the plane off at the top of the
+ * screen. Before the geometry exists, the mount alone, as before.
+ * @param {Object} record - Camera record.
+ * @returns {{ sphere: Cesium.BoundingSphere, range: number }} Target sphere
+ *   and the distance to view it from.
+ */
+export function cctvFocusFrame(record) {
+  const { camera } = record;
+  const range = Math.max(280, camera.rangeM * 1.18);
+  const points = record.frustumPositions;
+  if (!points?.mount || !points.tl || !points.tr || !points.br || !points.bl) {
+    return { sphere: new Cesium.BoundingSphere(record.position, Math.max(40, camera.rangeM * 0.36)), range };
+  }
+  const sphere = Cesium.BoundingSphere.fromPoints([points.mount, points.tl, points.tr, points.br, points.bl]);
+  // 2.2 radii keeps the whole sphere inside the ~39° vertical field of a
+  // landscape window.
+  return { sphere, range: Math.max(range, sphere.radius * 2.2) };
 }
 
 function focusCamera(cameraId, duration = 2.2) {
@@ -5345,8 +5467,10 @@ const cctvLayer = {
           ensureCameraPose(targetRecord.camera);
           _calibrationById.delete(targetCameraId);
           saveCalibrationStore();
-          // Reset returns to the base lat/lon, so resolve that anchor once.
+          // Reset returns to the base lat/lon, so resolve that anchor once,
+          // and the ground under the restored plane.
           resolveCommittedGroundAnchor(targetRecord);
+          void resolveFootprintGround(targetRecord);
           refreshProjectionImage(targetRecord, true);
         }
         if (calibrationCfg.patch && typeof calibrationCfg.patch === 'object') {

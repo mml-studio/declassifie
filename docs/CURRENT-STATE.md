@@ -5554,6 +5554,23 @@ inert again.
   state exposes `groundPriorM` as the immutable Re:Earth ellipsoidal datum reference; it is kept
   separate from live frustum geometry because Google-3D can refine the rendered ground to the
   photogrammetric mesh.
+- **CCTV monitor plane clears the ground** (2026-09-30, same rule as upstream 12790b36): the
+  plane is lifted RIGIDLY — corners still weld to the wireframe rays — by the smallest amount
+  that keeps each of nine support points over it (a 3×3 grid, `src/data/cctvFootprint.js`)
+  2 m above the ground under that point. Until the ground under the plane is known, the ground
+  at the mount stands in for every point, so the bottom edge clears the mount's ground; on
+  activation, a committed calibration edit or a reset, `resolveFootprintGround` asks
+  `/api/terrain/heights` (Re:Earth DEM, cached) for the nine points of the rendered pose (probe
+  clamp included) and rewrites the geometry, dropping a late answer for a pose that moved on.
+  What the measured ground adds over the mount rule is capped at 60 m
+  (`PLANE_FOOTPRINT_LIFT_CAP_M`) so a tower under the far edge cannot launch the plane. The
+  old rule lifted the plane's center alone: on 2026-09-30, 14 of the 15 Lyon planes had their
+  bottom edge underground, a median 48% of the frame height (`scripts/qa-cctv-plane-lift.mjs`),
+  which the photoreal tiles hide — at Pont de la Mulatière the probe-clamped 13 m plane showed
+  an empty outline. After: 0 of 15. « Cadrer » (`cctvFocusFrame`) now frames the mount and the
+  plane's four corners together, because the lifted plane left the old mount-centred view at the
+  top of the screen. Upstream also ships precomputed Google-3D footprints and lowered its range
+  floor from 220 m to 120 m; neither is taken here.
 - **CCTV citywide ambient cards** (built 2026-07-29; shared-host migration
   2026-08-02): the LOD-selected nearby static cameras (20/28/40 by zoom,
   `cctvLod.js`) get **screen-space thumbnail cards** through the shared world-overlay host

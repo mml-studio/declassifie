@@ -56,21 +56,17 @@
  * side-effect-free export with no Cesium/scene dependency) to use as a
  * Node-side ground-truth oracle — see the "safe pose" search below.
  *
- * Ground-clamp caveat (discovered writing this harness, see task report):
- * Austin's fabricated pose priors (pitch -18/-24°, FOV 44/56°, range 145/210m,
- * mount 8/10m — vite.config.js's two "personalities") routinely put the far
- * cap's bottom edge below ground truth. `computeFrustumGeometry` clamps each
- * WIREFRAME corner independently to `groundAlt + FRUSTUM_GROUND_CLEARANCE_M`,
- * but the PLANE entity (`createProjectionRuntime`/`updatePlanePlacement`) is
- * always an undistorted rectangle (fixed halfW/halfH, unclamped tilt) sitting
- * at the (possibly-clamped) capCenter. When the pose clamps asymmetrically,
- * the plane and the wireframe corners genuinely do NOT coincide — this is a
- * real property of the shipped geometry, not a harness bug. To test the
- * intended "coincide" contract deterministically (independent of which
- * camera activates), this harness first applies a temporary calibration
- * patch (large upward pitch offset + shrunk FOV + minimum range) computed
- * via a Node-side search against the SAME `computeFrustumGeometry` oracle,
- * chosen to clear the ground clamp with margin, then resets it afterward.
+ * Ground-lift caveat: Austin's fabricated pose priors (pitch -18/-24°, FOV
+ * 44/56°, range 145/210m, mount 8/10m — vite.config.js's two "personalities")
+ * routinely put the far cap's bottom edge below ground truth, and
+ * `computeFrustumGeometry` then lifts the whole rectangle rigidly (see
+ * cctvFootprint.js) — the lift depends on the ground measured under the
+ * plane, which lands asynchronously. To test the "coincide" contract
+ * deterministically (independent of which camera activates), this harness
+ * first applies a temporary calibration patch (large upward pitch offset +
+ * shrunk FOV + minimum range) computed via a Node-side search against the
+ * SAME `computeFrustumGeometry` oracle, chosen to need no lift with margin,
+ * then resets it afterward.
  *
  * Run:  node scripts/qa-cctv-v2.mjs --url http://localhost:4173
  *

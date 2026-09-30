@@ -429,6 +429,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   parcel: 22 of 365 Paris dossiers matched to the national
   register since 2024, and all 5 in Nantes. The merge now requires the same
   kind of authorisation as well as the same number.
+- **A camera's picture no longer sinks into the ground.** The monitor plane
+  at the end of a camera's cone stood with its center on the ground and the
+  lower half of the picture below it: 14 of the 15 Lyon cameras, a median 48%
+  of the frame. On the photoreal globe the ground hid that half, and a short
+  plane such as Pont de la Mulatière's showed an empty frame. The plane now
+  rises in one piece until its whole lower edge is 2 m above the ground under
+  it, measured at nine points on activation; a hill under the far edge lifts
+  it by at most 60 m more. « Cadrer » frames the camera and its picture
+  together. Same rule as upstream God's Eye View.
 - **« Îlots de fraîcheur » and « Comptages routiers » stayed empty, and
   permits in Paris came from Sitadel alone.** On 2026-09-23 paris.fr's own
   name servers answered NXDOMAIN for `opendata.paris.fr`, so every call the

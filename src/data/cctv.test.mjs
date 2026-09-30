@@ -32,6 +32,7 @@ import cctvLayer, {
   bindCctvWorldClickGesture,
   clearProbeClampOnDeactivation,
   computeFrustumGeometry,
+  footprintPose,
   frameRefreshMsFor,
   cctvCycleIndex,
   cctvEmptyClickDeselects,
@@ -39,6 +40,7 @@ import cctvLayer, {
   deactivateActiveCamera,
   CCTV_FOCUS_RESULT,
   FRUSTUM_GROUND_CLEARANCE_M,
+  PLANE_FOOTPRINT_LIFT_CAP_M,
   CCTV_CALIBRATION_STORAGE_KEY_V2,
   CCTV_CALIBRATION_STORAGE_KEY_V1,
   readCalibrationStoreV2,
@@ -55,6 +57,7 @@ import cctvLayer, {
   normalizeCoverageMode,
   frameSignatureFromPixels,
   focusCctvRecord,
+  cctvFocusFrame,
   hideCctvRecordVisuals,
   materializeCctvActiveCoverageEntities,
   materializeCctvVisibleCoverageEntities,
@@ -72,6 +75,7 @@ import {
   CCTV_FOCUS_REQUEST_EVENT,
   activateCctvCameraFromWorldClick,
 } from '../cctvFocusRequest.js';
+import { poseHash } from './cctvFootprint.js';
 
 const UI_SOURCE = fs.readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui.js'),
@@ -533,21 +537,74 @@ test('unclamped pose: corners keep their true plane altitudes (no clamp applied)
   assert.ok(g.corners.tl.alt > g.corners.bl.alt, 'top corners sit above bottom corners');
 });
 
-test('ground clamp lifts the CAP CENTER only — the rectangle stays rigid (true pyramid)', () => {
+test('ground clamp lifts the whole rectangle rigidly until its bottom edge clears the mount ground', () => {
   const g = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND);
   const floor = AUSTIN_GROUND + FRUSTUM_GROUND_CLEARANCE_M;
-  // Unclamped cap alt would be 160 + 210·sin(-24°) ≈ 74.6 m — far underground.
-  assert.equal(g.capCenter.alt, floor, 'cap center clamps exactly to the floor');
-  // Corners derive rigidly from the lifted center: alt = floor ± cos(pitch)·halfH.
-  // The bottom pair sits BELOW the floor (tiles occlude it) — per-corner clamping
-  // is what flattened the wireframe into a fan (field test 2026-07-04).
+  // Unlifted cap alt would be 160 + 210·sin(-24°) ≈ 74.6 m — far underground.
+  // The old rule lifted the center alone to the floor and left the bottom half
+  // of the frame underground; the rigid lift puts the bottom edge on the floor.
   const upVert = Math.cos(toRad(-24)) * g.halfH;
-  for (const key of ['tl', 'tr']) {
-    assert.ok(Math.abs(g.corners[key].alt - (floor + upVert)) < 1e-6, `${key} alt ${g.corners[key].alt}`);
-  }
   for (const key of ['bl', 'br']) {
-    assert.ok(Math.abs(g.corners[key].alt - (floor - upVert)) < 1e-6, `${key} alt ${g.corners[key].alt}`);
+    assert.ok(Math.abs(g.corners[key].alt - floor) < 1e-6, `${key} alt ${g.corners[key].alt}`);
   }
+  for (const key of ['tl', 'tr']) {
+    assert.ok(Math.abs(g.corners[key].alt - (floor + 2 * upVert)) < 1e-6, `${key} alt ${g.corners[key].alt}`);
+  }
+  assert.ok(Math.abs(g.capCenter.alt - (floor + upVert)) < 1e-6, `cap center alt ${g.capCenter.alt}`);
+  assert.equal(g.limitingKey[0], 'b', 'the bottom row sets the lift');
+  assert.equal(g.footprintLiftM, 0, 'no measured footprint, no footprint lift');
+});
+
+test('an unlifted pose needs no lift at all', () => {
+  const g = computeFrustumGeometry(UNCLAMPED_CAMERA, UNCLAMPED_GROUND);
+  assert.equal(g.liftM, 0);
+  assert.equal(g.limitingKey, null);
+});
+
+test('ground measured under the plane lifts it further, rigidly, from the support that needs it most', () => {
+  const flat = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND);
+  // A hillside under the far top-right corner: 30 m above the floor there.
+  const hill = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND, null, {
+    tr: flat.corners.tr.alt + 30 - FRUSTUM_GROUND_CLEARANCE_M,
+  });
+  assert.equal(hill.limitingKey, 'tr');
+  assert.ok(Math.abs(hill.footprintLiftM - 30) < 1e-6, `footprint lift ${hill.footprintLiftM}`);
+  for (const key of ['tl', 'tr', 'br', 'bl']) {
+    assert.ok(Math.abs(hill.corners[key].alt - flat.corners[key].alt - 30) < 1e-6, `${key} moved by 30 m`);
+  }
+  // Ground below the plane everywhere changes nothing: the mount rule stands.
+  const low = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND, null, {
+    bl: AUSTIN_GROUND - 40, bm: AUSTIN_GROUND - 40, br: AUSTIN_GROUND - 40,
+  });
+  assert.equal(low.liftM, flat.liftM);
+});
+
+test('the footprint lift is capped so a tower under the far edge cannot launch the plane', () => {
+  const flat = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND);
+  const tower = computeFrustumGeometry(AUSTIN_FABRICATED_CAMERA, AUSTIN_GROUND, null, {
+    tm: flat.corners.tl.alt + 500,
+  });
+  assert.equal(tower.footprintLiftM, PLANE_FOOTPRINT_LIFT_CAP_M);
+  assert.ok(Math.abs(tower.liftM - (flat.liftM + PLANE_FOOTPRINT_LIFT_CAP_M)) < 1e-6);
+});
+
+test('the footprint pose carries the probe clamp, so a new clamp invalidates an old measurement', () => {
+  const record = { camera: { ...AUSTIN_FABRICATED_CAMERA }, probeClampRangeM: null };
+  const nominal = footprintPose(record);
+  assert.equal(nominal.rangeM, 210);
+  record.probeClampRangeM = 120;
+  assert.equal(footprintPose(record).rangeM, 120);
+  assert.notEqual(poseHash(footprintPose(record)), poseHash(nominal));
+  record.probeClampRangeM = 5000;
+  assert.equal(footprintPose(record).rangeM, 210, 'a clamp beyond the pose range is ignored');
+});
+
+test('every geometry write carries the footprint, and each pose commit measures it again', () => {
+  const writes = CCTV_SOURCE.match(/computeFrustumGeometry\(/g) || [];
+  assert.equal(writes.length, 2, 'the export and frustumGeometryFor are the only callers');
+  assert.match(CCTV_SOURCE, /function frustumGeometryFor\(record, groundAltM\) \{\n  return computeFrustumGeometry\(record\.camera, groundAltM, record\.probeClampRangeM, footprintGroundFor\(record\)\);/);
+  const calls = CCTV_SOURCE.match(/void resolveFootprintGround\(/g) || [];
+  assert.equal(calls.length, 4, 'activation, calibration commit, gizmo release, calibration reset');
 });
 
 test('clamped pose keeps corner/plane coincidence and the rigid 2·halfW × 2·halfH span', () => {
@@ -808,6 +865,33 @@ test('CCTV focus reports when the camera flight starts', () => {
 
   assert.equal(focusCctvRecord(viewer, record, 1.9), CCTV_FOCUS_RESULT.FOCUSED);
   assert.equal(flyCalls, 1);
+});
+
+test('CCTV focus frames the mount and the lifted monitor plane together', () => {
+  const camera = { ...AUSTIN_FABRICATED_CAMERA };
+  const geometry = computeFrustumGeometry(camera, AUSTIN_GROUND);
+  const at = (p) => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt);
+  const record = {
+    camera,
+    position: at(geometry.mount),
+    frustumPositions: {
+      mount: at(geometry.mount),
+      tl: at(geometry.corners.tl),
+      tr: at(geometry.corners.tr),
+      br: at(geometry.corners.br),
+      bl: at(geometry.corners.bl),
+    },
+  };
+  const { sphere, range } = cctvFocusFrame(record);
+  for (const key of ['mount', 'tl', 'tr', 'br', 'bl']) {
+    const distance = Cesium.Cartesian3.distance(sphere.center, record.frustumPositions[key]);
+    assert.ok(distance <= sphere.radius + 1e-6, `${key} lies inside the framed sphere`);
+  }
+  assert.ok(range >= 2.2 * sphere.radius && range >= 280, `range ${range}`);
+  // No geometry yet: the mount alone, at the old distance.
+  const bare = cctvFocusFrame({ camera, position: record.position });
+  assert.equal(bare.range, Math.max(280, camera.rangeM * 1.18));
+  assert.ok(Cesium.Cartesian3.equals(bare.sphere.center, record.position));
 });
 
 test('CCTV focus refuses camera flights while cockpit owns the view', () => {
