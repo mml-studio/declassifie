@@ -111,6 +111,7 @@ that predates the access gate.
 | `/opt/gev/src/scripts/warm-road-cells.mjs` | weekly Overpass pre-warm for the ten cities, run by `gev-warm-view.timer` — ships with the source, nothing to copy |
 | volume `gev_gev-cache`, `medecins-fr/pack/` | the doctors' pack with its names, rebuilt every Monday by `gev-medecins-refresh.timer` |
 | volume `gev_gev-cache`, `medecins-fr/suppress.txt` | the doctors who asked not to appear, one per line; never in git |
+| volume `gev_gev-cache`, `archive/cartds/` | every permit row the communes' Cart@DS boards have posted since 2026-09-30, swept daily by the server itself (`sweep.json` = the last sweep). **Irreplaceable**: a board forgets after two months. Back it up before touching the volume; `npm run cartds:archive -- --join <copy>` folds a copy back in |
 | `/opt/gev/state/health.log` | one line per probe, ~7 days |
 
 ### Day to day

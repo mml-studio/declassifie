@@ -85,13 +85,15 @@ import { gpuClassificationTypeForScene } from './urbanismeGpu.js';
  * development of LAND and never a building.
  *
  * MEASURED, AND THE REASON THE THIRD BUCKET IS PAINTED AT ALL: this layer
- * merges SEVEN sources — the four `SITADEL_FILES` and the three
- * `LOCAL_ADS_PORTALS` — and exactly TWO of them ask for a nature column.
+ * merges EIGHT sources — the four `SITADEL_FILES`, the three
+ * `LOCAL_ADS_PORTALS` and the communes' Cart@DS boards — and exactly TWO of
+ * them ask for a nature column.
  * `NATURE_PROJET_DECLAREE` is in the `columns` of `logements` and `locaux` and
  * in neither `amenager` nor `demolir` (both of which the FAMILY rule above
- * settles anyway). The three métropole portals ask for none: `normaliseLocalRow`
+ * settles anyway). The métropole portals ask for none: `normaliseLocalRow`
  * fills `purpose` from the free-text `objet`/`details_du_projet`, and no portal
- * config declares a nature column. Refusing to
+ * config declares a nature column; the boards post free text too
+ * (`normaliseCartdsRow`). Refusing to
  * paint an unpublished nature would therefore switch the theme off entirely in
  * Paris, Bordeaux and Nantes — which are the only three places in France where
  * `instruction` exists at all. The trade taken is the other one: a point that
@@ -1055,7 +1057,7 @@ const adsScanLayer = createAddressScanLayer({
   // i18n-ignore-start — registry fields, not copy: see src/data/layerTaxonomy.i18n.js.
   name: 'Autorisations d’urbanisme',
   icon: '⌂',
-  source: 'Sitadel — SDES + portails ADS',
+  source: 'Sitadel — SDES + portails ADS + affichage communal',
   // i18n-ignore-end
   endpoint: '/api/ads-fr',
   updateInterval: UPDATE_INTERVAL_MS,

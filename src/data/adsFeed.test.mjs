@@ -511,6 +511,32 @@ test('every merged, local-only and state-only permit carries its own provenance'
   assert.deepEqual(permits.find((p) => p.source === 'nantes').sources, ['nantes']);
 });
 
+test('a PC and a DP that share their digits are two dossiers, not one', () => {
+  // Measured 2026-09-30 over deposits since 2024: Nantes 5 of 5 and Paris 22
+  // of 365 portal rows met a Sitadel twin of the OTHER family — at another
+  // address every time — and inherited its parcel. The pair below is one of
+  // the Nantes five, addresses shortened.
+  const state = normaliseSitadelRow(HOUSING_FILE, {
+    NUM_DAU: '0441092600267', TYPE_DAU: 'DP', ETAT_DAU: 2, COMM: '44109',
+    ADR_LIBVOIE_TER: 'DE LA BASSE CHENAIE', NB_LGT_TOT_CREES: 1,
+  });
+  const placedState = { ...state, lon: -1.55, lat: 47.22, precision: 'parcelle', parts: [[[[0, 0], [1, 0], [1, 1], [0, 0]]]] };
+  const counter = normaliseLocalRow(NANTES, {
+    numero_de_dossier: 'PC0441092600267', type_dossier: 'Permis de construire',
+    etat_dossier: "Dossier déposé (en cours d'instruction)", code_insee_commune: 44109,
+    adresse_du_terrain: '11 Rue Chateaubriand',
+  });
+  assert.equal(counter.key, state.key, 'the shared DAU series gives both the same key');
+  const { permits, merged } = mergeRegisters([placedState], [counter]);
+  assert.equal(merged, 0);
+  assert.equal(permits.length, 2);
+  const pc = permits.find((p) => p.kind === 'PC');
+  assert.equal(pc.housing, null, 'nothing grafted from the DP');
+  assert.equal(pc.lon, null, 'and not moved onto its parcel');
+  assert.deepEqual(pc.sources, ['nantes']);
+  assert.deepEqual(permits.find((p) => p.kind === 'DP').sources, ['sitadel']);
+});
+
 test('the projection cuts to the circle, excludes certificates, and says what it dropped', () => {
   const origin = { lon: 2.3522, lat: 48.8566 };
   const at = (metres, extra = {}) => ({

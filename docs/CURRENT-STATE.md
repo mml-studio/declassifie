@@ -4175,7 +4175,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 13 Cart@DS *affichage réglementaire* boards (129 communes) and their daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4561,6 +4561,56 @@ half, daily. Both halves are cached per commune-window on disk for a week: a
 cold commune costs four sequential DiDo calls (parallel ones are rate-limited
 to HTTP 429) plus one bulk BAN geocode — measured at 13-15 s for Paris — and
 every scan inside that commune afterwards is served from cache.
+
+**Since 2026-09-30, 129 more communes answer with what they post themselves.**
+Their permits are instructed with Inetum's Cart@DS software, whose public
+*affichage réglementaire* board is the same table on every instance: filing
+notices (*avis de dépôt*) and decisions, every family, 0 to 7 days after the
+fact (`src/data/cartdsFeed.js`). Thirteen instances are read — Bretagne
+romantique (41 communes), Aix-Marseille-Provence (26), Brie Nangissienne (20),
+Orléans Métropole (12), Grand Libournais (9), Pays de Fayence (8), Le Cotentin
+(6), ATD 24 (2), Porto-Vecchio, Châtillon, Soultz-Haut-Rhin, Conches-en-Ouche
+and Sainte-Marie on La Réunion. The proxy honours each host's `robots.txt`,
+re-read daily, so a host that adds a refusal stops being read — except the
+five that already answered `Disallow: /` on 2026-09-30 (Le Cotentin, Grand
+Libournais, Conches-en-Ouche, Sainte-Marie, Brie Nangissienne), which the
+project decided to read anyway and which carry `robots: 'overridden'` in the
+registry. A filing notice with no decision
+posted is drawn as *Déposé* (“Filed”), never as under review — a tacit decision
+is posted by some communes and not by others. Private applicants' names are
+dropped at collection, and pre-emption notices (`IA`, a sale with its price)
+and building-code authorisations (`AT`) are not read. Each commune is read at
+most every six hours (one page, two table requests), placed on its parcel
+first — 780 of Orléans's 799 posted dossiers on 2026-09-30, 64 of Ventabren's
+76 — and geocoded for the rest; a cold Orléans scan takes 25 s with Sitadel,
+and a warm one is served from `.gev-cache/address/cartds2-<insee>.json`.
+
+**What a board lets go is kept.** A board holds a decision for its two-month
+posting period (Code de l'urbanisme, art. R.424-15) and nothing public keeps
+it afterwards, so every row the server reads is stored once, as posted, with
+the first and last day it was seen — `.gev-cache/archive/cartds/<insee>.json`,
+applicant already filtered, sales never stored (`src/data/cartdsArchive.js`).
+The layer draws the archive, not the board: a dossier merges with Sitadel on
+the number like a métropole row, and one that has left the board is still
+drawn with its decision. Two decisions kept for one dossier — a grant and its
+later withdrawal — resolve to the later one. When a board does not answer,
+the archive is served alone, marked `live: false` and not cached. Under
+`vite preview`, the hosted server, every board is swept once per French
+calendar day whether or not anybody looks (about 270 requests one second
+apart, some seven minutes; `sweep.json` in the same directory says what the
+last sweep read); under `vite dev` it is off. `CARTDS_ARCHIVE=daily|off`
+overrides either, and `npm run cartds:archive` runs the same sweep from a
+shell (`--join <dir>` folds in an archive swept elsewhere). The archive starts
+on 2026-09-30: what a board had let go before then is lost, and older dossiers
+still come from Sitadel alone.
+
+**A PC and a DP with the same digits are no longer merged.** `DAU` is one
+series in the register, but many communes count permis de construire and
+déclarations préalables separately; the merge now requires the same family
+as well as the same number. Measured over deposits since 2024-01-01, every
+cross-family match had been another dossier at another address — Nantes 5 of
+5, Paris 22 of 365 — and the portal row had been drawn on that dossier's
+parcel.
 
 **Bordeaux is the only one of them that publishes the GROUND**, and the layer
 draws it: the footprint (*emprise*) of the parcels a dossier names, clamped onto the terrain
