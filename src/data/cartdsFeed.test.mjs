@@ -62,7 +62,7 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
       seen.set(code, instance.key);
     }
   }
-  assert.equal(seen.size, 92);
+  assert.equal(seen.size, 129);
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
   assert.equal(cartdsInstanceFor('75056'), null);
@@ -70,14 +70,15 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   assert.equal(cartdsInstanceFor(null), null);
 });
 
-test('no instance whose robots.txt refused robots on 2026-09-30 is read', () => {
+test('the five hosts whose robots.txt refused robots on 2026-09-30 are read only by an explicit override', () => {
   const refused = [
     'ads.lecotentin.fr', 'grandlibournais.geosphere.fr', 'conches-en-ouche.geosphere.fr',
     'stemarie.geosphere.fr', 'brie-nangissienne.geosphere.fr',
   ];
-  for (const instance of CARTDS_INSTANCES) {
-    assert.ok(!refused.includes(new URL(instance.base).host), instance.key);
-  }
+  const overridden = CARTDS_INSTANCES.filter((instance) => instance.robots !== undefined);
+  // The exception is named where it applies, and nowhere else.
+  assert.deepEqual(overridden.map((instance) => new URL(instance.base).host).sort(), [...refused].sort());
+  for (const instance of overridden) assert.equal(instance.robots, 'overridden', instance.key);
   assert.equal(cartdsRobotsUrl(MAMP), 'https://mamp.geosphere.fr/robots.txt');
 });
 
@@ -88,6 +89,10 @@ test('the commune menu sends an INSEE code on some instances and a bare number o
   assert.equal(cartdsCommuneValue(FAYENCE, '83008'), '8');
   assert.equal(cartdsCommuneValue(FAYENCE, '83117'), '117');
   assert.equal(cartdsCommuneValue(PORTO, '2A247'), '247');
+  // Overseas: the menu sends the last three digits of 97418 too.
+  const saintemarie = cartdsInstanceFor('97418');
+  assert.equal(saintemarie.key, 'stemarie');
+  assert.equal(cartdsCommuneValue(saintemarie, '97418'), '418');
 });
 
 test('the page gives up its token and its commune menu', () => {
@@ -339,6 +344,24 @@ test('one dossier on both boards is one dossier, with the decision’s state', (
   assert.equal(permits[0].purpose, 'extension de la maison');
   // Either order.
   assert.equal(foldCartdsDossiers(rows.reverse()).permits[0].state, 'accorde');
+});
+
+test('two decisions kept for one dossier: the later one is its state', () => {
+  // A grant in August, its withdrawal in October: both survive in the archive
+  // after the first left the board.
+  const granted = [...DECISION];
+  granted[0] = '10/08/2026';
+  granted[8] = 'Favorable le 05/08/2026';
+  const withdrawn = [...DECISION];
+  withdrawn[0] = '12/10/2026';
+  withdrawn[8] = 'Annulation le 09/10/2026';
+  const rows = [granted, withdrawn].map((row) => normaliseCartdsRow(MAMP, '13114', CARTDS_BOARDS.decisions, row));
+  for (const order of [rows, [...rows].reverse()]) {
+    const { permits } = foldCartdsDossiers(order);
+    assert.equal(permits.length, 1);
+    assert.equal(permits[0].state, 'annule');
+    assert.equal(permits[0].decidedOn, '2026-10-09');
+  }
 });
 
 test('a PC and a DP with the same digits stay two dossiers', () => {

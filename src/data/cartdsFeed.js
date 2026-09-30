@@ -40,8 +40,7 @@
  * decision, which is the legal posting time. So this register is FRESH and
  * never HISTORICAL: the layer's older dossiers still come from Sitadel, and the
  * two are merged on the dossier number (`dossierKey`) exactly like the
- * métropole portals. Keeping what the board forgets needs a daily archive; it
- * is not this module's job.
+ * métropole portals. Keeping what the board forgets is Trap 6's archive.
  *
  * ── Trap 2: the board names private people ──────────────────────────────────
  * The fourth column is the applicant as written on the form, private
@@ -66,9 +65,24 @@
  * ── Trap 5: some instances forbid robots ────────────────────────────────────
  * Measured 2026-09-30: five of the fifteen instances found answer
  * `robots.txt` with `Disallow: /` for every agent — Le Cotentin's among them.
- * They are not in {@link CARTDS_INSTANCES}, and the proxy re-reads each host's
- * `robots.txt` before asking ({@link robotsAllows}), so an instance that adds
- * the rule later is dropped without a code change.
+ * The proxy re-reads each host's `robots.txt` before asking ({@link
+ * robotsAllows}), so an instance that adds the rule later is dropped without
+ * a code change. Those five are read ANYWAY, by the project's decision of the
+ * same day, and each carries `robots: 'overridden'` so the exception is
+ * written where it applies and nowhere else. What they post is the display
+ * the Code de l'urbanisme makes public (art. R.423-6 for a filing, R.424-15
+ * for a decision, two months in the town hall), RFC 9309 says in its own words
+ * that its rules "are not a form of access authorization", and these hosts are
+ * asked exactly what every other instance is asked: the same identified user
+ * agent, the same six-hour cache, the same daily archive sweep.
+ *
+ * ── Trap 6: the board forgets, so the server keeps ─────────────────────────
+ * Trap 1's two months are the posting period, not a window the commune
+ * chooses: what leaves the board is gone from every public place. The server
+ * therefore copies every row it reads into a per-commune archive
+ * (`cartdsArchive.js`) and sweeps every board once a day whether or not
+ * anybody looks, and the layer draws the archive — the live board and
+ * everything that has left it since the first sweep.
  *
  * Dependency-free and side-effect-free (no Cesium, no DOM, no fetch): URL and
  * body construction, parsing and normalisation only. The `/api/ads-fr` proxy
@@ -121,16 +135,18 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  *
  * FROM A MEASUREMENT, NOT A CATALOGUE. Fifteen instances were found by the
  * inventory of 2026-09-30 and every commune each one offers was read on both
- * boards. Kept here: the instances that let a robot in and answer the table,
- * and in each, the communes that had at least one row posted — 92 communes,
- * 5 618 rows that day. Left out, and why:
+ * boards. Kept here: the instances that answer the table, and in each, the
+ * communes that had at least one row posted — 129 communes, 7 468 rows that
+ * day. Left out, and why:
  *
- * - `robots.txt` says `Disallow: /` — Le Cotentin (`ads.lecotentin.fr`, six
- *   communes), Grand Libournais, Conches-en-Ouche, Sainte-Marie (La Réunion),
- *   Brie Nangissienne. Asking their permission is the way in, not this list;
  * - the table answers an error page — Mauges Communauté;
  * - the certificate chain is incomplete, so Node refuses the connection —
  *   Joinville (`pemb.fr`).
+ *
+ * Five of the thirteen kept answer `robots.txt` with `Disallow: /` and carry
+ * `robots: 'overridden'` — Le Cotentin, Grand Libournais, Conches-en-Ouche,
+ * Sainte-Marie (La Réunion), Brie Nangissienne; see Trap 5. They added 37
+ * communes and 1 850 rows, 99.1 % of them naming their parcel.
  *
  * `codes` says what the instance's commune menu sends as `NCommune`: the INSEE
  * code (`'insee'`) or the commune's three-digit number with the leading zeros
@@ -217,6 +233,53 @@ export const CARTDS_INSTANCES = Object.freeze([
     communes: Object.freeze([
       '45034', '45075', '45197', '45232', '45234', '45235', '45272', '45274',
       '45284', '45285', '45286', '45298',
+    ]),
+  }),
+  Object.freeze({
+    key: 'lecotentin',
+    base: 'https://ads.lecotentin.fr/guichet-unique',
+    label: 'Le Cotentin — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['50082', '50129', '50238', '50041', '50480', '50643']),
+  }),
+  Object.freeze({
+    key: 'grandlibournais',
+    base: 'https://grandlibournais.geosphere.fr/guichet-unique-cali',
+    label: 'Grand Libournais — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze([
+      '33015', '33079', '33185', '33207', '33222', '33373', '33413', '33466',
+      '33539',
+    ]),
+  }),
+  Object.freeze({
+    key: 'conches',
+    base: 'https://conches-en-ouche.geosphere.fr/guichet-unique',
+    label: 'Conches-en-Ouche — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['27165']),
+  }),
+  Object.freeze({
+    key: 'stemarie',
+    base: 'https://stemarie.geosphere.fr/guichet-unique',
+    label: 'Sainte-Marie (La Réunion) — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['97418']),
+  }),
+  Object.freeze({
+    key: 'brienangissienne',
+    base: 'https://brie-nangissienne.geosphere.fr/guichet-unique',
+    label: 'Brie Nangissienne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze([
+      '77010', '77052', '77098', '77119', '77190', '77191', '77201', '77211',
+      '77086', '77089', '77147', '77317', '77327', '77381', '77383', '77416',
+      '77428', '77481', '77493', '77496',
     ]),
   }),
 ]);
@@ -646,6 +709,13 @@ export function normaliseCartdsRow(instance, insee, board, row) {
   };
 }
 
+/** Whether posting `a` says more recently than `b` what became of a dossier. */
+function saysLater(a, b) {
+  if (Boolean(a.decidedOn) !== Boolean(b.decidedOn)) return Boolean(a.decidedOn);
+  if (a.decidedOn !== b.decidedOn) return a.decidedOn > b.decidedOn;
+  return (a.postedOn ?? '') > (b.postedOn ?? '');
+}
+
 /**
  * One row per dossier out of the two boards.
  *
@@ -653,6 +723,11 @@ export function normaliseCartdsRow(instance, insee, board, row) {
  * boards in September. The decision's row carries the state and its date; the
  * rest is taken from whichever row knew it, so a decision posted with an empty
  * nature still says what the filing said.
+ *
+ * The archive (Trap 6) adds a second case: two DECISIONS for one dossier, a
+ * grant in August and its withdrawal in October, both kept after the first
+ * left the board. The later decision is the dossier's state; between two rows
+ * decided the same day, or two filing notices, the later posting wins.
  *
  * @param {Array<object>} permits Normalised rows, both boards, any order.
  * @returns {{permits: Array<object>, folded: number}}
@@ -668,7 +743,7 @@ export function foldCartdsDossiers(permits) {
     const seen = byKey.get(identity);
     if (!seen) { byKey.set(identity, permit); continue; }
     folded += 1;
-    const [decision, other] = permit.decidedOn && !seen.decidedOn ? [permit, seen] : [seen, permit];
+    const [decision, other] = saysLater(permit, seen) ? [permit, seen] : [seen, permit];
     const merged = { ...decision };
     for (const [field, value] of Object.entries(other)) {
       const mine = merged[field];

@@ -304,23 +304,25 @@ import {
   SITADEL_FILES,
 } from './src/data/adsFeed.js';
 import {
-  buildCartdsForm,
-  cartdsCommuneValue,
-  cartdsDataUrl,
   cartdsInstanceFor,
-  cartdsPageUrl,
-  cartdsRobotsUrl,
   foldCartdsDossiers,
   normaliseCartdsRow,
-  parseCartdsToken,
-  robotsAllows,
-  CARTDS_BOARDS,
-  CARTDS_DATA_PATH,
+  CARTDS_INSTANCES,
   CARTDS_LICENCE,
-  CARTDS_MAX_PAGES,
-  CARTDS_PAGE_LENGTH,
-  CARTDS_PAGE_PATH,
 } from './src/data/cartdsFeed.js';
+import { archivedCartdsRows, cartdsDay } from './src/data/cartdsArchive.js';
+import {
+  cartdsRobotsVerdict as askCartdsRobots,
+  cartdsSweepDue,
+  createCartdsArchiveStore,
+  openCartdsSession,
+  readCartdsCommune,
+  readCartdsSweepStamp,
+  sweepCartdsArchive,
+  writeCartdsSweepStamp,
+  CARTDS_ARCHIVE_DIR,
+  CARTDS_USER_AGENT,
+} from './scripts/lib/cartdsArchive.mjs';
 import {
   anchorParcels,
   assignDivision,
@@ -26828,7 +26830,10 @@ function emploiFranceProxy() {
  * The third source has no choice in the matter: a commune's Cart@DS board
  * (`cartdsFeed.js`) sends no CORS header and binds its table to a session
  * cookie, so only a server can read it — three requests per commune, at most
- * every six hours, and only where the host's `robots.txt` allows it.
+ * every six hours, where the host's `robots.txt` allows it or the registry
+ * says the project decided to read it anyway. Every row read is also kept
+ * (`cartdsArchive.js`), and a daily sweep reads every board, because the
+ * board forgets after two months and nothing public remembers.
  *
  * @returns {import('vite').Plugin}
  */
@@ -27491,7 +27496,7 @@ function adsFranceProxy() {
    * the only reason this register is read: a commune posts a decision 0 to 7
    * days after signing it, and a week of cache would hand most of that back.
    * Four reads a day is also as often as a map has any business knocking on a
-   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 92 communes —
+   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 129 communes —
    * so the map needs no eviction.
    */
   const CARTDS_TTL_MS = 6 * 60 * 60 * 1000;
@@ -27501,14 +27506,15 @@ function adsFranceProxy() {
   /** A board page is ~30 KB; a robots.txt, a few lines. */
   const CARTDS_PAGE_MAX_BYTES = 2 * 1024 * 1024;
   /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
-  const CARTDS_SCHEMA = 1;
-  const CARTDS_USER_AGENT = 'Surplomb/1.0 (ads scan; +https://github.com/mml-studio/surplomb)';
+  const CARTDS_SCHEMA = 2;
   /** insee → {at, value}. */
   const cartdsCommunes = new Map();
   /** origin → {at, allowed}. */
   const cartdsRobots = new Map();
   /** insee → the build in progress, so two scans of one commune ask once. */
   const cartdsInFlight = new Map();
+  /** Every row a board ever showed — see `src/data/cartdsArchive.js`. */
+  const cartdsArchive = createCartdsArchiveStore(path.join(process.cwd(), CARTDS_ARCHIVE_DIR));
 
   /** One request to an instance, or null. Never throws. */
   async function cartdsFetch(url, init = {}) {
@@ -27538,77 +27544,35 @@ function adsFranceProxy() {
     }
   }
 
+  /** The two calls `scripts/lib/cartdsArchive.mjs` makes everything with. */
+  const cartdsHttp = { fetch: cartdsFetch, text: cartdsText };
+
   /**
-   * Whether this instance's host lets a robot read the board (RFC 9309).
-   *
-   * No file (4xx) allows everything; a file is read for the two paths this
-   * proxy asks; an unreachable host allows nothing and is asked again next
-   * scan rather than cached. A 5xx means "down" to the RFC and is a refusal,
-   * except on a host the registry marks as answering 503 for every path —
-   * see `robots5xx` in `CARTDS_INSTANCES`.
+   * Whether this instance's host lets a robot read the board, remembered for
+   * a day per host. The rule is `cartdsRobotsVerdict` in
+   * `scripts/lib/cartdsArchive.mjs`; an unreachable host is asked again next
+   * time rather than remembered as a refusal.
    */
   async function cartdsRobotsVerdict(instance) {
-    const url = cartdsRobotsUrl(instance);
-    const { origin } = new URL(url);
+    const { origin } = new URL(instance.base);
     const cached = cartdsRobots.get(origin);
     if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.allowed;
-    const response = await cartdsFetch(url);
-    if (!response) return false;
-    let allowed;
-    if (response.status >= 500) allowed = instance.robots5xx === 'absent';
-    else if (response.status >= 400) allowed = true;
-    else {
-      const body = await cartdsText(response, 512 * 1024);
-      if (body === null) return false;
-      const base = new URL(instance.base).pathname;
-      allowed = robotsAllows(body, `${base}${CARTDS_PAGE_PATH}`)
-        && robotsAllows(body, `${base}${CARTDS_DATA_PATH}`);
-    }
-    if (!allowed) console.warn(`[ADS Proxy] Cart@DS ${origin}: robots.txt refuses, board not read`);
-    cartdsRobots.set(origin, { at: Date.now(), allowed });
-    return allowed;
+    const verdict = await askCartdsRobots(instance, cartdsHttp);
+    if (!verdict.final) return false;
+    if (!verdict.allowed) console.warn(`[ADS Proxy] Cart@DS ${origin}: robots.txt refuses, board not read`);
+    cartdsRobots.set(origin, { at: Date.now(), allowed: verdict.allowed });
+    return verdict.allowed;
   }
 
   /**
-   * Every row of one board, page by page, or null when it did not answer.
+   * Read, archive, fold and place one commune's boards.
    *
-   * A JSON answer without a `data` array is a failure, not an empty board: an
-   * instance that lost the session answers its error PAGE with HTTP 200.
-   */
-  async function readCartdsBoard(instance, commune, board, session) {
-    const rows = [];
-    let total = null;
-    for (let page = 0; page < CARTDS_MAX_PAGES; page += 1) {
-      const response = await cartdsFetch(cartdsDataUrl(instance), {
-        method: 'POST',
-        body: buildCartdsForm({
-          commune, board, token: session.token, start: page * CARTDS_PAGE_LENGTH,
-        }),
-        headers: {
-          Cookie: session.cookie,
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      });
-      if (!response?.ok) return null;
-      const body = await cartdsText(response, ADDRESS_MAX_RESPONSE_BYTES);
-      let answer = null;
-      try { answer = JSON.parse(body ?? ''); } catch { return null; }
-      if (!Array.isArray(answer?.data)) return null;
-      rows.push(...answer.data);
-      total = Number(answer.recordsTotal);
-      if (!Number.isFinite(total) || rows.length >= total || !answer.data.length) break;
-    }
-    return { rows, truncated: Number.isFinite(total) && rows.length < total };
-  }
-
-  /**
-   * Read, fold and place one commune's boards.
-   *
-   * BOTH BOARDS OR NEITHER. Served alone, the filing board would draw every
-   * dossier as filed, including the ones the other board says were decided —
-   * a wrong answer that looks like a complete one. A board that fails fails
-   * the commune, and the report says `ok: false`.
+   * THE ARCHIVE IS WHAT IS DRAWN. The live reading is folded into the
+   * commune's archive first, and the dossiers are rebuilt from the archive:
+   * today's board plus every row that has left it since the first sweep. When
+   * the board does not answer, the archive alone is served — at most a day
+   * old while the daily sweep runs — and says so with `live: false`, so it is
+   * not cached as if it were today's.
    */
   async function buildCartdsCommune(instance, insee) {
     const report = { key: `cartds-${instance.key}`, label: instance.label, licence: CARTDS_LICENCE };
@@ -27616,33 +27580,19 @@ function adsFranceProxy() {
     if (!(await cartdsRobotsVerdict(instance))) {
       return { permits: [], portal: { ...report, ok: false, count: 0, refused: 'robots' } };
     }
-    const page = await cartdsFetch(cartdsPageUrl(instance));
-    const html = page?.ok ? await cartdsText(page) : null;
-    const token = parseCartdsToken(html);
-    // The anti-forgery cookie the token is bound to. Without it the POST
-    // answers an error page.
-    const cookie = (page?.headers.getSetCookie?.() ?? [])
-      .map((line) => line.split(';')[0].trim())
-      .filter(Boolean)
-      .join('; ');
-    if (!token || !cookie) {
-      console.warn(`[ADS Proxy] Cart@DS ${instance.key}: no form token`);
-      return failed;
-    }
-    const commune = cartdsCommuneValue(instance, insee);
+    const session = await openCartdsSession(instance, cartdsHttp);
+    if (!session) console.warn(`[ADS Proxy] Cart@DS ${instance.key}: no form token`);
+    const live = session ? await readCartdsCommune(instance, insee, session, cartdsHttp) : null;
+    if (session && !live) console.warn(`[ADS Proxy] Cart@DS ${instance.key} ${insee}: a board is unavailable`);
+    const { archive } = live
+      ? await cartdsArchive.record(instance, insee, live.boards, cartdsDay())
+      : await cartdsArchive.load(instance, insee);
+    const stored = archivedCartdsRows(archive);
+    if (!live && !stored.length) return failed;
     const rows = [];
-    let truncated = false;
-    for (const board of [CARTDS_BOARDS.filings, CARTDS_BOARDS.decisions]) {
-      const answer = await readCartdsBoard(instance, commune, board, { token, cookie });
-      if (!answer) {
-        console.warn(`[ADS Proxy] Cart@DS ${instance.key} ${insee}: board ${board} unavailable`);
-        return failed;
-      }
-      truncated ||= answer.truncated;
-      for (const row of answer.rows) {
-        const permit = normaliseCartdsRow(instance, insee, board, row);
-        if (permit) rows.push(permit);
-      }
+    for (const row of stored) {
+      const permit = normaliseCartdsRow(instance, insee, row.board, row.cells);
+      if (permit) rows.push(permit);
     }
     const { permits: dossiers, folded } = foldCartdsDossiers(rows);
     // The parcel first, the geocoder for the rest — the order `buildEdition`
@@ -27661,6 +27611,7 @@ function adsFranceProxy() {
       portal: {
         ...report,
         ok: true,
+        live: Boolean(live),
         count: dossiers.length,
         onParcel: ground.cadastre?.placed ?? 0,
         geocoded,
@@ -27668,9 +27619,70 @@ function adsFranceProxy() {
         // cannot be said to be inside or outside the circle.
         unplaced: dossiers.length - standing.length,
         folded,
-        truncated,
+        truncated: Boolean(live?.truncated),
+        // How deep the archive goes, and how much of it the board has let go.
+        archive: {
+          since: archive.firstDay,
+          through: archive.lastDay,
+          days: archive.days,
+          offBoard: stored.filter((row) => row.last < archive.lastDay).length,
+        },
       },
     };
+  }
+
+  // --- The daily sweep: every board, whether or not anybody looks -----------
+  /**
+   * Why a sweep and not the scans alone: a scan reads the communes somebody
+   * looked at, and the chronicle learned on its visitor-driven feeds that on a
+   * quiet deployment that is almost none (docs/CHRONICLE.md). A row that
+   * leaves an unread board is lost, so every board is read once a French
+   * calendar day. Checked hourly, due when `sweep.json` names an earlier day;
+   * the stamp is on the persistent volume, so a redeploy does not sweep twice.
+   *
+   * ON under `vite preview` — the hosted server, whose `.gev-cache` persists —
+   * and OFF under `vite dev`, whose cache is a laptop's. `CARTDS_ARCHIVE=daily`
+   * or `=off` overrides either.
+   */
+  const CARTDS_SWEEP_CHECK_MS = 60 * 60 * 1000;
+  /** Let the server settle, and a crash loop not sweep on every restart. */
+  const CARTDS_SWEEP_WARMUP_MS = 2 * 60 * 1000;
+  let cartdsSweepArmed = false;
+  let cartdsSweeping = null;
+
+  function cartdsSweepMode(preview) {
+    const mode = String(process.env.CARTDS_ARCHIVE || '').trim().toLowerCase();
+    if (mode === 'daily' || mode === 'off') return mode;
+    return preview ? 'daily' : 'off';
+  }
+
+  async function sweepCartdsIfDue() {
+    if (cartdsSweeping) return cartdsSweeping;
+    cartdsSweeping = (async () => {
+      const day = cartdsDay();
+      if (!cartdsSweepDue(await readCartdsSweepStamp(cartdsArchive.dir), day)) return null;
+      const summary = await sweepCartdsArchive({
+        instances: CARTDS_INSTANCES,
+        store: cartdsArchive,
+        http: cartdsHttp,
+        robots: async (instance) => ({ allowed: await cartdsRobotsVerdict(instance) }),
+        day,
+      });
+      await writeCartdsSweepStamp(cartdsArchive.dir, summary);
+      return summary;
+    })().catch((error) => {
+      console.warn(`[cartds-archive] sweep failed: ${error?.message || error}`);
+      return null;
+    }).finally(() => { cartdsSweeping = null; });
+    return cartdsSweeping;
+  }
+
+  function armCartdsSweep(preview) {
+    if (cartdsSweepArmed || cartdsSweepMode(preview) !== 'daily') return;
+    cartdsSweepArmed = true;
+    setTimeout(() => { void sweepCartdsIfDue(); }, CARTDS_SWEEP_WARMUP_MS).unref?.();
+    setInterval(() => { void sweepCartdsIfDue(); }, CARTDS_SWEEP_CHECK_MS).unref?.();
+    console.log(`[cartds-archive] armed — every Cart@DS board once a day, into ${CARTDS_ARCHIVE_DIR}`);
   }
 
   /**
@@ -27698,10 +27710,11 @@ function adsFranceProxy() {
           } catch { /* no disk copy yet */ }
           const value = await buildCartdsCommune(instance, insee);
           const fresh = { at: Date.now(), value };
-          // A failed read, or one whose geocode our own pacing refused, is
-          // served to this scan and not kept: kept, it would stand for six
-          // hours as the commune's answer.
-          if (!value.portal.ok || pacingRefusal()) return fresh;
+          // A failed read, an archive served for a board that did not
+          // answer, or one whose geocode our own pacing refused, is served to
+          // this scan and not kept: kept, it would stand for six hours as the
+          // commune's answer.
+          if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
           cartdsCommunes.set(insee, fresh);
           try {
             await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
@@ -27798,8 +27811,8 @@ function adsFranceProxy() {
   }
   return {
     name: 'ads-france-proxy',
-    configureServer(server) { install(server.middlewares); },
-    configurePreviewServer(server) { install(server.middlewares); },
+    configureServer(server) { install(server.middlewares); armCartdsSweep(false); },
+    configurePreviewServer(server) { install(server.middlewares); armCartdsSweep(true); },
   };
 }
 

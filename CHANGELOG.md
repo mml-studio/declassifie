@@ -6,15 +6,22 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
-- **« Urbanisme » (“Planning”) now shows the permits 92 communes post
+- **« Urbanisme » (“Planning”) now shows the permits 129 communes post
   themselves**, days after the fact: every filing notice and every decision
   on their Cart@DS « affichage réglementaire » board, the déclarations
   préalables for a fence, a pool or solar panels included, which the national
   register never holds. Orléans and its métropole, 26 communes of
-  Aix-Marseille-Provence, 41 of Bretagne romantique, the Pays de Fayence,
-  Bergerac and Mouleydier, Porto-Vecchio, Châtillon and Soultz-Haut-Rhin. A
-  dossier filed and not yet decided reads « Déposé » (“Filed”); a person's
-  name never appears; a board that asks robots to stay out is not read.
+  Aix-Marseille-Provence, 41 of Bretagne romantique, 20 of the Brie
+  Nangissienne, 9 of the Grand Libournais, Cherbourg-en-Cotentin, La Hague and
+  four more communes of the Cotentin, Sainte-Marie on La Réunion,
+  Conches-en-Ouche, the Pays de Fayence, Bergerac and Mouleydier,
+  Porto-Vecchio, Châtillon and Soultz-Haut-Rhin. A dossier filed and not yet
+  decided reads « Déposé » (“Filed”); a person's name never appears.
+- **What those communes post stays on the map after their board lets it go.**
+  A board keeps a decision for its two-month posting period, and nothing
+  public keeps it afterwards. The server now keeps every row it reads and
+  reads every board once a day, so a dossier posted since 2026-09-30 is still
+  drawn, with its decision, once it has left the board.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that
