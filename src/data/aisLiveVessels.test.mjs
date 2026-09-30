@@ -19,6 +19,8 @@ import {
   _bindVesselInteractionForTest,
   _setVesselStateForTest,
   _reconcileVesselsForTest,
+  _advanceVesselPlaybackForTest,
+  _vesselPlaybackForTest,
   _applyAisFeedSnapshotForTest,
   _loadLivePositionsForTest,
   _beginAisSessionForTest,
@@ -2133,3 +2135,33 @@ test('vesselCardJoins: a provider that throws leaves the card intact', async () 
     _resetJoinsForTest();
   }
 });
+
+test('a vessel glides between its reported fixes instead of jumping to the newest one', () => {
+  const collection = makeBillboardCollectionStub();
+  _setVesselStateForTest({ viewer: {}, records: [], billboardCollection: collection });
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    _reconcileVesselsForTest({}, [{ mmsi: '227000001', lat: 48.40, lon: -4.50, speed: 12, last_position_epoch: nowSec - 65 }]);
+    const first = _vesselPlaybackForTest('227000001');
+    assert.equal(first.drawLat, 48.40, 'a new vessel is drawn at its first fix');
+    _reconcileVesselsForTest({}, [{ mmsi: '227000001', lat: 48.41, lon: -4.50, speed: 12, last_position_epoch: nowSec - 5 }]);
+    const second = _vesselPlaybackForTest('227000001');
+    assert.equal(second.lat, 48.41, 'the record holds the newest report');
+    assert.equal(second.fixes, 2);
+    assert.ok(second.drawLat < 48.41, `drawn at ${second.drawLat}: the poll did not teleport it`);
+    // Well after the clock has passed the newest fix, the vessel holds there.
+    _advanceVesselPlaybackForTest(Date.now() + 10 * 60_000);
+    assert.equal(_vesselPlaybackForTest('227000001').drawLat, 48.41);
+  } finally {
+    _setVesselStateForTest({ enabled: false });
+  }
+});
+
+test('the vessel playback pass writes positions in place and invalidates hulls at most once a second', () => {
+  const source = readFileSync(new URL('./aisLiveVessels.js', import.meta.url), 'utf8');
+  const pass = source.slice(source.indexOf('function advanceVesselPlayback('), source.indexOf('function installRuntime('));
+  assert.match(pass, /Cesium\.Cartesian3\.fromDegrees\(sample\.lon, sample\.lat, record\.drawHeightM, undefined, record\.position\)/);
+  assert.match(pass, /nowMs - state\.lastHullMoveBump >= HULL_MOVE_REBUILD_MS/);
+  assert.match(source, /if \(force \|\| wallNow - state\.lastPlaybackUpdate >= PLAYBACK_UPDATE_MS\)/);
+});
+

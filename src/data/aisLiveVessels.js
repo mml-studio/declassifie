@@ -149,6 +149,7 @@ import {
 } from './focusDeemphasis.js';
 import { requestWorldFocus } from '../worldFocus.js';
 import { holdContinuousRender, releaseContinuousRender } from '../renderGovernor.js';
+import { createTrack, displayTime, pushFix, sampleTrack } from './contactPlayback.js';
 import { buildDepartementIndex, nearestDepartementWithin } from './franceDepartements.js';
 import { createRetryableLoader } from './retryableLoad.js';
 import { VESSEL_STANDOFF_SCAN_KM, vesselStandoffRangeM } from './vesselStandoff.js';
@@ -199,6 +200,36 @@ const VESSEL_LIFT_M = 3;
 const TRAIL_MAX_POINTS = TRAIL_VERTEX_CEILING;
 /** Minimum movement (m) before a reconcile refresh appends a new trail point. */
 const TRAIL_MIN_MOVE_M = 25;
+/**
+ * How a keyed vessel moves between the fixes the snapshot poll brings
+ * (`contactPlayback.js`): drawn a steady delay behind real time, between two
+ * reported fixes. The layer polls once a minute and a class-B or anchored
+ * vessel reports every few minutes, so the delay may run to four; 60 m/s
+ * (117 kn) is faster than any hull and marks an AIS glitch, which is not
+ * interpolated across.
+ *
+ * A new vessel starts with the delay one poll needs — the next fix lands a
+ * poll after this one, so the clock must still be behind this fix by then.
+ * Starting from the fix's own age instead left 88% of one-second steps frozen:
+ * the clock overtook the fix, held there, and the delay could only climb back
+ * at the slew rate.
+ */
+const VESSEL_PLAYBACK = Object.freeze({
+  capacity: 16,
+  retentionMs: 15 * 60_000,
+  minLagMs: 5_000,
+  maxLagMs: 240_000,
+  marginMs: 5_000,
+  initialLagMs: REFRESH_MS + 15_000,
+  breakAboveMps: 60,
+});
+/** Cadence of the playback pass (ms): smooth at map zoom, cheap for a fleet. */
+const PLAYBACK_UPDATE_MS = 100;
+/**
+ * Hulls are one batched primitive rebuilt when positions move; while vessels
+ * glide, rebuild it at most this often (ms) rather than on every playback pass.
+ */
+const HULL_MOVE_REBUILD_MS = 1_000;
 /**
  * Opacity of a true-scale hull. Not opaque: the hull sits on a photoreal sea
  * whose wake and shadow are part of reading a port, and a solid slab of family
@@ -1002,6 +1033,16 @@ const state = {
   trail: null,
   /** @type {Cesium.Cartesian3[]} Chronological trail vertices (oldest first) */
   trailPositions: [],
+  /** @type {number[]} Report time (ms) of each trail vertex, parallel to trailPositions. */
+  trailTimes: [],
+  /** Vertices currently drawn: those the playback clock has reached. */
+  trailBodyCount: -1,
+  /** @type {Cesium.Cartesian3|null} Last drawn trail vertex: where the head starts. */
+  trailBodyEnd: null,
+  /** @type {Cesium.Entity|null} Head segment from the last drawn vertex to the vessel. */
+  trailHead: null,
+  lastPlaybackUpdate: 0,
+  lastHullMoveBump: 0,
   /** @type {string|null} MMSI that owns the active selected-vessel trail. */
   trailMmsi: null,
   /** @type {number} Monotonic token — invalidates in-flight backfill responses */
@@ -1276,6 +1317,7 @@ function ensureCollections(viewer) {
  */
 function reconcileVessels(viewer, rows) {
   ensureCollections(viewer);
+  const receivedAtMs = Date.now();
 
   // Unkeyed (no-MMSI) records cannot be diffed — drop and rebuild them.
   for (const record of state.unkeyedRecords) {
@@ -1299,8 +1341,9 @@ function reconcileVessels(viewer, rows) {
 
     const existing = state.vesselMap.get(next.mmsi);
     if (existing) {
-      updateRecordInPlace(existing, next);
+      updateRecordInPlace(existing, next, receivedAtMs);
     } else {
+      startVesselPlayback(next, receivedAtMs);
       addRecordPrimitives(next, occluder);
       state.vesselMap.set(next.mmsi, next);
     }
@@ -1367,7 +1410,7 @@ function addRecordPrimitives(record, occluder) {
  * @param {Object} record - Existing vessel record in state.vesselMap.
  * @param {Object} next - Freshly normalized record for the same MMSI.
  */
-function updateRecordInPlace(record, next) {
+function updateRecordInPlace(record, next, receivedAtMs = Date.now()) {
   const selected = record === state.selectedRecord;
   const prevIcon = shipIcon(record, selected);
 
@@ -1385,13 +1428,21 @@ function updateRecordInPlace(record, next) {
   record.heading = next.heading;
   record.lastPositionUtc = next.lastPositionUtc;
   record.lastPositionEpoch = next.lastPositionEpoch;
-  record.position = next.position;
-  record.surfacePosition = next.surfacePosition;
   record.normal = next.normal;
   record.missedRefreshes = 0;
+  // The new fix joins the vessel's playback track; the drawn position keeps
+  // travelling between fixes (advanceVesselPlayback) instead of jumping to it.
+  // A record built before playback existed simply starts one here.
+  if (!record.track) {
+    record.position = next.position;
+    record.surfacePosition = next.surfacePosition;
+    startVesselPlayback(record, receivedAtMs);
+  } else {
+    pushFix(record.track, vesselFixOf(record, receivedAtMs), receivedAtMs);
+    record.drawHeightM = vesselDatumHeightM(currentGeoidN(record.lat, record.lon), VESSEL_LIFT_M);
+  }
 
   if (record.billboard) {
-    record.billboard.position = record.position;
     // Rotation is owned by the projected-rotation pass (updateVisibility).
     record.billboard.scale = arrowScale(record) * (selected ? 1.2 : 1);
     const nextIcon = shipIcon(record, selected);
@@ -1860,6 +1911,67 @@ function maintainHullPrimitive() {
   state.hullSignature = signature;
 }
 
+/**
+ * The fix a vessel record carries now, for its playback track: stamped with
+ * the AIS report time when the feed gave one that is not in the future,
+ * with the poll's arrival otherwise.
+ * @param {Object} record
+ * @param {number} receivedAtMs
+ * @returns {{ t: number, lat: number, lon: number }}
+ */
+function vesselFixOf(record, receivedAtMs) {
+  const reported = Number.isFinite(record.lastPositionEpoch) ? record.lastPositionEpoch * 1000 : Number.NaN;
+  const t = reported > 0 && reported <= receivedAtMs + 10_000 ? reported : receivedAtMs;
+  return { t, lat: record.lat, lon: record.lon };
+}
+
+/**
+ * Gives a keyed vessel its playback track, seeded with its current fix, and
+ * draws it there until the clock moves it.
+ * @param {Object} record - Freshly normalized record.
+ * @param {number} receivedAtMs
+ */
+function startVesselPlayback(record, receivedAtMs) {
+  record.track = createTrack(VESSEL_PLAYBACK);
+  pushFix(record.track, vesselFixOf(record, receivedAtMs), receivedAtMs);
+  record.drawLat = record.lat;
+  record.drawLon = record.lon;
+  record.drawHeightM = vesselDatumHeightM(currentGeoidN(record.lat, record.lon), VESSEL_LIFT_M);
+}
+
+const _playbackSample = {};
+
+/**
+ * Moves every keyed vessel to where its playback clock says it is. Runs at
+ * PLAYBACK_UPDATE_MS; writes positions in place and touches only vessels that
+ * moved, so a moored fleet costs one comparison per vessel.
+ * @param {number} nowMs - Wall clock.
+ * @returns {number} Vessels moved.
+ */
+function advanceVesselPlayback(nowMs) {
+  let moved = 0;
+  for (const record of state.vesselMap.values()) {
+    if (!record.track) continue;
+    const sample = sampleTrack(record.track, displayTime(record.track, nowMs), _playbackSample);
+    if (sample.state === 'empty') continue;
+    if (Math.abs(sample.lat - record.drawLat) < 1e-7 && Math.abs(sample.lon - record.drawLon) < 1e-7) continue;
+    record.drawLat = sample.lat;
+    record.drawLon = sample.lon;
+    record.position = Cesium.Cartesian3.fromDegrees(sample.lon, sample.lat, record.drawHeightM, undefined, record.position);
+    record.surfacePosition = Cesium.Cartesian3.fromDegrees(sample.lon, sample.lat, 0, undefined, record.surfacePosition);
+    if (record.billboard) record.billboard.position = record.position;
+    moved += 1;
+  }
+  if (moved && nowMs - state.lastHullMoveBump >= HULL_MOVE_REBUILD_MS) {
+    state.lastHullMoveBump = nowMs;
+    state.hullPositionRev += 1;
+  }
+  // The trail body grows as the clock passes each of its vertices.
+  const selected = state.trailMmsi ? state.vesselMap.get(state.trailMmsi) : null;
+  if (selected?.track) renderVesselTrailBody(selected.track.clockAtMs - selected.track.lagMs - selected.track.offsetMs);
+  return moved;
+}
+
 function installRuntime(viewer) {
   if (state.preRenderRemover || !viewer) return;
   state.preRenderRemover = viewer.scene.preRender.addEventListener(() => updateVisibility());
@@ -1867,6 +1979,11 @@ function installRuntime(viewer) {
 
 function updateVisibility(force = false) {
   if (!state.enabled) return;
+  const wallNow = Date.now();
+  if (force || wallNow - state.lastPlaybackUpdate >= PLAYBACK_UPDATE_MS) {
+    state.lastPlaybackUpdate = wallNow;
+    advanceVesselPlayback(wallNow);
+  }
   const now = focusNowMs(performance.now());
   const focusTarget = getFocusTarget();
   const regularPass = force || now - state.lastVisibilityUpdate >= VISIBILITY_UPDATE_MS;
@@ -2274,7 +2391,10 @@ function refloorVesselRecords() {
   for (const record of state.vesselRecords) {
     if (!Number.isFinite(record.lat) || !Number.isFinite(record.lon)) continue;
     const heightM = vesselDatumHeightM(currentGeoidN(record.lat, record.lon), VESSEL_LIFT_M);
-    record.position = Cesium.Cartesian3.fromDegrees(record.lon, record.lat, heightM);
+    record.drawHeightM = heightM;
+    const lat = Number.isFinite(record.drawLat) ? record.drawLat : record.lat;
+    const lon = Number.isFinite(record.drawLon) ? record.drawLon : record.lon;
+    record.position = Cesium.Cartesian3.fromDegrees(lon, lat, heightM);
     if (record.billboard) record.billboard.position = record.position;
   }
   // Hull outlines are built in each record's local frame, so a datum shift
@@ -2291,13 +2411,72 @@ function startSelectedVesselTrail(record) {
   state.trailBackfillToken += 1;
   state.trailMmsi = record.mmsi;
   state.trailPositions = [];
+  state.trailTimes = [];
+  state.trailBodyCount = -1;
+  state.trailBodyEnd = null;
   const current = vesselTrailPosition(record);
-  if (current) state.trailPositions.push(current);
+  if (current) {
+    state.trailPositions.push(current);
+    state.trailTimes.push(vesselFixOf(record, Date.now()).t);
+  }
   if (!state.trail && state.viewer) {
     state.trail = createTrail(state.viewer, { color: TRAIL_COLOR, width: 2.5 });
   }
-  if (state.trail) state.trail.setPositions(state.trailPositions);
+  ensureVesselTrailHead();
+  renderVesselTrailBody(vesselDisplayTime(record));
   backfillVesselTrail(record.mmsi, state.trailBackfillToken);
+}
+
+/**
+ * The selected vessel's display time, or +Infinity for a record with no
+ * playback (drawn at its newest fix, so its whole trail is behind it).
+ * @param {?Object} record
+ * @returns {number}
+ */
+function vesselDisplayTime(record) {
+  return record?.track ? displayTime(record.track, Date.now()) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Draws the trail through the vertices the vessel's playback clock has
+ * reached, and no further: the vessel is drawn a delay behind its newest fix,
+ * and a trail ending at that fix would run ahead of it. Redrawn only when the
+ * clock passes another vertex.
+ * @param {number} displayAtMs - The selected vessel's display time.
+ */
+function renderVesselTrailBody(displayAtMs) {
+  if (!state.trail) return;
+  let count = 0;
+  while (count < state.trailTimes.length && state.trailTimes[count] <= displayAtMs) count += 1;
+  if (count === state.trailBodyCount) return;
+  state.trailBodyCount = count;
+  const body = state.trailPositions.slice(0, count);
+  state.trail.setPositions(body);
+  state.trailBodyEnd = body.length ? body[body.length - 1] : null;
+}
+
+/**
+ * The segment from the last drawn trail vertex to the vessel wherever the
+ * playback pass has put it — re-read every frame, like the flights' head.
+ */
+function ensureVesselTrailHead() {
+  if (state.trailHead || typeof state.viewer?.entities?.add !== 'function') return;
+  state.trailHead = state.viewer.entities.add({
+    // Claimed by trailRenderer's pick owner: a click on it is not empty space.
+    id: 'gev-trail:ais-head',
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        const record = state.trailMmsi ? state.vesselMap.get(state.trailMmsi) : null;
+        if (!record || !state.trailBodyEnd || record.billboard?.show === false) return [];
+        const head = vesselTrailPosition({ lat: record.drawLat ?? record.lat, lon: record.drawLon ?? record.lon });
+        return head ? [state.trailBodyEnd, head] : [];
+      }, false),
+      width: 2.5,
+      material: Cesium.Color.fromCssColorString(TRAIL_COLOR).withAlpha(0.85),
+      depthFailMaterial: Cesium.Color.fromCssColorString(TRAIL_COLOR).withAlpha(0.4),
+      arcType: Cesium.ArcType.NONE,
+    },
+  });
 }
 
 /**
@@ -2326,22 +2505,37 @@ async function backfillVesselTrail(mmsi, token) {
   if (state.trailMmsi !== mmsi) return;
 
   const older = [];
+  const olderTimes = [];
+  const firstLive = state.trailTimes.length ? state.trailTimes[0] : Number.POSITIVE_INFINITY;
   for (const sample of samples) {
     const lat = Number(sample?.lat);
     const lon = Number(sample?.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const t = Number(sample?.t) * 1000;
+    // A sample at or after the first live vertex is the live track again.
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(t) || t >= firstLive) continue;
     // Per-sample N (≤ TRAIL_MAX_POINTS lookups) — same sea-surface datum as
     // the live vertices so the spliced trail is height-continuous.
     const heightM = vesselDatumHeightM(currentGeoidN(lat, lon), TRAIL_HEIGHT_M);
     older.push(Cesium.Cartesian3.fromDegrees(lon, lat, heightM));
+    olderTimes.push(t);
   }
   if (!older.length) return;
 
-  state.trailPositions = trimTrailToGroundLength(
-    older.concat(state.trailPositions),
-    { maxPoints: TRAIL_MAX_POINTS },
-  );
-  if (state.trail) state.trail.setPositions(state.trailPositions);
+  setVesselTrail(older.concat(state.trailPositions), olderTimes.concat(state.trailTimes));
+}
+
+/**
+ * Replaces the trail's vertices and their times, trimmed by ground length
+ * from the oldest end, and redraws the body up to the playback clock.
+ * @param {Cesium.Cartesian3[]} positions
+ * @param {number[]} times - Parallel to positions, ascending.
+ */
+function setVesselTrail(positions, times) {
+  const kept = trimTrailToGroundLength(positions, { maxPoints: TRAIL_MAX_POINTS });
+  state.trailPositions = kept;
+  state.trailTimes = times.slice(times.length - kept.length);
+  state.trailBodyCount = -1;
+  renderVesselTrailBody(vesselDisplayTime(state.trailMmsi ? state.vesselMap.get(state.trailMmsi) : null));
 }
 
 /**
@@ -2355,12 +2549,9 @@ function appendSelectedVesselTrailFix(record) {
   if (!next) return;
   const last = state.trailPositions[state.trailPositions.length - 1];
   if (last && Cesium.Cartesian3.distance(last, next) <= TRAIL_MIN_MOVE_M) return;
-  state.trailPositions.push(next);
-  state.trailPositions = trimTrailToGroundLength(
-    state.trailPositions,
-    { maxPoints: TRAIL_MAX_POINTS },
-  );
-  state.trail.setPositions(state.trailPositions);
+  const t = vesselFixOf(record, Date.now()).t;
+  if (state.trailTimes.length && t <= state.trailTimes[state.trailTimes.length - 1]) return;
+  setVesselTrail([...state.trailPositions, next], [...state.trailTimes, t]);
 }
 
 /**
@@ -2370,6 +2561,9 @@ function clearSelectedVesselTrail() {
   state.trailBackfillToken += 1;
   state.trailMmsi = null;
   state.trailPositions = [];
+  state.trailTimes = [];
+  state.trailBodyCount = -1;
+  state.trailBodyEnd = null;
   if (state.trail) state.trail.clear();
 }
 
@@ -2381,6 +2575,10 @@ function destroySelectedVesselTrail() {
   if (state.trail) {
     state.trail.destroy();
     state.trail = null;
+  }
+  if (state.trailHead) {
+    state.viewer?.entities?.remove?.(state.trailHead);
+    state.trailHead = null;
   }
 }
 
@@ -2740,7 +2938,11 @@ function resetState() {
   state.activeLabelCount = 0;
   state.selectedRecord = null;
   state.trail = null;
+  state.trailHead = null;
   state.trailPositions = [];
+  state.trailTimes = [];
+  state.trailBodyCount = -1;
+  state.trailBodyEnd = null;
   state.trailMmsi = null;
   state.trailBackfillToken = 0;
   state.hullPrimitive = null;
@@ -2786,6 +2988,7 @@ export function _setVesselStateForTest(options = {}) {
   state.trail = options.trail || null;
   state.trailMmsi = options.trailMmsi || null;
   state.trailPositions = Array.isArray(options.trailPositions) ? [...options.trailPositions] : [];
+  state.trailTimes = Array.isArray(options.trailTimes) ? [...options.trailTimes] : state.trailPositions.map(() => 0);
   state.transportStatus = options.transportStatus || null;
   state.lastMessageAt = options.lastMessageAt ?? null;
   state.rawRowCount = Number.isFinite(options.rawRowCount) ? options.rawRowCount : 0;
@@ -2815,6 +3018,25 @@ export function _updateVesselCardsForTest(records = []) {
  */
 export function _reconcileVesselsForTest(viewer, rows) {
   reconcileVessels(viewer, rows);
+}
+
+/** Run the playback pass at a chosen wall time (DEV/test only). */
+export function _advanceVesselPlaybackForTest(nowMs) {
+  return advanceVesselPlayback(nowMs);
+}
+
+/** Where a keyed vessel is drawn and how far behind its clock runs (DEV/test only). */
+export function _vesselPlaybackForTest(mmsi) {
+  const record = state.vesselMap.get(String(mmsi));
+  if (!record) return null;
+  return {
+    lat: record.lat,
+    lon: record.lon,
+    drawLat: record.drawLat,
+    drawLon: record.drawLon,
+    lagMs: record.track?.lagMs ?? null,
+    fixes: record.track?.fixes.length ?? 0,
+  };
 }
 
 /** Apply one server snapshot through the production pre-reconcile health gate. */

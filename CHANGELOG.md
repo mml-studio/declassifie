@@ -22,6 +22,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   public keeps it afterwards. The server now keeps every row it reads and
   reads every board once a day, so a dossier posted since 2026-09-30 is still
   drawn, with its decision, once it has left the board.
+- **Ships glide instead of jumping once a minute.** A vessel is now drawn
+  between the positions it reported, a steady delay behind real time, at the
+  speed those positions imply, and its trail stops at the ship. Over the
+  Strait of Dover, the vessels that reported during the test went from 99% of
+  one-second steps frozen, with jumps, to steady steps of a few metres. A
+  position no ship could reach from the last one is shown only once a second
+  report confirms it.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that
