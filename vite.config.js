@@ -548,6 +548,7 @@ import {
 } from './src/data/amenitiesPack.js';
 
 import { isPlaceholderCctvFrame, isTruncatedJpegFrame } from './src/data/cctvFrameChecks.js';
+import { cctvPackEnabled, parseCctvPack } from './src/data/cctvPacks.js';
 import {
   cctvTimelapseOptionsFromEnv,
   cctvTimelapseResponse,
@@ -16674,6 +16675,50 @@ function loadSourcesFromFile() {
   }
 }
 
+/** Folder of drop-in camera packs, one city per JSON file (see its README). */
+const CCTV_PACKS_DIR = 'config/cctv-packs';
+
+/**
+ * Load every enabled camera pack in `config/cctv-packs/` (or `CCTV_PACKS_DIR`).
+ * Unlike CCTV_SOURCES_FILE, packs ADD to the live open-data packs. A file that
+ * does not parse, or a camera that fails validation, is skipped with its
+ * reason in the log; the rest loads.
+ *
+ * @returns {Array<object>} Raw source items from every enabled pack.
+ */
+function loadSourcesFromPacks() {
+  if (String(process.env.CCTV_PACKS_ENABLED ?? '1').trim() === '0') return [];
+  const configured = process.env.CCTV_PACKS_DIR || CCTV_PACKS_DIR;
+  const dir = path.isAbsolute(configured) ? configured : path.resolve(__dirname, configured);
+  let names;
+  try {
+    names = fs.readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
+  } catch {
+    return [];
+  }
+  const items = [];
+  for (const name of names) {
+    let json;
+    try {
+      json = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+    } catch (error) {
+      console.warn(`[CCTV] pack ${name} skipped: ${error?.message || error}`);
+      continue;
+    }
+    const parsed = parseCctvPack(json, { fileName: name });
+    if (parsed.error) {
+      console.warn(`[CCTV] pack ${name} skipped: ${parsed.error}`);
+      continue;
+    }
+    if (!cctvPackEnabled(parsed.pack, process.env)) continue;
+    if (parsed.rejected.length) {
+      console.warn(`[CCTV] pack ${parsed.pack.id}: ${parsed.rejected.length} camera(s) skipped, first: ${parsed.rejected[0].reason}`);
+    }
+    items.push(...parsed.cameras);
+  }
+  return items;
+}
+
 /**
  * Load CCTV sources from the CCTV_SOURCES_JSON env variable (inline JSON).
  *
@@ -17875,6 +17920,10 @@ function normalizeSourceItem(item) {
     // Only a pack whose frames are a still re-published on a cadence sets it;
     // anything but a literal true is dropped.
     timelapse: item.timelapse === true ? true : undefined,
+    // Camera packs (src/data/cctvPacks.js): which pack, and the credit the
+    // browser shows while its cameras are in the catalog.
+    packId: typeof item.packId === 'string' && item.packId ? item.packId : undefined,
+    credit: item.credit && typeof item.credit === 'object' ? item.credit : undefined,
   };
 }
 
@@ -17953,6 +18002,7 @@ const CCTV_TIMELAPSE_ROOT = path.join(process.cwd(), '.gev-cache', 'cctv-timelap
 async function refreshCctvSources() {
   const fromFile = loadSourcesFromFile();
   const fromEnv = loadSourcesFromEnv();
+  const fromPacks = loadSourcesFromPacks();
 
   const forceAustin = String(process.env.CCTV_FORCE_AUSTIN || '').trim() === '1';
   const preferAustin = String(process.env.CCTV_PREFER_AUSTIN || '1').trim() !== '0';
@@ -17985,7 +18035,9 @@ async function refreshCctvSources() {
   // frames, and they are loaded per viewport through /api/osm-cameras and merged
   // into the live layer, so this stays the set of packs that do carry frames.
   // Live sources first so file/env overrides win on duplicate IDs (Map last-write).
-  const merged = [...fromAustin, ...fromCaltrans, ...fromTfl, ...fromLyon, ...fromFile, ...fromEnv];
+  // Packs sit between: they add to the live packs whatever the file/env gate
+  // decided, and their ids carry their pack id, so they collide with nothing.
+  const merged = [...fromAustin, ...fromCaltrans, ...fromTfl, ...fromLyon, ...fromPacks, ...fromFile, ...fromEnv];
 
   // Deduplicate by camera ID (last-write wins because of Map.set)
   const byId = new Map();
@@ -18427,6 +18479,8 @@ function cctvProxy() {
                 // Omitted (undefined) unless this server records the camera.
                 timelapse: timelapse.isCapable(source) || undefined,
                 license: source.license,
+                packId: source.packId,
+                credit: source.credit,
               })),
             };
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

@@ -5476,6 +5476,21 @@ inert again.
   plus the published frames (`GRANDLYON_CURATED_HEADINGS`), not a RAW PRIOR hash; the
   monitor-plane cap lands a median 6 m from the watched carriageway against 30 m for the
   hash. The fifteenth publishes an "image unavailable" placeholder and keeps the hash.
+- **Camera packs** (2026-09-30): every `*.json` in `config/cctv-packs/` (`CCTV_PACKS_DIR`)
+  adds one publisher's cameras to the catalog on each 15-minute refresh, BESIDE the live
+  packs; `CCTV_SOURCES_FILE`, the older file route, replaces them. `src/data/cctvPacks.js`
+  validates each file: pack id `[a-z0-9-]{2,40}` prefixed onto camera ids, finite lat/lon, a
+  public http(s) frame URL (no loopback, private, link-local or credentialed host — the server
+  fetches it), a known `feedType`, at most `maxCameras` (default 200, ceiling 600). A bad camera
+  is skipped with its reason in the server log; a bad file is skipped whole. Each pack's
+  `credit` (publisher, licence, links) travels with its cameras through `/api/cctv/sources`
+  and becomes one Data attribution entry, « Caméras publiques et images (City): Publisher
+  (Licence) », in the reader's language. Upstream God's Eye View's bare-array
+  `config/cctv_sources.<city>.json` files load unchanged, credited by their first camera's
+  provider; checked with upstream's Warendorf file (1 camera beside the 815 live ones, its
+  JPEG served through `/api/cctv/frame/`). `CCTV_PACKS_DISABLED=<ids>` and
+  `CCTV_PACKS_ENABLED=0` turn packs off. No pack ships: the folder holds its README, and a
+  French city needs a publisher whose licence allows showing its frames.
 - **OSM mapped cameras — viewport-loaded** (2026-08-26): an OPT-IN
   (`CCTV_OSM_CAMERAS_ENABLED=1`, off by default) source of publicly mapped OpenStreetMap
   surveillance-camera POSITIONS (`man_made=surveillance`, `surveillance=public|outdoor|traffic`),

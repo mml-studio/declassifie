@@ -58,6 +58,7 @@ import cctvLayer, {
   frameSignatureFromPixels,
   focusCctvRecord,
   cctvFocusFrame,
+  cctvPackCredits,
   hideCctvRecordVisuals,
   materializeCctvActiveCoverageEntities,
   materializeCctvVisibleCoverageEntities,
@@ -892,6 +893,22 @@ test('CCTV focus frames the mount and the lifted monitor plane together', () => 
   const bare = cctvFocusFrame({ camera, position: record.position });
   assert.equal(bare.range, Math.max(280, camera.rangeM * 1.18));
   assert.ok(Cesium.Cartesian3.equals(bare.sphere.center, record.position));
+});
+
+test('each camera pack in the catalog gets one credit, naming its city when it has one', () => {
+  const credit = { text: 'Rennes Métropole', url: 'https://data.rennesmetropole.fr', license: 'Licence Ouverte 2.0' };
+  const credits = cctvPackCredits([
+    { id: 'lyon-a', city: 'Lyon' },
+    { id: 'rennes-trafic-a', city: 'Rennes', packId: 'rennes-trafic', credit },
+    { id: 'rennes-trafic-b', city: 'Rennes', packId: 'rennes-trafic', credit },
+    { id: 'mixed-a', city: 'A', packId: 'mixed', credit: { text: 'Region' } },
+    { id: 'mixed-b', city: 'B', packId: 'mixed', credit: { text: 'Region' } },
+    { id: 'nameless-a', packId: 'nameless', credit: { text: '' } },
+  ]);
+  assert.deepEqual(credits.map((entry) => entry.key), ['cctv-pack-rennes-trafic', 'cctv-pack-mixed']);
+  assert.match(credits[0].html, /^Caméras publiques et images \(Rennes\): <a href="https:\/\/data\.rennesmetropole\.fr"/);
+  assert.match(credits[1].html, /^Caméras publiques et images: Region$/);
+  assert.deepEqual(cctvPackCredits(null), []);
 });
 
 test('CCTV focus refuses camera flights while cockpit owns the view', () => {

@@ -44,6 +44,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   dark outline there, its shape still saying bus, tram or metro. Under CRT the
   vehicle colours are saturated and the icons 4 px larger, so the pixel grid
   no longer shreds them.
+- **A city's public cameras can be added with one file.** A JSON file in
+  `config/cctv-packs/` adds its cameras to « Caméras publiques » beside
+  Austin, California, London and Lyon, and its publisher and licence to Data
+  attribution; `config/cctv-packs/README.md` gives the format. Upstream God's
+  Eye View's camera files load as they are. No new city ships with this: the
+  next one needs a French publisher whose licence allows showing its frames.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that
