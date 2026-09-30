@@ -6,6 +6,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **« Urbanisme » (“Planning”) now shows the permits 92 communes post
+  themselves**, days after the fact: every filing notice and every decision
+  on their Cart@DS « affichage réglementaire » board, the déclarations
+  préalables for a fence, a pool or solar panels included, which the national
+  register never holds. Orléans and its métropole, 26 communes of
+  Aix-Marseille-Provence, 41 of Bretagne romantique, the Pays de Fayence,
+  Bergerac and Mouleydier, Porto-Vecchio, Châtillon and Soultz-Haut-Rhin. A
+  dossier filed and not yet decided reads « Déposé » (“Filed”); a person's
+  name never appears; a board that asks robots to stay out is not read.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that
@@ -408,6 +417,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **A building permit and a prior declaration that shared their number were
+  merged into one dossier**, and the permit was drawn on the other dossier's
+  parcel: 22 of 365 Paris dossiers matched to the national
+  register since 2024, and all 5 in Nantes. The merge now requires the same
+  kind of authorisation as well as the same number.
 - **« Îlots de fraîcheur » and « Comptages routiers » stayed empty, and
   permits in Paris came from Sitadel alone.** On 2026-09-23 paris.fr's own
   name servers answered NXDOMAIN for `opendata.paris.fr`, so every call the

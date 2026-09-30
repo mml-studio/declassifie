@@ -304,6 +304,24 @@ import {
   SITADEL_FILES,
 } from './src/data/adsFeed.js';
 import {
+  buildCartdsForm,
+  cartdsCommuneValue,
+  cartdsDataUrl,
+  cartdsInstanceFor,
+  cartdsPageUrl,
+  cartdsRobotsUrl,
+  foldCartdsDossiers,
+  normaliseCartdsRow,
+  parseCartdsToken,
+  robotsAllows,
+  CARTDS_BOARDS,
+  CARTDS_DATA_PATH,
+  CARTDS_LICENCE,
+  CARTDS_MAX_PAGES,
+  CARTDS_PAGE_LENGTH,
+  CARTDS_PAGE_PATH,
+} from './src/data/cartdsFeed.js';
+import {
   anchorParcels,
   assignDivision,
   balParcelsForNumber,
@@ -26807,6 +26825,11 @@ function emploiFranceProxy() {
  * merge between the two registers is absorbed here too, under test
  * (`adsFeed.js`), rather than in every open tab.
  *
+ * The third source has no choice in the matter: a commune's Cart@DS board
+ * (`cartdsFeed.js`) sends no CORS header and binds its table to a session
+ * cookie, so only a server can read it — three requests per commune, at most
+ * every six hours, and only where the host's `robots.txt` allows it.
+ *
  * @returns {import('vite').Plugin}
  */
 function adsFranceProxy() {
@@ -27121,8 +27144,15 @@ function adsFranceProxy() {
    * never enters the BAN batch, so the cadastre both places it better and
    * makes the geocode smaller; running the geocoder first would spend a call
    * on every row and then overwrite the good answers with the cheap ones.
+   *
+   * `chaseDivisions: false` places on today's parcels and stops there, for
+   * the posted boards `loadCartds` reads. They are two months deep, so their
+   * parcels are today's: measured 2026-09-30, 780 of Orléans's 799 posted
+   * dossiers and 64 of Ventabren's 76 stood on a parcel of the current
+   * edition. Walking the archive back costs up to three editions for each of
+   * the few that did not, and the geocoder places those by address anyway.
    */
-  async function placeOnGround(permits) {
+  async function placeOnGround(permits, { chaseDivisions = true } = {}) {
     const byCommune = new Map();
     for (const permit of permits) {
       if (permit.lon !== null || !permit.parcelIdus?.length) continue;
@@ -27164,7 +27194,7 @@ function adsFranceProxy() {
         .filter((permit) => rows.includes(permit))
         .sort((a, b) => String(b.decidedOn ?? '').localeCompare(String(a.decidedOn ?? '')));
       dead += divided.length;
-      if (!divided.length) continue;
+      if (!divided.length || !chaseDivisions) continue;
       const ctx = {
         insee,
         editions: await millesimes(),
@@ -27453,6 +27483,241 @@ function adsFranceProxy() {
     };
   }
 
+  // --- What a commune posts itself: Cart@DS boards --------------------------
+  /**
+   * One commune's two boards, placed, held for six hours.
+   *
+   * Six hours and not the week a Sitadel edition keeps, because freshness is
+   * the only reason this register is read: a commune posts a decision 0 to 7
+   * days after signing it, and a week of cache would hand most of that back.
+   * Four reads a day is also as often as a map has any business knocking on a
+   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 92 communes —
+   * so the map needs no eviction.
+   */
+  const CARTDS_TTL_MS = 6 * 60 * 60 * 1000;
+  /** A host's `robots.txt` verdict, re-read daily. */
+  const CARTDS_ROBOTS_TTL_MS = 24 * 60 * 60 * 1000;
+  const CARTDS_TIMEOUT_MS = 20_000;
+  /** A board page is ~30 KB; a robots.txt, a few lines. */
+  const CARTDS_PAGE_MAX_BYTES = 2 * 1024 * 1024;
+  /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
+  const CARTDS_SCHEMA = 1;
+  const CARTDS_USER_AGENT = 'Surplomb/1.0 (ads scan; +https://github.com/mml-studio/surplomb)';
+  /** insee → {at, value}. */
+  const cartdsCommunes = new Map();
+  /** origin → {at, allowed}. */
+  const cartdsRobots = new Map();
+  /** insee → the build in progress, so two scans of one commune ask once. */
+  const cartdsInFlight = new Map();
+
+  /** One request to an instance, or null. Never throws. */
+  async function cartdsFetch(url, init = {}) {
+    if (!(await awaitUpstreamSlot(url)).ok) return null;
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(CARTDS_TIMEOUT_MS),
+        headers: { 'User-Agent': CARTDS_USER_AGENT, ...(init.headers || {}) },
+      });
+      if (!response.ok) noteUpstreamStatus(url, response);
+      return response;
+    } catch (error) {
+      const cause = error?.cause?.code || error?.cause?.message || null;
+      console.warn(`[ADS Proxy] Cart@DS ${new URL(url).host}: ${error?.message || error}`
+        + (cause ? ` (${cause})` : ''));
+      return null;
+    }
+  }
+
+  /** A body as text under a ceiling, or null. */
+  async function cartdsText(response, maxBytes = CARTDS_PAGE_MAX_BYTES) {
+    try {
+      return await readResponseTextCapped(response, maxBytes);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether this instance's host lets a robot read the board (RFC 9309).
+   *
+   * No file (4xx) allows everything; a file is read for the two paths this
+   * proxy asks; an unreachable host allows nothing and is asked again next
+   * scan rather than cached. A 5xx means "down" to the RFC and is a refusal,
+   * except on a host the registry marks as answering 503 for every path —
+   * see `robots5xx` in `CARTDS_INSTANCES`.
+   */
+  async function cartdsRobotsVerdict(instance) {
+    const url = cartdsRobotsUrl(instance);
+    const { origin } = new URL(url);
+    const cached = cartdsRobots.get(origin);
+    if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.allowed;
+    const response = await cartdsFetch(url);
+    if (!response) return false;
+    let allowed;
+    if (response.status >= 500) allowed = instance.robots5xx === 'absent';
+    else if (response.status >= 400) allowed = true;
+    else {
+      const body = await cartdsText(response, 512 * 1024);
+      if (body === null) return false;
+      const base = new URL(instance.base).pathname;
+      allowed = robotsAllows(body, `${base}${CARTDS_PAGE_PATH}`)
+        && robotsAllows(body, `${base}${CARTDS_DATA_PATH}`);
+    }
+    if (!allowed) console.warn(`[ADS Proxy] Cart@DS ${origin}: robots.txt refuses, board not read`);
+    cartdsRobots.set(origin, { at: Date.now(), allowed });
+    return allowed;
+  }
+
+  /**
+   * Every row of one board, page by page, or null when it did not answer.
+   *
+   * A JSON answer without a `data` array is a failure, not an empty board: an
+   * instance that lost the session answers its error PAGE with HTTP 200.
+   */
+  async function readCartdsBoard(instance, commune, board, session) {
+    const rows = [];
+    let total = null;
+    for (let page = 0; page < CARTDS_MAX_PAGES; page += 1) {
+      const response = await cartdsFetch(cartdsDataUrl(instance), {
+        method: 'POST',
+        body: buildCartdsForm({
+          commune, board, token: session.token, start: page * CARTDS_PAGE_LENGTH,
+        }),
+        headers: {
+          Cookie: session.cookie,
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+      if (!response?.ok) return null;
+      const body = await cartdsText(response, ADDRESS_MAX_RESPONSE_BYTES);
+      let answer = null;
+      try { answer = JSON.parse(body ?? ''); } catch { return null; }
+      if (!Array.isArray(answer?.data)) return null;
+      rows.push(...answer.data);
+      total = Number(answer.recordsTotal);
+      if (!Number.isFinite(total) || rows.length >= total || !answer.data.length) break;
+    }
+    return { rows, truncated: Number.isFinite(total) && rows.length < total };
+  }
+
+  /**
+   * Read, fold and place one commune's boards.
+   *
+   * BOTH BOARDS OR NEITHER. Served alone, the filing board would draw every
+   * dossier as filed, including the ones the other board says were decided —
+   * a wrong answer that looks like a complete one. A board that fails fails
+   * the commune, and the report says `ok: false`.
+   */
+  async function buildCartdsCommune(instance, insee) {
+    const report = { key: `cartds-${instance.key}`, label: instance.label, licence: CARTDS_LICENCE };
+    const failed = { permits: [], portal: { ...report, ok: false, count: 0 } };
+    if (!(await cartdsRobotsVerdict(instance))) {
+      return { permits: [], portal: { ...report, ok: false, count: 0, refused: 'robots' } };
+    }
+    const page = await cartdsFetch(cartdsPageUrl(instance));
+    const html = page?.ok ? await cartdsText(page) : null;
+    const token = parseCartdsToken(html);
+    // The anti-forgery cookie the token is bound to. Without it the POST
+    // answers an error page.
+    const cookie = (page?.headers.getSetCookie?.() ?? [])
+      .map((line) => line.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ');
+    if (!token || !cookie) {
+      console.warn(`[ADS Proxy] Cart@DS ${instance.key}: no form token`);
+      return failed;
+    }
+    const commune = cartdsCommuneValue(instance, insee);
+    const rows = [];
+    let truncated = false;
+    for (const board of [CARTDS_BOARDS.filings, CARTDS_BOARDS.decisions]) {
+      const answer = await readCartdsBoard(instance, commune, board, { token, cookie });
+      if (!answer) {
+        console.warn(`[ADS Proxy] Cart@DS ${instance.key} ${insee}: board ${board} unavailable`);
+        return failed;
+      }
+      truncated ||= answer.truncated;
+      for (const row of answer.rows) {
+        const permit = normaliseCartdsRow(instance, insee, board, row);
+        if (permit) rows.push(permit);
+      }
+    }
+    const { permits: dossiers, folded } = foldCartdsDossiers(rows);
+    // The parcel first, the geocoder for the rest — the order `buildEdition`
+    // follows, for the same reason. No division chase: see `placeOnGround`.
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    let placed = ground.permits;
+    let geocoded = 0;
+    const csv = buildGeocodeCsv(placed);
+    if (csv) {
+      const answer = await geocodeBatch(csv);
+      if (answer) ({ permits: placed, geocoded } = applyGeocoding(placed, answer));
+    }
+    const standing = placed.filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits: standing,
+      portal: {
+        ...report,
+        ok: true,
+        count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0,
+        geocoded,
+        // Commune-wide, like `unplacedInCommune`: a row with no position
+        // cannot be said to be inside or outside the circle.
+        unplaced: dossiers.length - standing.length,
+        folded,
+        truncated,
+      },
+    };
+  }
+
+  /**
+   * The posted boards for the commune under the scan, cut to the window.
+   *
+   * The window cuts on the FILING date, as the métropole portals do upstream;
+   * a board is two months deep, so only a short window ever trims it.
+   */
+  async function loadCartds(communeCode, since) {
+    const instance = cartdsInstanceFor(communeCode);
+    if (!instance) return { permits: [], portals: [] };
+    const insee = String(communeCode).toUpperCase();
+    let entry = cartdsCommunes.get(insee);
+    if (!entry || Date.now() - entry.at >= CARTDS_TTL_MS) {
+      if (!cartdsInFlight.has(insee)) {
+        cartdsInFlight.set(insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `cartds${CARTDS_SCHEMA}-${insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < CARTDS_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              cartdsCommunes.set(insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildCartdsCommune(instance, insee);
+          const fresh = { at: Date.now(), value };
+          // A failed read, or one whose geocode our own pacing refused, is
+          // served to this scan and not kept: kept, it would stand for six
+          // hours as the commune's answer.
+          if (!value.portal.ok || pacingRefusal()) return fresh;
+          cartdsCommunes.set(insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => cartdsInFlight.delete(insee)));
+      }
+      entry = await cartdsInFlight.get(insee);
+    }
+    return {
+      permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
+      portals: [entry.value.portal],
+    };
+  }
+
   function install(middlewares) {
     installAddressRoute(middlewares, '/api/ads-fr', (url) => {
       const point = addressPoint(url.searchParams);
@@ -27476,9 +27741,12 @@ function adsFranceProxy() {
           if (!commune) return null;
           const sitadelCommune = foldToSitadelCommune(commune.code);
           if (!sitadelCommune) return null;
-          const [edition, placed] = await Promise.all([
+          // The commune's own boards run beside the two others: three hosts,
+          // none of them shared, so racing them costs no upstream anything.
+          const [edition, placed, posted] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
+            loadCartds(commune.code, since),
           ]);
           // TRAP 6: fold BEFORE merging. One operation filed once can appear
           // in three of the four Sitadel files, and three entities claiming
@@ -27489,6 +27757,7 @@ function adsFranceProxy() {
           const fromCounter = [
             ...edition.permits.filter((permit) => permit.source !== 'sitadel'),
             ...placed.permits,
+            ...posted.permits,
           ];
           const { permits, merged } = mergeRegisters(fromState, fromCounter);
           return projectAdsPermits({
@@ -27505,7 +27774,7 @@ function adsFranceProxy() {
               families: edition.families,
               // Multi-family dossiers collapsed into the one operation they are.
               folded,
-              portals: [...(edition.portals || []), ...placed.portals],
+              portals: [...(edition.portals || []), ...placed.portals, ...posted.portals],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could
               // not place better than their commune are not drawn at all.

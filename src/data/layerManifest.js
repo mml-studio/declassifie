@@ -228,7 +228,7 @@ export const LAYER_MANIFEST = Object.freeze([
     id: 'ads-fr',
     name: 'Autorisations d’urbanisme',
     icon: '⌂',
-    source: 'Sitadel — SDES + portails ADS',
+    source: 'Sitadel — SDES + portails ADS + affichage communal',
     capabilities: Object.freeze(['destroy', 'getStats', 'setParams', 'getParams']),
     defaultParams: Object.freeze({ months: '36' }),
     load: () => import('./adsUrbanisme.js').then((module) => module.default),

@@ -38,6 +38,13 @@
  * dossiers with real parcel POLYGONS, deposits to 2026-08-31; Nantes 3 960
  * dossiers, in-instruction plus three months of decisions.
  *
+ * ── Register 3: the communes' own boards, fresh, every family ───────────────
+ * Ninety-two communes post their filing notices and decisions on a Cart@DS
+ * « affichage réglementaire » board, days after the fact and including the
+ * déclarations préalables Sitadel never holds. `cartdsFeed.js` reads them and
+ * normalises them into the shape below, so they merge with Sitadel exactly as
+ * the métropole portals do.
+ *
  * ── Trap 1: Sitadel keys Paris, Lyon and Marseille at COMMUNE level ─────────
  * `COMM=eq:75113` answers *"Le fichier est vide"*; `75056` answers the whole
  * of Paris. So does `13055` against `13201`. This is the exact INVERSE of DVF
@@ -147,7 +154,7 @@ function frenchTable(catalog) {
 
 /** Attribution carried on every payload (see DATA_SOURCES.md). */
 // i18n-ignore-next-line — the registry owns a layer's source line (layerTaxonomy.i18n.js)
-export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains';
+export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains, + affichage réglementaire communal (Cart@DS)';
 
 /** DiDo's per-datafile JSON endpoint. Keyless, `access-control-allow-origin: *`. */
 export const SITADEL_JSON_BASE =
@@ -1416,7 +1423,17 @@ export function mergeRegisters(sitadel, local) {
   let merged = 0;
   const claimed = new Set();
   for (const permit of local) {
-    const twin = permit.key ? byKey.get(permit.key) : null;
+    // SAME NUMBER IS NOT SAME DOSSIER UNLESS IT IS THE SAME FAMILY. `DAU` is
+    // one series in the register, but many communes count their permis de
+    // construire and their déclarations préalables separately, so a PC and a
+    // DP can carry the same digits: Sitadel alone holds 2 to 8 such pairs per
+    // commune since 2020 at La Ciotat, Martigues, Orléans and Dol-de-Bretagne,
+    // at different addresses every time. Measured 2026-09-30 over deposits
+    // since 2024-01-01, every portal row whose Sitadel twin was of another
+    // family was another dossier — Nantes 5 of 5 matches, Paris 22 of 365 —
+    // and `graftEmprise` then drew it on that dossier's parcel.
+    const found = permit.key ? byKey.get(permit.key) : null;
+    const twin = found && found.kind === permit.kind ? found : null;
     if (!twin) {
       // `sources` is set on EVERY branch, including this one. It is what the
       // card reads to say which register a dossier came from, and a permit

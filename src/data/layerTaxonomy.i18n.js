@@ -203,8 +203,8 @@ export default defineMessages({
       en: 'Surplomb valuation — DVF comparables (Etalab / DGFiP)',
     },
     'ads-fr': {
-      fr: 'Sitadel — SDES + portails ADS',
-      en: 'Sitadel — SDES + planning-permit portals',
+      fr: 'Sitadel — SDES + portails ADS + affichage communal',
+      en: 'Sitadel — SDES + planning-permit portals + municipal notice boards',
     },
     'bruit-fr': {
       fr: 'Plans d’exposition au bruit — DGAC, via la Géoplateforme (data.geopf.fr)',
