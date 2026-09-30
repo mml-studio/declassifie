@@ -29,6 +29,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   one-second steps frozen, with jumps, to steady steps of a few metres. A
   position no ship could reach from the last one is shown only once a second
   report confirms it.
+- **Buses and trams stay legible under the NVG, FLIR and CRT looks.** NVG
+  and FLIR keep only brightness, which turned every transit vehicle the same
+  mid grey, the selected one included; each vehicle now draws white inside its
+  dark outline there, its shape still saying bus, tram or metro. Under CRT the
+  vehicle colours are saturated and the icons 4 px larger, so the pixel grid
+  no longer shreds them.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that

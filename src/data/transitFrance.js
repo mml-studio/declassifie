@@ -118,6 +118,7 @@ import {
 import { pickAt } from './pickAt.js';
 import { labelFor } from '../i18n/messages.js';
 import messages, { TRANSIT_OCCUPANCY, TRANSIT_STOP_STATUS } from './transitFrance.i18n.js';
+import { transitGlyphCss, transitGlyphSizeDelta } from './transitPresetStyle.js';
 
 /** Layer id — also the share-link registry key and the voice-tool enum value. */
 export const TRANSIT_FR_LAYER_ID = 'transit-fr';
@@ -342,6 +343,14 @@ let _lastFrameMs = 0;
 /** How many vehicles are currently drawn ahead of their own reported fix. */
 let _projectedCount = 0;
 let _selectedId = null;
+/**
+ * Active post-FX style (StyleManager preset name): read from
+ * `document.documentElement.dataset.gevStyle` at init, then followed through
+ * the `gev:style-change` window event. Drives `transitPresetStyle.js`.
+ */
+let _stylePreset = 'normal';
+/** The `gev:style-change` listener is bound once per page. */
+let _styleListenerBound = false;
 let _routeInFlight = null;
 let _routeGeneration = 0;
 let _routeTimer = null;
@@ -1090,24 +1099,53 @@ export function createTransitSelectedOverlayEntry(record, nowMs = Date.now()) {
   };
 }
 
+/**
+ * Colour and box size of one vehicle's glyph and heading wedge, from its kind,
+ * whether it is selected, and the active post-FX style. Every place that used
+ * to paint a glyph goes through here, so a style change repaints the fleet
+ * the same way a new poll would.
+ * @param {Object} record - Render record.
+ * @param {boolean} selected - Whether this is the selected vehicle.
+ */
+function applyGlyphStyle(record, selected) {
+  if (!record?.billboard) return;
+  const color = Cesium.Color.fromCssColorString(transitGlyphCss(_stylePreset, record.vehicle, {
+    selected,
+    baseCss: transitVehicleColor(record.vehicle),
+    selectedCss: SELECTED_COLOR,
+  }));
+  const delta = transitGlyphSizeDelta(_stylePreset);
+  const glyphPx = (selected ? GLYPH_SELECTED_PX : GLYPH_PX) + delta;
+  record.billboard.color = color;
+  record.billboard.width = glyphPx;
+  record.billboard.height = glyphPx;
+  if (record.pointer) {
+    const pointerPx = (selected ? POINTER_SELECTED_PX : POINTER_PX) + delta;
+    record.pointer.color = color;
+    record.pointer.width = pointerPx;
+    record.pointer.height = pointerPx;
+  }
+}
+
+/**
+ * Adopts a new post-FX style and repaints every drawn vehicle at once.
+ * @param {string|null|undefined} name - StyleManager preset name.
+ */
+function setStylePreset(name) {
+  const next = typeof name === 'string' && name ? name : 'normal';
+  if (next === _stylePreset) return;
+  _stylePreset = next;
+  for (const record of _records.values()) applyGlyphStyle(record, record.id === _selectedId);
+  governorRequestRender('transit-fr-style');
+}
+
 /** Clear the selection, restoring the base glyph. */
 function clearSelection() {
   if (_selectedId) {
-    const record = _records.get(_selectedId);
-    if (record?.billboard) {
-      const color = Cesium.Color.fromCssColorString(transitVehicleColor(record.vehicle));
-      record.billboard.color = color;
-      record.billboard.width = GLYPH_PX;
-      record.billboard.height = GLYPH_PX;
-      // The pointer is part of the same contact and follows it in and out of
-      // selection; a cyan wedge left orbiting a deselected bus would read as
-      // a second, still-tracked vehicle.
-      if (record.pointer) {
-        record.pointer.color = color;
-        record.pointer.width = POINTER_PX;
-        record.pointer.height = POINTER_PX;
-      }
-    }
+    // The pointer is part of the same contact and follows it in and out of
+    // selection; a cyan wedge left orbiting a deselected bus would read as a
+    // second, still-tracked vehicle.
+    applyGlyphStyle(_records.get(_selectedId), false);
   }
   _selectedId = null;
   _overlayHost.clearSource(TRANSIT_FR_OVERLAY_SOURCE_ID);
@@ -1186,16 +1224,7 @@ function selectVehicle(id) {
   const record = _records.get(id);
   if (!record || !_viewer) return;
   _selectedId = id;
-  if (record.billboard) {
-    record.billboard.color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
-    record.billboard.width = GLYPH_SELECTED_PX;
-    record.billboard.height = GLYPH_SELECTED_PX;
-    if (record.pointer) {
-      record.pointer.color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
-      record.pointer.width = POINTER_SELECTED_PX;
-      record.pointer.height = POINTER_SELECTED_PX;
-    }
-  }
+  applyGlyphStyle(record, true);
   publishSelectionCard(record);
   governorRequestRender('transit-fr-select');
   void loadSelectedRoute(record);
@@ -1475,9 +1504,12 @@ function reconcile(vehicles, feedsById, nowMs) {
         show: floorKnown,
         position,
         image,
-        width: GLYPH_PX,
-        height: GLYPH_PX,
-        color: Cesium.Color.fromCssColorString(transitVehicleColor(vehicle)),
+        width: GLYPH_PX + transitGlyphSizeDelta(_stylePreset),
+        height: GLYPH_PX + transitGlyphSizeDelta(_stylePreset),
+        color: Cesium.Color.fromCssColorString(transitGlyphCss(_stylePreset, vehicle, {
+          baseCss: transitVehicleColor(vehicle),
+          selectedCss: SELECTED_COLOR,
+        })),
         rotation: 0,
         alignedAxis: Cesium.Cartesian3.ZERO,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -1540,7 +1572,7 @@ function reconcile(vehicles, feedsById, nowMs) {
     }
     // And the pointer tracks the HEADING, which a feed can start or stop
     // publishing between two polls.
-    syncHeadingPointer(record, id === _selectedId ? POINTER_SELECTED_PX : POINTER_PX);
+    syncHeadingPointer(record, (id === _selectedId ? POINTER_SELECTED_PX : POINTER_PX) + transitGlyphSizeDelta(_stylePreset));
     // A selected vehicle that has been given a new trip is running a
     // different line, or the same line the other way. The drawn run follows
     // it rather than staying on the one that was open when it was clicked.
@@ -1549,11 +1581,8 @@ function reconcile(vehicles, feedsById, nowMs) {
       record.route = null;
       void loadSelectedRoute(record);
     }
-    if (id !== _selectedId) {
-      const color = Cesium.Color.fromCssColorString(transitVehicleColor(vehicle));
-      record.billboard.color = color;
-      if (record.pointer) record.pointer.color = color;
-    }
+    // A new poll can change the kind a vehicle resolves to.
+    if (id !== _selectedId) applyGlyphStyle(record, false);
     // Re-anchor the run on the fix that just arrived. The trace of a SELECTED
     // vehicle is the better path and is kept when it still fits this trip; for
     // everyone else the run is rebuilt from the stops the answer carried.
@@ -1923,6 +1952,16 @@ const transitFranceLayer = {
     _floorPending = 0;
 
     _overlayHost.setVisible(TRANSIT_FR_OVERLAY_SOURCE_ID, false);
+    // Glyphs follow the post-FX style: read the one a restored session already
+    // applied, then StyleManager's event. Bound once per page; init survives
+    // layer destroy/re-register.
+    if (typeof window !== 'undefined') {
+      _stylePreset = globalThis.document?.documentElement?.dataset?.gevStyle || 'normal';
+      if (!_styleListenerBound) {
+        window.addEventListener('gev:style-change', (event) => setStylePreset(event?.detail?.style));
+        _styleListenerBound = true;
+      }
+    }
     // The drawn run belongs to the selected vehicle and shares its lifecycle.
     initTransitRouteView(viewer);
     restoreSpriteOrder(viewer);
