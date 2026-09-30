@@ -17,6 +17,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Conches-en-Ouche, the Pays de Fayence, Bergerac and Mouleydier,
   Porto-Vecchio, Châtillon and Soultz-Haut-Rhin. A dossier filed and not yet
   decided reads « Déposé » (“Filed”); a person's name never appears.
+- **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
+  publish as acts** on publication-actes.fr, the fence, the pool and the
+  windows the national register never holds included: 238 dossiers at
+  Ustaritz (165 on their cadastral parcel, read from the commune's fortnightly
+  list of filed dossiers), 263 at Ciboure and 544 at Monts, placed by the
+  address in their title. A refusal, an objection or a withdrawal reads as
+  such; any other decision of these three communes reads « Accordé »
+  (“Granted”), as their titles name a verdict only when it is no. A person's
+  name never appears.
 - **What those communes post stays on the map after their board lets it go.**
   A board keeps a decision for its two-month posting period, and nothing
   public keeps it afterwards. The server now keeps every row it reads and
@@ -431,6 +440,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **A dossier a commune had only listed as filed read « Déposé » (“Filed”)
+  next to the date the State granted it.** When Sitadel holds the same
+  dossier, its state now wins over a filing notice, which claims nothing past
+  the filing.
 - **A building permit and a prior declaration that shared their number were
   merged into one dossier**, and the permit was drawn on the other dossier's
   parcel: 22 of 365 Paris dossiers matched to the national
