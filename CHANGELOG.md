@@ -50,6 +50,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   attribution; `config/cctv-packs/README.md` gives the format. Upstream God's
   Eye View's camera files load as they are. No new city ships with this: the
   next one needs a French publisher whose licence allows showing its frames.
+- **A selected bus or tram shows where it has been.** A cyan line follows
+  its last fifteen minutes up to the vehicle, which it never overtakes. The
+  server keeps the recent positions of every vehicle it has read, so the line
+  is there at the first click, and again after a reload: in Bordeaux, a
+  quarter of a second after selecting the same bus.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that

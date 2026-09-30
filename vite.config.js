@@ -410,6 +410,7 @@ import {
   tripUpdatesFromBytes,
   vehiclePositionsFromBytes,
 } from './src/data/gtfsRealtime.js';
+import { createTransitTrailStore } from './src/data/transitTrail.js';
 import { boundsOfPoints, boxKey, boxesIntersect, snapBoxOutward, validBox } from './src/data/viewportBox.js';
 import { buildDepartementIndex, departementsInBox } from './src/data/franceDepartements.js';
 import { createPlaceOutlineService, parsePlaceOutlineRequest } from './src/placeOutline.js';
@@ -14604,6 +14605,13 @@ let _panRouteTypes = new Map();
 const _panFeedCache = new Map();
 const _panFeedInFlight = new Map();
 /**
+ * Where each live vehicle has been over the last fifteen minutes, filled from
+ * every feed body this proxy decodes and read by `/api/transit-fr/trail`, so
+ * the trail behind a selected bus exists at the first click and survives a
+ * reload. Bounded in samples, age and vehicles — see `src/data/transitTrail.js`.
+ */
+const _panTrails = createTransitTrailStore();
+/**
  * Companion body cache, keyed `kind:url`.
  *
  * By URL and not by feed id, because a dataset can point several position
@@ -14819,6 +14827,16 @@ async function panFeedVehicles(feed) {
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (bytes.byteLength > PAN_FEED_MAX_BYTES) throw new Error('feed body too large');
       const { vehicles } = vehiclePositionsFromBytes(bytes, { feedId: feed.id });
+      // Where each vehicle was, by the operator's own clock when it gives one
+      // that is not in the future; by the time of this fetch otherwise.
+      const fetchedSec = Date.now() / 1000;
+      for (const vehicle of vehicles) {
+        const reportedSec = Number.isFinite(vehicle.timestampMs) && vehicle.timestampMs > 0
+          ? vehicle.timestampMs / 1000
+          : NaN;
+        const atSec = reportedSec <= fetchedSec + 10 ? reportedSec : fetchedSec;
+        _panTrails.record(vehicle.id, vehicle.lat, vehicle.lon, atSec);
+      }
       // 63 of the 150 feeds publish positions, predictions and alerts as one
       // `FeedMessage` under one resource id. For those the delay of every bus
       // on screen is already in hand — the same bytes read a second way, at no
@@ -15841,6 +15859,19 @@ function panTransitProxy() {
           console.warn('[PAN Transit] line unavailable:', error?.message || error);
           json(503, { error: 'Line geometry is temporarily unavailable' });
         }
+        return;
+      }
+
+      if (route === '/trail') {
+        // Read-only: what this server has already decoded for one vehicle.
+        // Never asks an operator anything, so it answers even a vehicle that
+        // has left every cached viewport.
+        const id = String(url.searchParams.get('id') || '').trim();
+        if (!id || id.length > 200) {
+          json(400, { error: 'A vehicle id of at most 200 characters is required' });
+          return;
+        }
+        json(200, { id, retentionSec: _panTrails.retentionSec, fixes: _panTrails.read(id, Date.now() / 1000) });
         return;
       }
 
