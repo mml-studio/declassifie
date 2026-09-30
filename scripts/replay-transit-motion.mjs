@@ -31,21 +31,9 @@
 import { readFileSync } from 'node:fs';
 import { createTrack, displayTime, pushFix, sampleTrack } from '../src/data/contactPlayback.js';
 import { advanceAlongRun, runFromWireVehicle } from '../src/data/transitProjection.js';
-
-/**
- * The engine settings replayed for buses: one 15 s poll plus ten seconds to
- * start, then each vehicle's own gaps; `--grid` scans the percentile and the
- * margin around them.
- */
-const TRANSIT_PLAYBACK = Object.freeze({
-  capacity: 16,
-  retentionMs: 15 * 60_000,
-  minLagMs: 5_000,
-  maxLagMs: 120_000,
-  marginMs: 5_000,
-  initialLagMs: 25_000,
-  breakAboveMps: 60,
-});
+// The settings the layer ships; `--grid` scans the percentile and the margin
+// around them.
+import { TRANSIT_PLAYBACK } from '../src/data/transitFrance.js';
 
 /** The glide the layer drew before the playback engine, kept here to replay it. */
 function glideDurationMs(previousFixMs, nextFixMs) {

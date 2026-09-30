@@ -6,6 +6,7 @@
 // mid-glide between two fixes), and the selected entry keeps the protected
 // paint lane so a moving card cannot be decluttered out from under a click.
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 import transitFranceLayer, {
@@ -16,7 +17,7 @@ import transitFranceLayer, {
   transitScheduleReadout,
   cameraTransitBox,
   createTransitSelectedOverlayEntry,
-  glideDurationMs,
+  TRANSIT_PLAYBACK,
   transitKindReadout,
   transitModeColor,
   transitVehicleGlyphUri,
@@ -32,6 +33,7 @@ import transitFranceLayer, {
   TRANSIT_FR_OVERLAY_SOURCE_OPTIONS,
 } from './transitFrance.js';
 import { PAN_MAX_BOX_DEG } from './panFeeds.js';
+import { createTrack, pushFix, sampleTrack } from './contactPlayback.js';
 import { vehicleKindColor } from './transitVehicleKind.js';
 import { transitVehicleGlyph, TRANSIT_GLYPH_KINDS } from './transitVehicleIcons.js';
 
@@ -305,22 +307,49 @@ test('the row legend counts vehicle classes, and names the ones it could not res
   assert.deepEqual(transitFranceLayer.getRowControls().legend, []);
 });
 
-test('a glyph travels between two fixes at the speed the feed implies', () => {
+test('a glyph travels between two fixes at the speed the feed implies, on the playback clock', () => {
   const fix = 1787765200000;
-  // The common case: a vehicle reporting on the poll cadence.
-  assert.equal(glideDurationMs(fix, fix + 15_000), 15_000);
-  // A coach reporting once a minute moves ~1.9 km between fixes. Sliding that
-  // across one 15 s poll would render a bus doing 460 km/h, then parking.
-  assert.equal(glideDurationMs(fix, fix + 60_000), 60_000);
-  // Feeds without per-vehicle timestamps fall back to the poll cadence.
-  assert.equal(glideDurationMs(null, fix), 15_000);
-  assert.equal(glideDurationMs(fix, null), 15_000);
-  // A clock that went backwards is not a travel time.
-  assert.equal(glideDurationMs(fix, fix - 5_000), 15_000);
-  // Bounded at both ends: a burst of refreshes cannot make the fleet stutter,
-  // and nothing creeps past the window in which a feed is still reporting.
-  assert.equal(glideDurationMs(fix, fix + 200), 3_000);
-  assert.equal(glideDurationMs(fix, fix + 10 * 60_000), 90_000);
+  // A coach reporting once a minute moves ~1.9 km between fixes: drawn on a
+  // clock a steady delay behind, it covers them in the minute they took, and
+  // never races ahead to the newest one on the poll that brings it.
+  const track = createTrack(TRANSIT_PLAYBACK);
+  pushFix(track, { t: fix, lat: 44.84, lon: -0.58, h: 10 }, fix + 5_000);
+  pushFix(track, { t: fix + 60_000, lat: 44.857, lon: -0.58, h: 12 }, fix + 65_000);
+  const mid = sampleTrack(track, fix + 30_000);
+  assert.equal(mid.state, 'between');
+  assert.ok(Math.abs(mid.lat - 44.8485) < 1e-9);
+  assert.ok(Math.abs(mid.u - 0.5) < 1e-9, 'the layer interpolates its height with the same fraction');
+  assert.ok(mid.speedMps > 30 && mid.speedMps < 33, `${mid.speedMps} m/s over the minute`);
+  // A first fix is never drawn before it is known, and never past the newest.
+  assert.equal(TRANSIT_PLAYBACK.initialLagMs, 25_000, 'one 15 s poll plus ten seconds');
+  assert.equal(sampleTrack(track, fix + 120_000).state, 'holding');
+});
+
+test('a bus is drawn the median of its own gaps behind real time, with no margin', () => {
+  // The vessels' 95th percentile plus 5 s drew buses 237 m from where they
+  // were in Bordeaux (median, replayed); the median gap alone, 155 m.
+  assert.equal(TRANSIT_PLAYBACK.lagRank, 0.5);
+  assert.equal(TRANSIT_PLAYBACK.marginMs, 0);
+  const fix = 1787765200000;
+  const track = createTrack(TRANSIT_PLAYBACK);
+  // Reports 15 s apart, each arriving 5 s after it was taken, one late by 40 s.
+  const arrivals = [5, 20, 35, 50, 65, 80, 95, 150];
+  arrivals.forEach((at, i) => {
+    pushFix(track, { t: fix + i * 15_000, lat: 44.84 + i * 1e-3, lon: -0.58, h: 10 }, fix + at * 1_000);
+  });
+  // Report-to-next-arrival gaps: six of 20 s, one of 60 s. The median covers
+  // the common one; the late one is waited out at the newest fix instead.
+  assert.equal(track.targetLagMs, 20_000);
+});
+
+test('the layer draws from the playback track and projects only past the newest fix', () => {
+  const source = readFileSync(new URL('./transitFrance.js', import.meta.url), 'utf8');
+  assert.match(source, /pushFix\(record\.track, transitFixOf\(vehicle, nowMs\), nowMs\);/);
+  assert.match(source, /if \(sampleTrack\(record\.track, displayAt, _projectionSample\)\.state !== 'holding'\) \{/);
+  assert.match(source, /if \(record\.projected && sample\.state === 'holding'\) \{\n      wanted = record\.target;/);
+  // Past the newest fix, the run is read on the playback clock, not real time.
+  assert.match(source, /advanceAlongRun\(record\.run, displayAt, undefined, record\.projection\)/);
+  assert.doesNotMatch(source, /tweenMs|glideDurationMs/, 'the old glide is gone');
 });
 
 // --- The card, once the line under the vehicle has resolved ----------------
