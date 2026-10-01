@@ -153,7 +153,14 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  * Métropole runs Cart@DS too, behind a JavaScript challenge that answers
  * every request without a browser, `robots.txt` included; it is not read.
  *
- * Five of the twenty-one kept answer `robots.txt` with `Disallow: /` and carry
+ * One more on 2026-10-01, named by the communes' own notices: the Grand
+ * Reims's portal `portailprourba.grandreims.fr`, whose menu offers five
+ * communes of the urban community and not Reims. The scan never saw it: its
+ * `grandreims.geosphere.fr` tenant is the software's back-office, with no
+ * board, and this host is outside the family. Its front refuses a board's
+ * POST that does not name the page it comes from (see `readCartdsBoard`).
+ *
+ * Five of the twenty-two kept answer `robots.txt` with `Disallow: /` and carry
  * `robots: 'overridden'` — Le Cotentin, Grand Libournais, Conches-en-Ouche,
  * Sainte-Marie (La Réunion), Brie Nangissienne; see Trap 5. They added 37
  * communes and 1 850 rows, 99.1 % of them naming their parcel.
@@ -374,6 +381,15 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     codes: 'insee',
     intermediate: 'sectigo-dv-r36',
     communes: Object.freeze(['94046']),
+  }),
+  Object.freeze({
+    key: 'grandreims',
+    base: 'https://portailprourba.grandreims.fr/guichet-unique',
+    label: 'Grand Reims — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    // Bétheny, Cormicy, Hermonville, Taissy, Witry-lès-Reims: the menu's
+    // five, Reims itself not among them.
+    communes: Object.freeze(['51055', '51171', '51291', '51562', '51662']),
   }),
 ]);
 

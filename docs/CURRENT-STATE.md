@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4652,14 +4652,21 @@ every scan inside that commune afterwards is served from cache.
 Their permits are instructed with Inetum's Cart@DS software, whose public
 *affichage réglementaire* board is the same table on every instance: filing
 notices (*avis de dépôt*) and decisions, every family, 0 to 7 days after the
-fact (`src/data/cartdsFeed.js`). Twenty-one instances are read — Bretagne
+fact (`src/data/cartdsFeed.js`). Twenty-two instances are written by hand — Bretagne
 romantique (41 communes), Saint-Étienne Métropole (34), Aix-Marseille-Provence
 (26), Dijon Métropole (22), Brie Nangissienne (20), Orléans Métropole (12),
 Grand Libournais (9), Pays de Fayence (8), Le Cotentin (6), the Grand Nancy
 (4), ATD 24 (2), Toulon, Champigny-sur-Marne, Joinville-le-Pont,
 Charenton-le-Pont, Maisons-Alfort, Porto-Vecchio, Châtillon, Soultz-Haut-Rhin,
-Conches-en-Ouche and Sainte-Marie on La Réunion; the eight added on
-2026-10-01 brought 65 communes and 1.13 million inhabitants. The four
+Conches-en-Ouche, Sainte-Marie on La Réunion and the Grand Reims (5: Bétheny,
+Cormicy, Hermonville, Taissy, Witry-lès-Reims — not Reims, which its menu
+does not offer); the eight added on 2026-10-01 brought 65 communes and 1.13
+million inhabitants, the Grand Reims 161 rows on its first reading. Its front
+(`portailprourba.grandreims.fr`, outside the `geosphere.fr` family the scan
+walks) refuses a board's POST that does not name the page it comes from, so
+every board request now carries the page as `Referer` and its origin as
+`Origin`, as the page's own form does — a same-origin check, no challenge,
+the user agent unchanged. The four
 `pemb.fr` hosts send their certificate without the Sectigo intermediate that
 signed it, and so has `ads.lecotentin.fr` since it renewed its certificate on
 2026-09-30, which Node refuses; the server adds that one intermediate to its

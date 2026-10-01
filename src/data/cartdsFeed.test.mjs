@@ -64,10 +64,11 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
       seen.set(code, instance.key);
     }
   }
-  // Written by hand: 129 communes on 2026-09-30, 65 more on 2026-10-01. The
-  // scan's are on top, and the loop above already refused any it shares.
+  // Written by hand: 129 communes on 2026-09-30, 65 and Grand Reims's 5 more
+  // on 2026-10-01. The scan's are on top, and the loop above already refused
+  // any it shares.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 194);
+  assert.equal(seen.size - scanned, 199);
   assert.ok(CARTDS_SCANNED_INSTANCES.every((instance) => CARTDS_INSTANCES.includes(instance)));
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
