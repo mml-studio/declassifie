@@ -351,6 +351,15 @@ import {
   PERMIT_LISTS_LICENCE,
   PERMIT_LIST_ROWS,
 } from './src/data/permitListsFeed.js';
+import {
+  epermisBoardsByCommune,
+  epermisInstanceFor,
+  epermisRecentWindow,
+  normaliseEpermisRow,
+  EPERMIS_INSTANCES,
+  EPERMIS_LICENCE,
+  EPERMIS_ROWS,
+} from './src/data/epermisFeed.js';
 import { extractPdfText } from './src/data/pdfText.js';
 import { organisationApplicant } from './src/data/permitApplicant.js';
 import { archivedCartdsRows, cartdsDay } from './src/data/cartdsArchive.js';
@@ -388,6 +397,12 @@ import {
   sweepMmmArchive,
   MMM_ARCHIVE_DIR,
 } from './scripts/lib/mmmPermits.mjs';
+import {
+  createEpermisReader,
+  epermisRobotsVerdict as askEpermisRobots,
+  sweepEpermisArchive,
+  EPERMIS_ARCHIVE_DIR,
+} from './scripts/lib/epermisBoards.mjs';
 import {
   anchorParcels,
   assignDivision,
@@ -26987,7 +27002,10 @@ function emploiFranceProxy() {
  *
  * The same holds for the other family of boards, Sirap's PU (`sirapFeed.js`):
  * an open JSON endpoint this time, but no CORS header either, the same
- * forgetting, and so the same archive and daily sweep.
+ * forgetting, and so the same archive and daily sweep. And for Métropole Nice
+ * Côte d'Azur's e-permis board (`epermisFeed.js`), whose API wants the token
+ * the page itself gets: one reading answers all its communes, so the server
+ * reads it once and hands each commune its share.
  *
  * The fourth, the acts three communes publish on publication-actes.fr
  * (`publicationActesFeed.js`), has an open API; it is read here because its
@@ -27860,15 +27878,16 @@ function adsFranceProxy() {
   function armCartdsSweep(preview) {
     if (cartdsSweepArmed || cartdsSweepMode(preview) !== 'daily') return;
     cartdsSweepArmed = true;
-    // The PU boards and the cities' PDF lists are swept on the same clock:
-    // other hosts, a minute's work each.
+    // The PU boards, the cities' PDF lists and e-permis are swept on the same
+    // clock: other hosts, a minute's work each.
     // Montpellier's métropole files too, once that day's export is out.
     const sweep = () => {
       void sweepCartdsIfDue(); void sweepSirapIfDue(); void sweepPermitListsIfDue(); void sweepMmmIfDue();
+      void sweepEpermisIfDue();
     };
     setTimeout(sweep, CARTDS_SWEEP_WARMUP_MS).unref?.();
     setInterval(sweep, CARTDS_SWEEP_CHECK_MS).unref?.();
-    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board, every city list and the Montpellier métropole files once a day, into ${CARTDS_ARCHIVE_DIR}, ${SIRAP_ARCHIVE_DIR}, ${PERMIT_LISTS_ARCHIVE_DIR} and ${MMM_ARCHIVE_DIR}`);
+    console.log(`[cartds-archive] armed — every Cart@DS, Sirap and e-permis board, every city list and the Montpellier métropole files once a day, into ${CARTDS_ARCHIVE_DIR}, ${SIRAP_ARCHIVE_DIR}, ${EPERMIS_ARCHIVE_DIR}, ${PERMIT_LISTS_ARCHIVE_DIR} and ${MMM_ARCHIVE_DIR}`);
   }
 
   /**
@@ -28056,6 +28075,201 @@ function adsFranceProxy() {
         })().finally(() => sirapInFlight.delete(insee)));
       }
       entry = await sirapInFlight.get(insee);
+    }
+    return {
+      permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
+      portals: [entry.value.portal],
+    };
+  }
+
+  // --- What a métropole posts on e-permis -----------------------------------
+  /**
+   * One commune's dossiers off the métropole's e-permis board, read,
+   * archived, folded and placed — the Sirap path above for a board that
+   * answers for a whole métropole at once (`epermisFeed.js`). Same six hours, same
+   * bound in memory, same disk copy.
+   *
+   * ONE READING FOR THE MÉTROPOLE. The API filters nothing by commune (Trap 2
+   * of `epermisFeed.js`), so its two lists are read once over the recent
+   * window, held six hours, and every commune of the métropole takes its rows
+   * from that reading: ten requests or so, a page of decisions taking six
+   * seconds, for whichever of its communes is scanned first.
+   */
+  const EPERMIS_TTL_MS = 6 * 60 * 60 * 1000;
+  /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
+  const EPERMIS_SCHEMA = 1;
+  /** insee → {at, value}. */
+  const epermisCommunes = new Map();
+  /** insee → the build in progress. */
+  const epermisInFlight = new Map();
+  /** instance key → {at, value}: the métropole's last recent reading. */
+  const epermisReadings = new Map();
+  /** instance key → the reading in progress. */
+  const epermisReadingInFlight = new Map();
+  /** instance key → {at, allowed}. */
+  const epermisRobots = new Map();
+  /** instance key → its reader: the token, the environment, the queue. */
+  const epermisReaders = new Map();
+  /** Every row the board ever showed, kept like a Cart@DS board's. */
+  const epermisArchive = createCartdsArchiveStore(path.join(process.cwd(), EPERMIS_ARCHIVE_DIR), console, EPERMIS_ROWS);
+
+  /** ONE reader per publisher, shared by scans and the sweep, so that every
+   *  request to clicmap waits for the one before it. */
+  function epermisReader(instance) {
+    if (!epermisReaders.has(instance.key)) {
+      epermisReaders.set(instance.key, createEpermisReader(instance, cartdsHttp, { log: console }));
+    }
+    return epermisReaders.get(instance.key);
+  }
+
+  /** Whether the three hosts let a robot read the board, remembered for a day. */
+  async function epermisRobotsVerdict(instance) {
+    const cached = epermisRobots.get(instance.key);
+    if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.allowed;
+    const verdict = await askEpermisRobots(instance, cartdsHttp);
+    if (!verdict.final) return false;
+    if (!verdict.allowed) console.warn(`[ADS Proxy] e-permis ${instance.key}: robots.txt refuses, board not read`);
+    epermisRobots.set(instance.key, { at: Date.now(), allowed: verdict.allowed });
+    return verdict.allowed;
+  }
+
+  /**
+   * A failed reading is not asked again for half an hour: a row the server
+   * cannot send fails every read of its window (Trap 10 of `epermisFeed.js`),
+   * and every commune's scan must not pay that again. The daily sweep reads
+   * such a window a day at a time; scans meanwhile serve the archive.
+   */
+  const EPERMIS_RETRY_MS = 30 * 60 * 1000;
+
+  /** The métropole's two lists over the recent window, or null. Held six
+   *  hours when it answered, half an hour when it did not. */
+  async function readEpermisRecent(instance) {
+    const held = epermisReadings.get(instance.key);
+    if (held && Date.now() - held.at < (held.value ? EPERMIS_TTL_MS : EPERMIS_RETRY_MS)) return held.value;
+    if (!epermisReadingInFlight.has(instance.key)) {
+      epermisReadingInFlight.set(instance.key, (async () => {
+        const value = await epermisReader(instance).readWindow(epermisRecentWindow(cartdsDay()));
+        epermisReadings.set(instance.key, { at: Date.now(), value });
+        return value;
+      })().finally(() => epermisReadingInFlight.delete(instance.key)));
+    }
+    return epermisReadingInFlight.get(instance.key);
+  }
+
+  /** Read, archive, fold and place one commune's rows. The archive is drawn. */
+  async function buildEpermisCommune(instance, insee) {
+    const report = { key: `epermis-${instance.key}`, label: instance.label, licence: EPERMIS_LICENCE };
+    const failed = { permits: [], portal: { ...report, ok: false, count: 0 } };
+    if (!(await epermisRobotsVerdict(instance))) {
+      return { permits: [], portal: { ...report, ok: false, count: 0, refused: 'robots' } };
+    }
+    const live = await readEpermisRecent(instance);
+    if (!live) console.warn(`[ADS Proxy] e-permis ${instance.key}: the board is unavailable, ${insee} served from its archive`);
+    const mine = live ? epermisBoardsByCommune(instance, live.boards).communes.get(insee) : null;
+    const { archive } = mine
+      ? await epermisArchive.record(instance, insee, mine, cartdsDay())
+      : await epermisArchive.load(instance, insee);
+    const stored = archivedCartdsRows(archive);
+    if (!live && !stored.length) return failed;
+    const rows = [];
+    for (const row of stored) {
+      const permit = normaliseEpermisRow(instance, row.board, row.cells);
+      if (permit) rows.push(permit);
+    }
+    // One row per dossier, the decision's when there is one: the filing and
+    // the decision of one dossier are two rows, as on a Cart@DS board.
+    const { permits: dossiers, folded } = foldCartdsDossiers(rows);
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    let placed = ground.permits;
+    let geocoded = 0;
+    const csv = buildGeocodeCsv(placed);
+    if (csv) {
+      const answer = await geocodeBatch(csv);
+      if (answer) ({ permits: placed, geocoded } = applyGeocoding(placed, answer));
+    }
+    const standing = placed.filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits: standing,
+      portal: {
+        ...report,
+        ok: true,
+        live: Boolean(live),
+        count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0,
+        geocoded,
+        unplaced: dossiers.length - standing.length,
+        folded,
+        truncated: Boolean(live?.truncated),
+        // `offBoard` here counts the rows no longer in the recent window: the
+        // history the sweep read once, and the filings decided since.
+        archive: {
+          since: archive.firstDay,
+          through: archive.lastDay,
+          days: archive.days,
+          offBoard: stored.filter((row) => row.last < archive.lastDay).length,
+        },
+      },
+    };
+  }
+
+  /** The daily sweep of the e-permis board, beside the Cart@DS and PU ones. */
+  let epermisSweeping = null;
+  async function sweepEpermisIfDue() {
+    if (epermisSweeping) return epermisSweeping;
+    epermisSweeping = (async () => {
+      const day = cartdsDay();
+      const previous = await readCartdsSweepStamp(epermisArchive.dir);
+      if (!cartdsSweepDue(previous, day)) return null;
+      const summary = await sweepEpermisArchive({
+        instances: EPERMIS_INSTANCES,
+        store: epermisArchive,
+        readerFor: epermisReader,
+        robots: async (instance) => ({ allowed: await epermisRobotsVerdict(instance) }),
+        day,
+        previous,
+      });
+      await writeCartdsSweepStamp(epermisArchive.dir, summary);
+      return summary;
+    })().catch((error) => {
+      console.warn(`[epermis-archive] sweep failed: ${error?.message || error}`);
+      return null;
+    }).finally(() => { epermisSweeping = null; });
+    return epermisSweeping;
+  }
+
+  /** The e-permis rows for the commune under the scan, cut to the filing date. */
+  async function loadEpermis(communeCode, since) {
+    const instance = epermisInstanceFor(communeCode);
+    if (!instance) return { permits: [], portals: [] };
+    const insee = String(communeCode).toUpperCase();
+    let entry = epermisCommunes.get(insee);
+    if (!entry || Date.now() - entry.at >= EPERMIS_TTL_MS) {
+      if (!epermisInFlight.has(insee)) {
+        epermisInFlight.set(insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `epermis${EPERMIS_SCHEMA}-${insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < EPERMIS_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              rememberPostedCommune(epermisCommunes, insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildEpermisCommune(instance, insee);
+          const fresh = { at: Date.now(), value };
+          // As for the other boards: a failed read, an archive served for a
+          // board that did not answer, or a geocode our pacing refused, is
+          // served to this scan and not kept.
+          if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
+          rememberPostedCommune(epermisCommunes, insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => epermisInFlight.delete(insee)));
+      }
+      entry = await epermisInFlight.get(insee);
     }
     return {
       permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
@@ -28722,16 +28936,18 @@ function adsFranceProxy() {
           const sitadelCommune = foldToSitadelCommune(commune.code);
           if (!sitadelCommune) return null;
           // What the commune posts and publishes itself runs beside the two
-          // others: six hosts, none of them shared, so racing them costs no
-          // upstream anything. At most one of the last four answers — no
-          // commune is on two of a Cart@DS board, a PU board,
-          // publication-actes.fr and a city's PDF lists
-          // (`sirapFeed.test.mjs` holds the registries to that).
-          const [edition, placed, posted, postedPu, published, listed, opened] = await Promise.all([
+          // others: hosts none of them share, so racing them costs no
+          // upstream anything. At most one of the last six answers — no
+          // commune is on two of a Cart@DS board, a PU board, the e-permis
+          // board, publication-actes.fr, a city's PDF lists and Montpellier's
+          // métropole files (`sirapFeed.test.mjs` holds the registries to
+          // that).
+          const [edition, placed, posted, postedPu, postedEp, published, listed, opened] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
             loadCartds(commune.code, since),
             loadSirap(commune.code, since),
+            loadEpermis(commune.code, since),
             loadPublicationActes(commune.code, since),
             loadPermitLists(commune.code, since),
             loadMmmPermits(commune.code, since),
@@ -28750,6 +28966,7 @@ function adsFranceProxy() {
             ...placed.permits,
             ...posted.permits,
             ...postedPu.permits,
+            ...postedEp.permits,
             ...published.permits,
             ...listed.permits,
             ...metropole.permits,
@@ -28771,7 +28988,7 @@ function adsFranceProxy() {
               folded,
               portals: [
                 ...(edition.portals || []), ...placed.portals, ...posted.portals, ...postedPu.portals,
-                ...published.portals, ...listed.portals,
+                ...postedEp.portals, ...published.portals, ...listed.portals,
                 ...opened.portals.map((portal) => ({
                   ...portal, sitadelTwins: metropole.twins, publishedLag: mmmLagSummary(metropole.lags),
                 })),

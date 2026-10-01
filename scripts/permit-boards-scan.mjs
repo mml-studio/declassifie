@@ -52,6 +52,7 @@ import { LOCAL_ADS_PORTALS } from '../src/data/adsFeed.js';
 import { SIRAP_INSTANCES } from '../src/data/sirapFeed.js';
 import { SIRAP_SCANNED_INSTANCES } from '../src/data/sirapScanned.js';
 import { PUBLICATION_ACTES_COMMUNES } from '../src/data/publicationActesFeed.js';
+import { EPERMIS_INSTANCES } from '../src/data/epermisFeed.js';
 import { CARTDS_USER_AGENT, trustCartdsIntermediates } from './lib/cartdsArchive.mjs';
 import {
   candidatesFromCdx,
@@ -347,6 +348,7 @@ for (const instance of CARTDS_INSTANCES) if (!CARTDS_SCANNED_INSTANCES.includes(
 for (const portal of LOCAL_ADS_PORTALS) claim(portal.communes, `portal:${portal.key}`);
 for (const instance of SIRAP_INSTANCES) if (!SIRAP_SCANNED_INSTANCES.includes(instance)) claim(instance.communes, `sirap:${instance.key}`);
 claim(PUBLICATION_ACTES_COMMUNES.map((commune) => commune.insee), 'publication-actes');
+for (const instance of EPERMIS_INSTANCES) claim(instance.communes, `epermis:${instance.key}`);
 
 const epciNames = new Map(epcis.map((epci) => [epci.code, epci.nom]));
 const { instances, skipped } = keepScannedInstances({
