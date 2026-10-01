@@ -55,6 +55,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   server keeps the recent positions of every vehicle it has read, so the line
   is there at the first click, and again after a reload: in Bordeaux, a
   quarter of a second after selecting the same bus.
+- **Buses and trams glide instead of jumping.** They move on the same
+  playback engine as the ships, drawn between the positions they reported,
+  about one report behind real time, and carried along their line by the
+  timetable once the newest report is passed. The jumps are gone (over
+  Bordeaux, the fastest 1% of one-second moves fell from over 100 m to 21-31 m),
+  at a cost: a bus is drawn further behind where it is (155 m instead of 92 m,
+  median, in Bordeaux), and waits at its last position more often when a
+  report is late. A tram whose feed reports a point 3 km away every other time
+  no longer slides there and back.
 - **« Zone de chalandise » (“Catchment area”) reads like its approved mock.**
   The row is a short form: « Depuis ce point » (“From this point”) and the
   address under a pin, a « Changer le point » (“Change the point”) button that

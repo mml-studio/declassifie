@@ -120,6 +120,7 @@ import { labelFor } from '../i18n/messages.js';
 import messages, { TRANSIT_OCCUPANCY, TRANSIT_STOP_STATUS } from './transitFrance.i18n.js';
 import { transitGlyphCss, transitGlyphSizeDelta } from './transitPresetStyle.js';
 import { createTrail } from './trailRenderer.js';
+import { createTrack, displayTime, pushFix, sampleTrack } from './contactPlayback.js';
 
 /** Layer id — also the share-link registry key and the voice-tool enum value. */
 export const TRANSIT_FR_LAYER_ID = 'transit-fr';
@@ -161,13 +162,6 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const RETRY_MIN_MS = 3_000;
 const RETRY_MAX_MS = POLL_INTERVAL_MS;
 /**
- * Bounds on the glide window (ms) between two reported fixes. The floor keeps a
- * burst of fast refreshes from making the fleet stutter; the ceiling matches
- * the proxy's serve-stale window, past which a feed is not reporting at all.
- */
-const TWEEN_MIN_MS = 3_000;
-const TWEEN_MAX_MS = 90_000;
-/**
  * How often a projected vehicle is re-placed on its run, ms.
  *
  * Twice a second, not per frame: the target moves a few metres between ticks
@@ -186,6 +180,35 @@ const PROJECTION_TICK_MS = 500;
  * cannot overshoot.
  */
 const PROJECTION_SMOOTH_MS = 800;
+/** Reused per frame and per projection tick: no allocation per vehicle. */
+const _frameSample = {};
+const _projectionSample = {};
+/**
+ * How a live vehicle moves between the fixes the poll brings
+ * (`contactPlayback.js`): drawn a steady delay behind real time, between two
+ * reported fixes, then carried along its run by the schedule projection once
+ * its clock passes the newest one. The delay starts at one poll plus ten
+ * seconds and then follows each vehicle's own gaps; 60 m/s is faster than any
+ * train this layer draws and marks a feed glitch, never interpolated across.
+ *
+ * The delay covers the MEDIAN gap with no margin, not the 95th percentile the
+ * vessels use: every second of delay is a second the bus is drawn behind where
+ * it is. Replayed over 25 minutes of Bordeaux, Le Havre and Évreux
+ * (`scripts/replay-transit-motion.mjs --grid`), this is the shortest delay of
+ * the grid, and the median error in Bordeaux is 155 m where the 95th
+ * percentile plus 5 s gave 237 m (92 m for the glide it replaces, which jumped:
+ * 1% of its one-second steps went faster than 94 m/s, against 27 m/s here).
+ */
+export const TRANSIT_PLAYBACK = Object.freeze({
+  capacity: 16,
+  retentionMs: 15 * 60_000,
+  minLagMs: 5_000,
+  maxLagMs: 120_000,
+  lagRank: 0.5,
+  marginMs: 0,
+  initialLagMs: POLL_INTERVAL_MS + 10_000,
+  breakAboveMps: 60,
+});
 /** A fix older than this is dropped: the vehicle stopped reporting. */
 const MAX_FIX_AGE_MS = 10 * 60 * 1000;
 /** Hard cap on rendered glyphs, independent of what the proxy returns. */
@@ -365,10 +388,11 @@ let _stylePreset = 'normal';
 let _styleListenerBound = false;
 /**
  * The selected vehicle's trail: its fixes oldest first (`{t, lat, lon}`), the
- * polyline drawn through all but the newest, and a head segment from the last
- * drawn fix to the glyph wherever it is this frame — so the line never runs
- * ahead of a vehicle still gliding towards its newest fix. A generation
- * counter drops a server answer that lands after the selection moved on.
+ * polyline drawn through the fixes its playback clock has reached, and a head
+ * segment from the last drawn fix to the glyph wherever it is this frame — so
+ * the line never runs ahead of a vehicle drawn a delay behind its newest fix.
+ * A generation counter drops a server answer that lands after the selection
+ * moved on.
  */
 let _trail = null;
 let _trailHead = null;
@@ -377,6 +401,8 @@ let _trailFor = null;
 let _trailGeneration = 0;
 /** @type {?Cesium.Cartesian3} Last drawn body point: where the head starts. */
 let _trailBodyEnd = null;
+/** How many of `_trailFixes` the body was last drawn through. */
+let _trailBodyCount = 0;
 let _routeInFlight = null;
 let _routeGeneration = 0;
 let _routeTimer = null;
@@ -512,31 +538,6 @@ export function nextRetryDelayMs(previousMs) {
   return previous === 0 ? RETRY_MIN_MS : Math.min(RETRY_MAX_MS, previous * 2);
 }
 
-/**
- * How long a glyph should take to travel between two reported fixes.
- *
- * The honest answer is "as long as the operator took to report them". A single
- * poll-interval glide looks right only for vehicles that report on that
- * cadence: a coach reporting once a minute moves ~1.9 km between fixes, and
- * sliding that across 15 s renders a bus doing 460 km/h, then parking for 45 s.
- * Using the fix delta instead makes the drawn speed the reported speed, and
- * leaves the scene exactly one fix interval behind live — the same convention
- * the flights layer uses, generalized per vehicle rather than per layer.
- *
- * Falls back to the poll interval when a feed publishes no per-vehicle
- * timestamps, and refuses a non-positive delta (a clock that went backwards).
- *
- * @param {?number} previousFixMs Epoch ms of the fix currently drawn.
- * @param {?number} nextFixMs Epoch ms of the fix just received.
- * @returns {number} Glide duration in ms, inside [TWEEN_MIN_MS, TWEEN_MAX_MS].
- */
-export function glideDurationMs(previousFixMs, nextFixMs) {
-  const delta = (Number.isFinite(previousFixMs) && Number.isFinite(nextFixMs))
-    ? nextFixMs - previousFixMs
-    : null;
-  const span = delta !== null && delta > 0 ? delta : POLL_INTERVAL_MS;
-  return Math.min(TWEEN_MAX_MS, Math.max(TWEEN_MIN_MS, span));
-}
 
 /** Camera altitude above the ellipsoid, in metres. */
 function cameraAltitudeM(viewer) {
@@ -629,6 +630,20 @@ function hasColdFloor() {
 const _reseatCarto = new Cesium.Cartographic();
 
 /**
+ * A reported fix for a vehicle's playback track, carrying the height its glyph
+ * stands at there — the same floor {@link vehiclePosition} uses — so the
+ * per-frame pass interpolates height with position and never asks the floor
+ * cache per frame.
+ * @param {Object} vehicle Wire record.
+ * @param {number} nowMs When the poll arrived: the fix time when the feed gave none.
+ * @returns {{ t: number, lat: number, lon: number, h: number }}
+ */
+function transitFixOf(vehicle, nowMs) {
+  const t = Number.isFinite(vehicle.timestampMs) && vehicle.timestampMs > 0 ? vehicle.timestampMs : nowMs;
+  return { t, lat: vehicle.lat, lon: vehicle.lon, h: (vehicleFloorM(vehicle.lat, vehicle.lon) ?? 0) + GLYPH_LIFT_M };
+}
+
+/**
  * Rewrite one drawn Cartesian's HEIGHT onto the floor now known under it.
  *
  * Takes the coordinate off the position itself rather than off the vehicle's
@@ -684,8 +699,13 @@ function reseatFleet() {
     }
     let touched = false;
     if (reseatCartesian(record.renderPosition)) touched = true;
-    if (reseatCartesian(record.from)) touched = true;
-    if (reseatCartesian(record.to)) touched = true;
+    // The playback track's fixes carry their own heights; they follow too.
+    for (const fix of record.track?.fixes || []) {
+      const floor = vehicleFloorM(fix.lat, fix.lon);
+      if (floor === null || Math.abs(floor + GLYPH_LIFT_M - fix.h) <= 0.05) continue;
+      fix.h = floor + GLYPH_LIFT_M;
+      touched = true;
+    }
     if (reseatCartesian(record.target)) touched = true;
     if (!touched) continue;
     record.billboard.position = record.renderPosition;
@@ -698,7 +718,7 @@ function reseatFleet() {
   // function — still gets the last word on what is visible.
   if (revealed) _lastCameraPoseSignature = '';
   // The trail's fixes stand on the same floors, so they follow them.
-  if (moved + revealed && _trailFor) renderTrailBody();
+  if (moved + revealed && _trailFor) renderTrailBody(trailDisplayTime(), true);
   return moved + revealed;
 }
 
@@ -1192,14 +1212,45 @@ function trailFixOf(vehicle, nowMs) {
 }
 
 /**
- * Redraws the trail body from `_trailFixes`: every fix but the newest, each on
- * the floor its own vehicle would stand on. A fix whose floor nothing can say
- * yet is left out rather than drawn at the ellipsoid.
+ * How many of a trail's fixes, oldest first, a playback clock has reached.
+ * @param {Array<{t: number}>} fixes
+ * @param {number} displayAtMs - The vehicle's display time.
+ * @returns {number}
  */
-function renderTrailBody() {
+export function trailFixesReached(fixes, displayAtMs) {
+  let count = 0;
+  while (count < fixes.length && fixes[count].t <= displayAtMs) count += 1;
+  return count;
+}
+
+/**
+ * The trail vehicle's display time, or +Infinity for a record with no
+ * playback track (drawn at its newest fix, so its whole trail is behind it).
+ * @returns {number}
+ */
+function trailDisplayTime() {
+  const record = _trailFor ? _records.get(_trailFor) : null;
+  return record?.track ? displayTime(record.track, Date.now()) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Redraws the trail body from `_trailFixes` through the fixes the vehicle's
+ * playback clock has reached, and no further: the glyph is drawn a delay
+ * behind its newest fix, and a body ending at that fix would run ahead of it.
+ * Each fix stands on the floor its own vehicle would; a fix whose floor
+ * nothing can say yet is left out rather than drawn at the ellipsoid. Redrawn
+ * only when the clock passes another fix, unless the fixes or their floors
+ * changed (`force`).
+ * @param {number} displayAtMs - The trail vehicle's display time.
+ * @param {boolean} [force]
+ */
+function renderTrailBody(displayAtMs, force = false) {
   if (!_trail) return;
+  const count = trailFixesReached(_trailFixes, displayAtMs);
+  if (!force && count === _trailBodyCount) return;
+  _trailBodyCount = count;
   const body = [];
-  for (const fix of _trailFixes.slice(0, -1)) {
+  for (const fix of _trailFixes.slice(0, count)) {
     const floor = vehicleFloorM(fix.lat, fix.lon);
     if (!Number.isFinite(floor)) continue;
     body.push(Cesium.Cartesian3.fromDegrees(fix.lon, fix.lat, floor + GLYPH_LIFT_M));
@@ -1241,7 +1292,7 @@ function startTrail(record) {
   _trailFor = record.id;
   const nowMs = Date.now();
   _trailFixes = mergeTrailFixes([trailFixOf(record.vehicle, nowMs)], nowMs);
-  renderTrailBody();
+  renderTrailBody(trailDisplayTime(), true);
   _trail?.setVisible(true);
   void (async () => {
     try {
@@ -1252,7 +1303,7 @@ function startTrail(record) {
       const served = (Array.isArray(body?.fixes) ? body.fixes : [])
         .map((row) => ({ t: Number(row?.[0]), lat: Number(row?.[1]), lon: Number(row?.[2]) }));
       _trailFixes = mergeTrailFixes([...served, ..._trailFixes], Date.now());
-      renderTrailBody();
+      renderTrailBody(trailDisplayTime(), true);
       governorRequestRender('transit-fr-trail');
     } catch {
       // No history is not an error: the trail grows from the fixes this page sees.
@@ -1271,7 +1322,7 @@ function extendTrail(record, nowMs) {
   const last = _trailFixes[_trailFixes.length - 1];
   if (last && fix.t <= last.t) return;
   _trailFixes = mergeTrailFixes([..._trailFixes, fix], nowMs);
-  renderTrailBody();
+  renderTrailBody(trailDisplayTime(), true);
 }
 
 /** Forgets the trail: nothing is selected any more. */
@@ -1280,6 +1331,7 @@ function stopTrail() {
   _trailFor = null;
   _trailFixes = [];
   _trailBodyEnd = null;
+  _trailBodyCount = 0;
   _trail?.clear();
 }
 
@@ -1418,8 +1470,8 @@ function installClickHandler(viewer) {
  * Runs at {@link PROJECTION_TICK_MS}, not per frame. A record with no run, or
  * whose run has nothing to say at this instant — a fix under half a minute
  * old, a prediction that lags the fix, a vehicle sitting at a cap — loses its
- * target and falls straight back to the fix-to-fix glide, which is what the
- * layer did before any of this existed.
+ * target and is drawn on its playback track alone, which waits at the newest
+ * fix until the next one arrives.
  *
  * @param {number} nowMs
  * @returns {number} How many vehicles are being drawn ahead of their own fix.
@@ -1431,7 +1483,17 @@ function projectFleet(nowMs) {
       record.projected = false;
       continue;
     }
-    const out = advanceAlongRun(record.run, nowMs, undefined, record.projection);
+    // The projection only ever continues a vehicle PAST its newest fix: while
+    // the playback clock is still between two fixes, those fixes say where it is.
+    const displayAt = displayTime(record.track, nowMs);
+    if (sampleTrack(record.track, displayAt, _projectionSample).state !== 'holding') {
+      record.projected = false;
+      continue;
+    }
+    // On the playback clock, not real time: aiming at NOW would make a bus
+    // leap ahead by the whole delay as its clock passed the fix (replayed:
+    // 1% of steps above 123 m/s, against 27 m/s on the playback clock).
+    const out = advanceAlongRun(record.run, displayAt, undefined, record.projection);
     if (!out) {
       record.projected = false;
       continue;
@@ -1471,9 +1533,10 @@ function projectFleet(nowMs) {
 /**
  * Per-frame motion + icon-orientation pass.
  *
- * Three jobs, all cheap. Advance each record — either along the segment between
- * its two most recent REPORTED fixes, or, when its run has placed it further
- * on, towards that projected target with an exponential chase. Then, only when
+ * Three jobs, all cheap. Advance each record towards where its playback track
+ * puts it — between two REPORTED fixes — or, once the track's clock has passed
+ * the newest fix and its run has placed it further on, towards that projected
+ * target, with one exponential chase for both. Then, only when
  * the camera pose actually changed, recompute the screen-space rotation that
  * points a chevron along its real-world bearing.
  */
@@ -1506,25 +1569,40 @@ function onPreRender() {
     if (!billboard) continue;
     const pointer = record.pointer;
 
-    if (record.projected) {
-      // The chase, not the tween: the target is being re-read twice a second
-      // and moves a few metres each time, so what is wanted is a follower with
-      // no end state rather than a glide with a duration.
-      if (!Cesium.Cartesian3.equalsEpsilon(record.renderPosition, record.target, 0, 0.25)) {
-        Cesium.Cartesian3.lerp(record.renderPosition, record.target, chase, record.renderPosition);
-        billboard.position = record.renderPosition;
-        if (pointer) pointer.position = record.renderPosition;
+    // Where the vehicle should be this frame: on its playback track, between
+    // two reported fixes; or, once the track's clock has passed the newest
+    // fix, where the schedule projection has carried it along its run.
+    const sample = sampleTrack(record.track, displayTime(record.track, now), _frameSample);
+    // The trail body grows as the clock passes each of its fixes.
+    if (record.id === _trailFor) renderTrailBody(sample.t);
+    let wanted = null;
+    if (record.projected && sample.state === 'holding') {
+      wanted = record.target;
+    } else if (sample.state !== 'empty') {
+      const from = sample.from || sample.to;
+      const heightM = sample.from && sample.to ? from.h + (sample.to.h - from.h) * sample.u : from.h;
+      // A vehicle held on its newest fix asks for the same point every frame:
+      // convert it once, not four thousand times a second.
+      if (sample.lat !== record.wantedLat || sample.lon !== record.wantedLon || heightM !== record.wantedH) {
+        record.wantedLat = sample.lat;
+        record.wantedLon = sample.lon;
+        record.wantedH = heightM;
+        record.wanted = Cesium.Cartesian3.fromDegrees(sample.lon, sample.lat, heightM, undefined, record.wanted);
       }
-      // A projected vehicle is always in motion as far as the render governor
-      // is concerned: its target moves on the next tick whether or not it has
-      // arrived at this one.
-      moving = true;
-    } else if (record.tweenMs > 0 && record.from && record.to) {
-      const t = Math.min(1, (now - record.tweenStart) / record.tweenMs);
-      if (t < 1) moving = true;
-      Cesium.Cartesian3.lerp(record.from, record.to, t, record.renderPosition);
+      wanted = record.wanted;
+    }
+    // One follower for every case, so a new fix, the handover to the
+    // projection and back, and a re-read target all ease in over
+    // PROJECTION_SMOOTH_MS instead of jumping.
+    if (wanted && !Cesium.Cartesian3.equalsEpsilon(record.renderPosition, wanted, 0, 0.25)) {
+      Cesium.Cartesian3.lerp(record.renderPosition, wanted, chase, record.renderPosition);
       billboard.position = record.renderPosition;
       if (pointer) pointer.position = record.renderPosition;
+      moving = true;
+    } else if (record.projected) {
+      // A projected vehicle's target moves on the next tick whether or not it
+      // has arrived at this one.
+      moving = true;
     }
 
     if (occluder) {
@@ -1670,11 +1748,9 @@ function reconcile(vehicles, feedsById, nowMs) {
         image,
         /** Whether some surface has said where the ground under it is. */
         floorKnown,
-        from: position.clone(),
-        to: position.clone(),
+        /** Its recent fixes and display clock (`contactPlayback.js`). */
+        track: createTrack(TRANSIT_PLAYBACK),
         renderPosition: position.clone(),
-        tweenStart: nowMs,
-        tweenMs: 0,
         fixMs: Number.isFinite(vehicle.timestampMs) ? vehicle.timestampMs : null,
         // --- Projection state, all owned by `projectFleet` ------------------
         /** The run this vehicle is on, prepared once per fix. */
@@ -1687,6 +1763,7 @@ function reconcile(vehicles, feedsById, nowMs) {
         advanceM: 0,
         advanceStops: 0,
       };
+      pushFix(record.track, transitFixOf(vehicle, nowMs), nowMs);
       _records.set(id, record);
       syncHeadingPointer(record, POINTER_PX);
       // A brand-new glyph has no rotation and no visibility decision yet, and
@@ -1696,10 +1773,8 @@ function reconcile(vehicles, feedsById, nowMs) {
       continue;
     }
 
-    // Existing contact: glide from where it is being DRAWN to the new fix, so
-    // a mid-glide refresh redirects smoothly instead of snapping back.
-    const moved = !Cesium.Cartesian3.equalsEpsilon(record.renderPosition, position, 0, 0.5);
-    const previousFixMs = record.fixMs;
+    // Existing contact: the new fix joins its playback track, and the
+    // per-frame pass carries the glyph towards it on the track's own clock.
     const nextFixMs = Number.isFinite(vehicle.timestampMs) ? vehicle.timestampMs : null;
     record.vehicle = vehicle;
     record.feed = feed;
@@ -1735,20 +1810,7 @@ function reconcile(vehicles, feedsById, nowMs) {
     // everyone else the run is rebuilt from the stops the answer carried.
     record.run = (id === _selectedId && runFromRoutePayload(record.route, vehicle))
       || runFromWireVehicle(vehicle);
-    if (moved) {
-      Cesium.Cartesian3.clone(record.renderPosition, record.from);
-      Cesium.Cartesian3.clone(position, record.to);
-      record.tweenStart = nowMs;
-      record.tweenMs = glideDurationMs(previousFixMs, nextFixMs);
-    } else {
-      record.tweenMs = 0;
-      // A projected vehicle is being drawn away from its fix on purpose; only
-      // a vehicle the projection has let go is snapped back onto it.
-      if (!record.projected) {
-        Cesium.Cartesian3.clone(position, record.renderPosition);
-        record.billboard.position = record.renderPosition;
-      }
-    }
+    pushFix(record.track, transitFixOf(vehicle, nowMs), nowMs);
     if (nextFixMs !== null) record.fixMs = nextFixMs;
   }
 
