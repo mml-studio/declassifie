@@ -66,3 +66,46 @@ export async function readResponseTextCapped(response, maxBytes) {
 export async function readResponseJsonCapped(response, maxBytes) {
   return JSON.parse(await readResponseTextCapped(response, maxBytes));
 }
+
+/**
+ * Read a fetch() Response body as bytes under the same hard cap — for the one
+ * binary body an address proxy reads, a commune's PDF list of filed permits.
+ * Throws { code:'RESPONSE_TOO_LARGE' } like its text sibling.
+ * @param {Response} response
+ * @param {number} maxBytes
+ * @returns {Promise<Uint8Array>}
+ */
+export async function readResponseBytesCapped(response, maxBytes) {
+  const tooLarge = () => {
+    const err = new Error('Upstream response too large');
+    err.code = 'RESPONSE_TOO_LARGE';
+    return err;
+  };
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    try { await response.body?.cancel?.(); } catch { /* no-op */ }
+    throw tooLarge();
+  }
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw tooLarge();
+    return bytes;
+  }
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch { /* no-op */ }
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
+  return out;
+}

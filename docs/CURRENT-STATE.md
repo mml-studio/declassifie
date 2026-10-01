@@ -4175,7 +4175,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 13 Cart@DS *affichage réglementaire* boards (129 communes) and their daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 13 Cart@DS *affichage réglementaire* boards (129 communes) and their daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4603,6 +4603,30 @@ overrides either, and `npm run cartds:archive` runs the same sweep from a
 shell (`--join <dir>` folds in an archive swept elsewhere). The archive starts
 on 2026-09-30: what a board had let go before then is lost, and older dossiers
 still come from Sitadel alone.
+
+**Three more communes answer with the acts they publish.** Ustaritz (64547),
+Ciboure (64189) and Monts (37159) publish their permit decisions as acts on
+publication-actes.fr, Mégalis Bretagne's white-label platform, whose open API
+(`data-api.publication-actes.fr/mq_apis/actes/v1/search`, no key) lists a
+commune's urbanism acts by SIREN (`src/data/publicationActesFeed.js`). The
+acts themselves are scans, so a decision is read from its TITLE — the dossier
+number, the address where the commune types one (Ciboure, Monts), the nature,
+and a verdict, which these three communes name only when it is no: a title
+with no verdict reads *Accordé*, a flag set per commune where the titles were
+counted (`plainDecision`). Ustaritz's titles carry no address; the commune
+also publishes a fortnightly *liste des dépôts*, an Excel table exported to
+PDF, and the proxy reads its text (`src/data/pdfText.js`, no dependency) for
+the parcels, the filing date and the nature, then joins it to the decision on
+the dossier number: 33 lists on 2026-09-30, 28 of them text, five scanned.
+The three are read at most every six hours (Ustaritz: three API pages and,
+once per server, 33 PDFs kept as parsed rows in `.gev-cache/publication-actes/`,
+applicant filtered; a cold scan takes 20 s), placed on the parcel first and
+geocoded for the rest — Ustaritz 165 on their parcel and 26 by address of
+238 dossiers, Ciboure 247 of 263, Monts 413 of 544. Ninety-nine other
+authorities publish urbanism acts on the platform; Montbazon, Veigné and
+Ferrières-en-Gâtinais publish permits but name no site in their titles, and
+are not read. When Sitadel holds a dossier a commune only listed as filed,
+Sitadel's state now wins: a filing claims nothing past the filing.
 
 **A PC and a DP with the same digits are no longer merged.** `DAU` is one
 series in the register, but many communes count permis de construire and

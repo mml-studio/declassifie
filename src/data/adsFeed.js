@@ -45,6 +45,12 @@
  * normalises them into the shape below, so they merge with Sitadel exactly as
  * the métropole portals do.
  *
+ * ── Register 4: the acts a commune publishes ────────────────────────────────
+ * Ustaritz, Ciboure and Monts publish their permit decisions as acts on
+ * publication-actes.fr, and Ustaritz a fortnightly list of filed dossiers
+ * with their parcels. `publicationActesFeed.js` reads both into the same
+ * shape.
+ *
  * ── Trap 1: Sitadel keys Paris, Lyon and Marseille at COMMUNE level ─────────
  * `COMM=eq:75113` answers *"Le fichier est vide"*; `75056` answers the whole
  * of Paris. So does `13055` against `13201`. This is the exact INVERSE of DVF
@@ -1464,9 +1470,15 @@ export function mergeRegisters(sitadel, local) {
       // the portal drew the plot it meant and this side only inferred it.
       ...graftEmprise(permit, twin),
       // The chantier ladder is Sitadel's alone; it never overwrites a live
-      // instruction state, but it is what fills a blank Bordeaux row.
-      state: permit.state ?? twin.state,
-      stateLabel: permit.stateLabel ?? twin.stateLabel,
+      // instruction state, but it is what fills a blank Bordeaux row — and a
+      // row that only says FILED. A commune's filing notice or list of filed
+      // dossiers claims nothing past the filing (Trap 4 of `cartdsFeed.js`),
+      // and a twin in Sitadel proves the dossier was granted since: an
+      // Ustaritz permit filed in November 2025 and granted in January read
+      // « Déposé » beside its own decision date.
+      ...(permit.state === 'depose' && twin.state
+        ? { state: twin.state, stateLabel: twin.stateLabel }
+        : { state: permit.state ?? twin.state, stateLabel: permit.stateLabel ?? twin.stateLabel }),
       siteState: twin.state,
       siteStateLabel: twin.stateLabel,
       // i18n-ignore-next-line — two registers' own names, relayed as attribution

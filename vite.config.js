@@ -307,9 +307,25 @@ import {
   cartdsInstanceFor,
   foldCartdsDossiers,
   normaliseCartdsRow,
+  robotsAllows,
   CARTDS_INSTANCES,
   CARTDS_LICENCE,
 } from './src/data/cartdsFeed.js';
+import {
+  foldPublicationActes,
+  isDepositList,
+  normaliseDepositRow,
+  normalisePublicationActe,
+  parseDepositList,
+  publicationActesCommuneFor,
+  publicationActesSearchUrl,
+  PUBLICATION_ACTES_API,
+  PUBLICATION_ACTES_LICENCE,
+  PUBLICATION_ACTES_MAX_LISTS,
+  PUBLICATION_ACTES_MAX_PAGES,
+} from './src/data/publicationActesFeed.js';
+import { extractPdfText } from './src/data/pdfText.js';
+import { organisationApplicant } from './src/data/permitApplicant.js';
 import { archivedCartdsRows, cartdsDay } from './src/data/cartdsArchive.js';
 import {
   cartdsRobotsVerdict as askCartdsRobots,
@@ -517,7 +533,7 @@ import {
   orderAmenitySites,
   trimAmenityRecord,
 } from './src/data/amenitiesFeed.js';
-import { readResponseJsonCapped, readResponseTextCapped } from './src/data/httpCapped.js';
+import { readResponseBytesCapped, readResponseJsonCapped, readResponseTextCapped } from './src/data/httpCapped.js';
 import {
   AMENITIES_CACHE_VERSION,
   AMENITIES_SITE_CAP,
@@ -26835,6 +26851,11 @@ function emploiFranceProxy() {
  * (`cartdsArchive.js`), and a daily sweep reads every board, because the
  * board forgets after two months and nothing public remembers.
  *
+ * The fourth, the acts three communes publish on publication-actes.fr
+ * (`publicationActesFeed.js`), has an open API; it is read here because its
+ * decisions only become placeable once joined to a PDF list of filed
+ * dossiers, and a PDF is not something to parse in every open tab.
+ *
  * @returns {import('vite').Plugin}
  */
 function adsFranceProxy() {
@@ -27731,6 +27752,254 @@ function adsFranceProxy() {
     };
   }
 
+  // --- What a commune publishes itself: publication-actes.fr ---------------
+  /**
+   * One commune's published acts and lists of filed dossiers, placed, held
+   * for six hours like a Cart@DS board and for the same reason.
+   *
+   * The acts stay on the platform, unlike a board's rows, so nothing is
+   * archived here. A LIST is immutable once published — its URL carries its
+   * hash — so its parsed rows are kept on disk for good, and a list is read
+   * once per server, not once per scan: Ustaritz's 33 lists are 4.7 MB of PDF
+   * and 5 KB of rows. What is kept is what the layer may publish: an
+   * applicant who is a person is dropped before the rows are written.
+   */
+  const PUBACTES_TTL_MS = 6 * 60 * 60 * 1000;
+  const PUBACTES_TIMEOUT_MS = 30_000;
+  /** The largest list measured is 400 KB; a scan of one page can be 4 MB. */
+  const PUBACTES_LIST_MAX_BYTES = 8 * 1024 * 1024;
+  /** A page of 100 acts is ~70 KB of JSON. */
+  const PUBACTES_PAGE_MAX_BYTES = 2 * 1024 * 1024;
+  /** Lists downloaded at once, the first time a commune is read. */
+  const PUBACTES_LIST_WAVE = 4;
+  /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
+  const PUBACTES_SCHEMA = 1;
+  /** Bumped whenever the list parser changes, so every list is read again. */
+  const PUBACTES_LIST_SCHEMA = 1;
+  const PUBACTES_LIST_DIR = path.join(process.cwd(), '.gev-cache', 'publication-actes');
+  /** insee → {at, value}. */
+  const pubActesCommunes = new Map();
+  /** insee → the build in progress. */
+  const pubActesInFlight = new Map();
+  /** origin → {at, allowed}: the API host and the file host, re-read daily. */
+  const pubActesRobots = new Map();
+
+  /**
+   * Whether both hosts let a robot read what is asked of them. A 4xx is no
+   * file and allows; a host that does not answer is asked again next time.
+   */
+  async function publicationActesRobotsAllow(url) {
+    const { origin, pathname } = new URL(url);
+    const cached = pubActesRobots.get(origin);
+    if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.allowed;
+    const response = await cartdsFetch(`${origin}/robots.txt`);
+    if (!response) return false;
+    let allowed = true;
+    // The file host is a single-page app that answers EVERY path with its
+    // own index.html, `robots.txt` included (HTTP 200, 72 KB of HTML,
+    // measured 2026-09-30): that is the absence of a file, not a rule.
+    const html = /html/i.test(response.headers.get('content-type') || '');
+    if (response.ok && !html) {
+      const body = await cartdsText(response, 256 * 1024);
+      if (body === null) return false;
+      allowed = robotsAllows(body, pathname);
+    } else if (response.status >= 500) return false;
+    else await response.body?.cancel?.().catch?.(() => {});
+    if (!allowed) console.warn(`[ADS Proxy] publication-actes ${origin}: robots.txt refuses, acts not read`);
+    pubActesRobots.set(origin, { at: Date.now(), allowed });
+    return allowed;
+  }
+
+  /** One page of the search endpoint, parsed, or null. */
+  async function publicationActesPage(url) {
+    const response = await cartdsFetch(url);
+    if (!response?.ok) return null;
+    const body = await cartdsText(response, PUBACTES_PAGE_MAX_BYTES);
+    try {
+      return body === null ? null : JSON.parse(body);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The rows of one list, from disk or from the platform, or null when it
+   * could not be read this time. A scanned list is `[]`, kept like any other:
+   * it will not grow text by being asked again.
+   */
+  async function depositListRows(act) {
+    const id = String(act.publication_id ?? act.id ?? '').replace(/[^A-Za-z0-9-]/g, '');
+    const hash = String(act.hash ?? '').replace(/[^A-Fa-f0-9]/g, '').slice(0, 16);
+    if (!id || !act.url) return null;
+    const file = path.join(PUBACTES_LIST_DIR, `list${PUBACTES_LIST_SCHEMA}-${id}-${hash}.json`);
+    try {
+      return JSON.parse(await fsp.readFile(file, 'utf8'));
+    } catch { /* not read yet */ }
+    if (!(await publicationActesRobotsAllow(act.url))) return null;
+    const response = await cartdsFetch(act.url);
+    if (!response?.ok) return null;
+    let bytes;
+    try {
+      bytes = await readResponseBytesCapped(response, PUBACTES_LIST_MAX_BYTES);
+    } catch {
+      return null;
+    }
+    let rows = [];
+    try {
+      const document = extractPdfText(bytes, { inflate: (data) => zlib.inflateSync(data) });
+      rows = parseDepositList(document).map((row) => ({
+        ...row,
+        // TRAP 4 of `publicationActesFeed.js`, before anything is written.
+        applicant: organisationApplicant(row.applicant),
+      }));
+    } catch (error) {
+      console.warn(`[ADS Proxy] publication-actes list ${id}: ${error?.message || error}`);
+    }
+    try {
+      await fsp.mkdir(PUBACTES_LIST_DIR, { recursive: true });
+      await fsp.writeFile(file, JSON.stringify(rows));
+    } catch { /* cache is an optimisation, never a requirement */ }
+    return rows;
+  }
+
+  /** Read, fold and place one commune's acts and lists. */
+  async function buildPublicationActesCommune(commune) {
+    const report = {
+      key: `publication-actes-${commune.insee}`,
+      label: commune.label,
+      licence: PUBLICATION_ACTES_LICENCE,
+    };
+    const failed = { permits: [], portal: { ...report, ok: false, count: 0 } };
+    if (!(await publicationActesRobotsAllow(PUBLICATION_ACTES_API))) {
+      return { permits: [], portal: { ...report, ok: false, count: 0, refused: 'robots' } };
+    }
+    const acts = [];
+    const seen = new Set();
+    let cursor = null;
+    let pages = 0;
+    let truncated = false;
+    for (;;) {
+      const body = await publicationActesPage(publicationActesSearchUrl(commune, cursor));
+      if (!body) {
+        if (!pages) return failed;
+        truncated = true;
+        break;
+      }
+      pages += 1;
+      const fresh = (Array.isArray(body.resultats) ? body.resultats : [])
+        .filter((act) => act?.id && !seen.has(act.id));
+      for (const act of fresh) { seen.add(act.id); acts.push(act); }
+      cursor = fresh.length ? body.page_suivante : null;
+      if (!cursor) break;
+      if (pages >= PUBLICATION_ACTES_MAX_PAGES) { truncated = true; break; }
+    }
+
+    const permits = [];
+    let skipped = 0;
+    for (const act of acts) {
+      if (isDepositList(act)) continue;
+      const permit = normalisePublicationActe(commune, act);
+      if (permit) permits.push(permit);
+      else skipped += 1;
+    }
+    const lists = commune.lists
+      ? acts.filter(isDepositList)
+        .sort((a, b) => String(b.date_publication ?? '').localeCompare(String(a.date_publication ?? '')))
+        .slice(0, PUBLICATION_ACTES_MAX_LISTS)
+      : [];
+    let listsRead = 0;
+    let listsScanned = 0;
+    for (let i = 0; i < lists.length; i += PUBACTES_LIST_WAVE) {
+      const wave = lists.slice(i, i + PUBACTES_LIST_WAVE);
+      const answers = await Promise.all(wave.map((act) => depositListRows(act)));
+      answers.forEach((rows, k) => {
+        if (rows === null) return;
+        listsRead += 1;
+        if (!rows.length) listsScanned += 1;
+        for (const row of rows) {
+          const permit = normaliseDepositRow(commune, row, wave[k]);
+          if (permit) permits.push(permit);
+        }
+      });
+    }
+    const { permits: dossiers, folded } = foldPublicationActes(permits);
+    // The parcel first, the geocoder for the rest, as for a Cart@DS board.
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    let placed = ground.permits;
+    let geocoded = 0;
+    const csv = buildGeocodeCsv(placed);
+    if (csv) {
+      const answer = await geocodeBatch(csv);
+      if (answer) ({ permits: placed, geocoded } = applyGeocoding(placed, answer));
+    }
+    const standing = placed.filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits: standing,
+      portal: {
+        ...report,
+        ok: true,
+        live: true,
+        count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0,
+        geocoded,
+        // Commune-wide: a dossier with no position has no side of the circle.
+        unplaced: dossiers.length - standing.length,
+        folded,
+        // Acts under « Urbanisme » that are not a dossier of a drawn family —
+        // a plan, a pre-emption, an accessibility works permit.
+        skipped,
+        truncated,
+        lists: { read: listsRead, withoutText: listsScanned, of: lists.length },
+      },
+    };
+  }
+
+  /**
+   * The published acts for the commune under the scan, cut to the window.
+   *
+   * On the filing date where the list gave one, else on the decision's: a
+   * decision whose filing no list recorded — before Ustaritz published lists,
+   * or anywhere at Monts — is dated by its signature, and Monts's register
+   * runs back to 2021.
+   */
+  async function loadPublicationActes(communeCode, since) {
+    const commune = publicationActesCommuneFor(communeCode);
+    if (!commune) return { permits: [], portals: [] };
+    let entry = pubActesCommunes.get(commune.insee);
+    if (!entry || Date.now() - entry.at >= PUBACTES_TTL_MS) {
+      if (!pubActesInFlight.has(commune.insee)) {
+        pubActesInFlight.set(commune.insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `pubactes${PUBACTES_SCHEMA}-${commune.insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < PUBACTES_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              pubActesCommunes.set(commune.insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildPublicationActesCommune(commune);
+          const fresh = { at: Date.now(), value };
+          if (!value.portal.ok || value.portal.truncated || pacingRefusal()) return fresh;
+          pubActesCommunes.set(commune.insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => pubActesInFlight.delete(commune.insee)));
+      }
+      entry = await pubActesInFlight.get(commune.insee);
+    }
+    return {
+      permits: entry.value.permits.filter((permit) => {
+        const day = permit.depositedOn ?? permit.decidedOn;
+        return !day || day >= since;
+      }),
+      portals: [entry.value.portal],
+    };
+  }
+
   function install(middlewares) {
     installAddressRoute(middlewares, '/api/ads-fr', (url) => {
       const point = addressPoint(url.searchParams);
@@ -27754,12 +28023,15 @@ function adsFranceProxy() {
           if (!commune) return null;
           const sitadelCommune = foldToSitadelCommune(commune.code);
           if (!sitadelCommune) return null;
-          // The commune's own boards run beside the two others: three hosts,
-          // none of them shared, so racing them costs no upstream anything.
-          const [edition, placed, posted] = await Promise.all([
+          // What the commune posts and publishes itself runs beside the two
+          // others: four hosts, none of them shared, so racing them costs no
+          // upstream anything. At most one of the last two answers — no
+          // commune is on both a Cart@DS board and publication-actes.fr.
+          const [edition, placed, posted, published] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
             loadCartds(commune.code, since),
+            loadPublicationActes(commune.code, since),
           ]);
           // TRAP 6: fold BEFORE merging. One operation filed once can appear
           // in three of the four Sitadel files, and three entities claiming
@@ -27771,6 +28043,7 @@ function adsFranceProxy() {
             ...edition.permits.filter((permit) => permit.source !== 'sitadel'),
             ...placed.permits,
             ...posted.permits,
+            ...published.permits,
           ];
           const { permits, merged } = mergeRegisters(fromState, fromCounter);
           return projectAdsPermits({
@@ -27787,7 +28060,9 @@ function adsFranceProxy() {
               families: edition.families,
               // Multi-family dossiers collapsed into the one operation they are.
               folded,
-              portals: [...(edition.portals || []), ...placed.portals, ...posted.portals],
+              portals: [
+                ...(edition.portals || []), ...placed.portals, ...posted.portals, ...published.portals,
+              ],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could
               // not place better than their commune are not drawn at all.
