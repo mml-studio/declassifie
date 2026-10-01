@@ -2766,6 +2766,13 @@ const powerGridLayer = {
     _fadeHandle?.release();
     _fadeHandle = null;
     _enabled = false;
+    // A viewport answer still building keeps its batches, hidden, for the
+    // next enable — but not the pump that requests a frame for each of up to
+    // 240 frames: on a layer switched off mid-pan that was four seconds of
+    // continuous rendering for nothing (`onPreRender`, which would commit
+    // them, is removed below).
+    _stagePumpStop?.();
+    _stagePumpStop = null;
     _unwatchNight?.();
     _unwatchNight = null;
     clearSelection();

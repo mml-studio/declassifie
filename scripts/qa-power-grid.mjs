@@ -295,25 +295,46 @@ async function main() {
     });
 
     const payload = gridPayload();
-    let apiRequests = 0;
-    let lastRequestedBox = null;
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-      const url = new URL(request.url());
-      if (url.origin === APP_ORIGIN && url.pathname === '/api/power-grid') {
-        apiRequests += 1;
-        lastRequestedBox = Object.fromEntries(url.searchParams);
-        if (!LIVE) {
-          void request.respond({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(payload),
-          });
-          return;
+    // The fixture is served by wrapping the PAGE's fetch, not by intercepting
+    // requests. `setRequestInterception(true)` also holds the requests of
+    // Cesium's module workers, which the page's `request` event never sees, so
+    // nobody releases them: every GroundPolylinePrimitive stayed `ready: false`
+    // for good, nothing tessellated, and §ii-bis (pixels on screen) was red on
+    // every tree. A layer that swaps a redraw in only once it is ready then
+    // showed no route at all. Measured on `qa-power-grid-national.mjs`, which
+    // already serves its fixture this way.
+    let liveRequests = 0;
+    let liveLastBox = null;
+    if (LIVE) {
+      page.on('request', (request) => {
+        const url = new URL(request.url());
+        if (url.origin === APP_ORIGIN && url.pathname === '/api/power-grid') {
+          liveRequests += 1;
+          liveLastBox = Object.fromEntries(url.searchParams);
         }
-      }
-      void request.continue();
-    });
+      });
+    } else {
+      await page.evaluateOnNewDocument((body) => {
+        window.__qaPowerGridAsks = [];
+        const realFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = new URL(typeof input === 'string' ? input : input.url, window.location.href);
+          if (url.pathname === '/api/power-grid') {
+            window.__qaPowerGridAsks.push(Object.fromEntries(url.searchParams));
+            return Promise.resolve(new Response(body, {
+              status: 200, headers: { 'Content-Type': 'application/json' },
+            }));
+          }
+          return realFetch(input, init);
+        };
+      }, JSON.stringify(payload));
+    }
+    /** How many viewport requests the layer made, and the last box it asked for. */
+    const asked = async () => {
+      if (LIVE) return { count: liveRequests, last: liveLastBox };
+      const asks = await page.evaluate(() => window.__qaPowerGridAsks || []);
+      return { count: asks.length, last: asks.at(-1) ?? null };
+    };
 
     console.log(`[qa] booting ${APP_URL}${LIVE ? ' (LIVE proxy)' : ''}`);
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -334,10 +355,11 @@ async function main() {
       probe = await sceneProbe(page);
       if (probe.batches.length > 0 && probe.points.length > 0) break;
     }
-    check('the layer asked the proxy for its viewport', apiRequests >= 1, `${apiRequests} request(s)`);
+    const firstAsks = await asked();
+    check('the layer asked the proxy for its viewport', firstAsks.count >= 1, `${firstAsks.count} request(s)`);
     check('and asked for a BOUNDED box, never the planet',
-      lastRequestedBox && ['south', 'west', 'north', 'east'].every((k) => k in lastRequestedBox),
-      JSON.stringify(lastRequestedBox));
+      firstAsks.last && ['south', 'west', 'north', 'east'].every((k) => k in firstAsks.last),
+      JSON.stringify(firstAsks.last));
     check('ground batches reached the scene', probe.batches.length > 0, `${probe.batches.length} batches`);
 
     // The CORE batches only: every stroke is also drawn once in the casing pass,
@@ -527,7 +549,7 @@ async function main() {
 
     // ── vi. a view too high asks for nothing, and says so without erasing ──
     console.log('[qa] vi. an orbital view stops asking — and does not wipe the key on the way out');
-    const requestsBefore = apiRequests;
+    const requestsBefore = (await asked()).count;
     await setView(page, FRANCE.lon, FRANCE.lat, FRANCE.height);
     await pump(page, 6, 80);
     await sleep(1200);
@@ -535,8 +557,9 @@ async function main() {
     const wide = await page.evaluate(
       () => window.__godsEyeView.dataManager.layers.get('power-grid').module.getStats(),
     );
+    const requestsAfter = (await asked()).count;
     check('no request is made for a box the proxy would refuse',
-      apiRequests === requestsBefore, `${apiRequests - requestsBefore} extra request(s)`);
+      requestsAfter === requestsBefore, `${requestsAfter - requestsBefore} extra request(s)`);
     check('the layer stops asking rather than reporting a fault',
       wide.status === 'zoom-in' || wide.status === 'ok', wide.status);
     check('and the readout explains it rather than reporting an error', !wide.error, wide.error);
