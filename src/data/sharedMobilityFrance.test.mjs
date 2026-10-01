@@ -1084,6 +1084,9 @@ test('the band runs from 0.6 of the pins\' ceiling up to it, where the vehicles 
 test('a settled view asks for the vehicles under the band, the groups over it, and both inside it', () => {
   assert.deepEqual(sharedMobilityLevelsAt(1_300), { vehicles: true, groups: false });
   assert.deepEqual(sharedMobilityLevelsAt(2_100), { vehicles: true, groups: false }, 'the groups weigh nothing at the fine end');
+  // Nor anywhere past 70 % of the band, where the reveal has drawn them out:
+  // no second request is spent on bubbles nobody would see.
+  assert.deepEqual(sharedMobilityLevelsAt(2_300), { vehicles: true, groups: false });
   assert.deepEqual(sharedMobilityLevelsAt(2_700), { vehicles: true, groups: true });
   assert.deepEqual(sharedMobilityLevelsAt(3_500), { vehicles: true, groups: true }, 'the old ceiling still asks for the vehicles');
   assert.deepEqual(sharedMobilityLevelsAt(5_000), { vehicles: false, groups: true });

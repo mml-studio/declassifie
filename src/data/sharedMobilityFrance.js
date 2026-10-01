@@ -1319,8 +1319,11 @@ function metresPerPixel(viewer) {
 /**
  * Which levels a settled view asks for, at a view range in metres — see
  * {@link SHARED_MOBILITY_GROUP_BAND}: the vehicles up to its coarse end, the
- * groups from its fine end, both inside it. A range that is not a number is a
- * camera looking past the limb, the coarsest view there is.
+ * groups wherever the reveal still DRAWS them — they are gone 70 % into the
+ * band (2 448 m), and asking below that sent a second `cluster=` request on
+ * every settle, against the 90-a-minute limit, for bubbles built hidden. A
+ * range that is not a number is a camera looking past the limb, the coarsest
+ * view there is.
  * @param {number} rangeM
  * @returns {{vehicles: boolean, groups: boolean}}
  */
@@ -1328,7 +1331,7 @@ export function sharedMobilityLevelsAt(rangeM) {
   const range = Number.isFinite(rangeM) ? rangeM : Infinity;
   return {
     vehicles: range <= SHARED_MOBILITY_GROUP_BAND.coarse,
-    groups: range > SHARED_MOBILITY_GROUP_BAND.fine,
+    groups: levelVisible(true, sharedMobilityZoomWeights(range).coarse),
   };
 }
 
