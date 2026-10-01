@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + Métropole Nice Côte d'Azur's e-permis board (38 communes, daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4997,6 +4997,44 @@ also holds, the days from Sitadel's decision to the export, the measure of
 how close « au plus tard » is. The archive starts on the first day a server
 reads the file; what was added before is stock. These communes do not count
 as covered by a fresh source until that lag is measured.
+**Since 2026-10-01, Nice and 37 more communes of its métropole answer from
+e-permis.** Métropole Nice Côte d'Azur posts its *affichage réglementaire* on
+clicmap's e-permis app (`affichage.e-permis.fr/depot?id=123`, linked from
+nice.fr), whose page reads two lists for the whole métropole from clicmap's
+API: `api-v2.clicmap.fr/ads/exports/depots`, the filings not yet decided, and
+`/decisions` (`src/data/epermisFeed.js`, `scripts/lib/epermisBoards.mjs`).
+The API wants a bearer token, which the page obtains for every visitor with a
+public OAuth client written in its own script, no login and no challenge; the
+project owner accepted on 2026-10-01 that the server do the same. The server
+reads that client from the live script — never from the repository — asks a
+one-hour token, and reads the script again on a 401; a script that stops
+showing the client closes the source, logged, with the archive still served.
+The API's `insee` parameter filters nothing, so one reading of the last 62
+days serves every commune for six hours, and a dossier belongs to the commune
+its number names. The publisher lists 51 communes; 38 posted something in a
+month-by-month reading back to November 2012 (39 248 decisions, 4 256 filings
+still undecided), and only those are read. Cagnes-sur-Mer,
+Saint-Laurent-du-Var, Vence, Carros, La Trinité and eight more never posted
+there (Cagnes files through Sirap's portal) and keep Sitadel alone. A page of
+decisions takes about six seconds, so the first scan of any of the 38 waits
+about a minute for the métropole's reading (75 s at Roquebillière on
+2026-10-01, then 4 to 12 s for each other commune). Every row read is kept like
+a board's, applicant filtered and architect never stored, in
+`.gev-cache/archive/epermis/`; the daily sweep reads the last 62 days and walks
+history back a year a day, a calendar month a window, down to the layer's
+default three years — the decisions reach back to 1990, but every row kept is
+placed again whenever its commune is rebuilt. The decisions of 2026-01-16 make
+the server cut the connection on any window that holds them, so a window that
+fails is read again a day and a list at a time and the list-day that still
+fails is left out, named in `sweep.json`. On 2026-10-01 the three years held
+11 154 dossiers (7 616 at Nice): 10 615 drawn on their parcel (95.2 %), 477
+placed by address, 62 not placed, and 867 merged with their Sitadel twin.
+Parcels are written six ways — the letter O for the zero among them, while Nice
+has 18 real sections starting with O — and both spellings are looked up. A
+filing reads *Déposé*; the software changed its words in early 2025
+(`FAVORABLE`, `rejet implicite` became `Accord`, `Rejet`) and both are read;
+`Rejet`, the tacit rejection of a file left incomplete, reads as refused, and
+a withdrawal of a granted permit as cancelled.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

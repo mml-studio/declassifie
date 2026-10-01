@@ -114,6 +114,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   the 1 000 most populous communes, 176 are now covered instead of 79.
   `npm run permits:scan` runs the search again; it is meant to run each
   quarter.
+- **Nice and 37 more communes of its métropole now show their permits days
+  after the fact**, 0.42 million more inhabitants: every filing not yet decided
+  and every decision Métropole Nice Côte d'Azur posts on its e-permis board,
+  the fence, the pool and the solar panels included, which the national
+  register never holds — 11 154 dossiers over three years, 95 % of them on
+  their cadastral parcel. A dossier filed and not yet decided reads « Déposé »
+  (“Filed”); a person's name never appears. Cagnes-sur-Mer,
+  Saint-Laurent-du-Var, Vence and ten more communes of the métropole post
+  nothing there and still have Sitadel alone.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at
