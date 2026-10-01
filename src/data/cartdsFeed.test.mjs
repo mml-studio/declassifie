@@ -25,6 +25,7 @@ import {
   parseCartdsToken,
   robotsAllows,
 } from './cartdsFeed.js';
+import { CARTDS_SCANNED_INSTANCES } from './cartdsScanned.js';
 import { COMMUNE_CODE_PATTERN } from './communeCode.js';
 import {
   SITADEL_FILES, mergeRegisters, normaliseSitadelRow, projectAdsPermits,
@@ -52,8 +53,9 @@ const DECISION = Object.freeze([
 test('the registry is a gate that cannot half-cover or double-cover a commune', () => {
   const seen = new Map();
   for (const instance of CARTDS_INSTANCES) {
-    assert.match(instance.base, /^https:\/\/[^/]+\/[^/]+$/, instance.key);
-    assert.ok(['insee', 'number'].includes(instance.codes), instance.key);
+    // A path segment, or none for a board at the root of its host (Massy).
+    assert.match(instance.base, /^https:\/\/[^/]+(\/[^/]+)?$/, instance.key);
+    assert.ok(['insee', 'number', 'unpadded'].includes(instance.codes), instance.key);
     // The card names the publisher by the head of the label.
     assert.match(instance.label, / — /, instance.key);
     for (const code of instance.communes) {
@@ -62,8 +64,11 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
       seen.set(code, instance.key);
     }
   }
-  // 129 communes on 2026-09-30, 65 more on 2026-10-01.
-  assert.equal(seen.size, 194);
+  // Written by hand: 129 communes on 2026-09-30, 65 more on 2026-10-01. The
+  // scan's are on top, and the loop above already refused any it shares.
+  const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
+  assert.equal(seen.size - scanned, 194);
+  assert.ok(CARTDS_SCANNED_INSTANCES.every((instance) => CARTDS_INSTANCES.includes(instance)));
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
   assert.equal(cartdsInstanceFor('75056'), null);
@@ -76,10 +81,15 @@ test('the five hosts whose robots.txt refused robots on 2026-09-30 are read only
     'ads.lecotentin.fr', 'grandlibournais.geosphere.fr', 'conches-en-ouche.geosphere.fr',
     'stemarie.geosphere.fr', 'brie-nangissienne.geosphere.fr',
   ];
-  const overridden = CARTDS_INSTANCES.filter((instance) => instance.robots !== undefined);
+  const documented = CARTDS_INSTANCES.filter((instance) => !CARTDS_SCANNED_INSTANCES.includes(instance));
+  const overridden = documented.filter((instance) => instance.robots !== undefined);
   // The exception is named where it applies, and nowhere else.
   assert.deepEqual(overridden.map((instance) => new URL(instance.base).host).sort(), [...refused].sort());
   for (const instance of overridden) assert.equal(instance.robots, 'overridden', instance.key);
+  // The scan writes the same exception, per instance, and no other value.
+  for (const instance of CARTDS_SCANNED_INSTANCES) {
+    assert.ok(instance.robots === undefined || instance.robots === 'overridden', instance.key);
+  }
   assert.equal(cartdsRobotsUrl(MAMP), 'https://mamp.geosphere.fr/robots.txt');
 });
 
@@ -94,6 +104,9 @@ test('the commune menu sends an INSEE code on some instances and a bare number o
   const saintemarie = cartdsInstanceFor('97418');
   assert.equal(saintemarie.key, 'stemarie');
   assert.equal(cartdsCommuneValue(saintemarie, '97418'), '418');
+  // The Allier's agency sends the INSEE code without its leading zero.
+  assert.equal(cartdsCommuneValue({ codes: 'unpadded' }, '03058'), '3058');
+  assert.equal(cartdsCommuneValue({ codes: 'unpadded' }, '45234'), '45234');
 });
 
 test('the page gives up its token and its commune menu', () => {
