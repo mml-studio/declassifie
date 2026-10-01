@@ -11,6 +11,7 @@ import {
 } from './globeDetailGovernor.js';
 import { getCameraSensitivityDiagnostics } from './data/cameraSensitivity.js';
 import { getCameraSettleDiagnostics } from './data/cameraSettle.js';
+import { getZoomFadeDiagnostics } from './data/zoomFade.js';
 import { peekShareMapStack } from './sharelink.js';
 import { DataLayerManager } from './data/manager.js';
 import { LAYER_MANIFEST } from './data/layerManifest.js';
@@ -1079,6 +1080,10 @@ async function init({ handoff: requestedHandoff = null, fromVitrine = false, loc
       // re-read the view it arrived on or is still describing the one it left
       // — see `cameraSettle.js` and `qa:camera-settle`.
       getCameraSettleDiagnostics,
+      // The alpha every level of every fading layer was last drawn at, and the
+      // camera scale it was drawn for — the only way a harness can tell a
+      // crossfade from a blank frame without reading pixels (`zoomFade.js`).
+      getZoomFadeDiagnostics,
       // Which render profile this machine got, WHY it got it, and what its own
       // frames measured — so a harness never has to infer "was this a lite
       // run?" from pixels. (perf plan 2.1)
