@@ -119,6 +119,7 @@ import { pickAt } from './pickAt.js';
 import { labelFor } from '../i18n/messages.js';
 import messages, { TRANSIT_OCCUPANCY, TRANSIT_STOP_STATUS } from './transitFrance.i18n.js';
 import { transitGlyphCss, transitGlyphSizeDelta } from './transitPresetStyle.js';
+import { createTrail } from './trailRenderer.js';
 
 /** Layer id — also the share-link registry key and the voice-tool enum value. */
 export const TRANSIT_FR_LAYER_ID = 'transit-fr';
@@ -267,6 +268,17 @@ const MODE_COLORS = Object.freeze({
 });
 const DEFAULT_MODE_COLOR = '#ffc93c';
 const SELECTED_COLOR = '#00ffff';
+/**
+ * The selected vehicle's trail, in the selection cyan under every post-FX
+ * style: `transitPresetStyle.js` restyles glyphs, and the trail is a line.
+ */
+const TRAIL_COLOR = SELECTED_COLOR;
+/** Where a selected vehicle has been: the server's rings, then every new fix. */
+const TRAIL_ENDPOINT = '/api/transit-fr/trail';
+/** The trail covers what the server keeps: fifteen minutes. */
+const TRAIL_RETENTION_MS = 15 * 60_000;
+/** Fixes held for the selected vehicle; the server ring holds 64. */
+const TRAIL_MAX_FIXES = 128;
 
 /**
  * The GTFS-RT `currentStatus` and `occupancyStatus` enumerations, in words.
@@ -351,6 +363,20 @@ let _selectedId = null;
 let _stylePreset = 'normal';
 /** The `gev:style-change` listener is bound once per page. */
 let _styleListenerBound = false;
+/**
+ * The selected vehicle's trail: its fixes oldest first (`{t, lat, lon}`), the
+ * polyline drawn through all but the newest, and a head segment from the last
+ * drawn fix to the glyph wherever it is this frame — so the line never runs
+ * ahead of a vehicle still gliding towards its newest fix. A generation
+ * counter drops a server answer that lands after the selection moved on.
+ */
+let _trail = null;
+let _trailHead = null;
+let _trailFixes = [];
+let _trailFor = null;
+let _trailGeneration = 0;
+/** @type {?Cesium.Cartesian3} Last drawn body point: where the head starts. */
+let _trailBodyEnd = null;
 let _routeInFlight = null;
 let _routeGeneration = 0;
 let _routeTimer = null;
@@ -671,6 +697,8 @@ function reseatFleet() {
   // invalidation a brand-new record uses, so the horizon occluder — not this
   // function — still gets the last word on what is visible.
   if (revealed) _lastCameraPoseSignature = '';
+  // The trail's fixes stand on the same floors, so they follow them.
+  if (moved + revealed && _trailFor) renderTrailBody();
   return moved + revealed;
 }
 
@@ -1139,8 +1167,125 @@ function setStylePreset(name) {
   governorRequestRender('transit-fr-style');
 }
 
+/**
+ * Keeps the fixes that belong on the trail: newest last, one per timestamp,
+ * none older than the retention window, at most TRAIL_MAX_FIXES.
+ * @param {Array<{t: number, lat: number, lon: number}>} fixes
+ * @param {number} nowMs
+ * @returns {Array<{t: number, lat: number, lon: number}>}
+ */
+export function mergeTrailFixes(fixes, nowMs) {
+  const byTime = new Map();
+  for (const fix of fixes) {
+    if (!Number.isFinite(fix?.t) || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lon)) continue;
+    if (fix.t < nowMs - TRAIL_RETENTION_MS) continue;
+    byTime.set(fix.t, fix);
+  }
+  const merged = [...byTime.values()].sort((a, b) => a.t - b.t);
+  return merged.slice(-TRAIL_MAX_FIXES);
+}
+
+/** The fix a vehicle record carries now, stamped by the operator when it can be. */
+function trailFixOf(vehicle, nowMs) {
+  const t = Number.isFinite(vehicle?.timestampMs) && vehicle.timestampMs > 0 ? vehicle.timestampMs : nowMs;
+  return { t, lat: vehicle.lat, lon: vehicle.lon };
+}
+
+/**
+ * Redraws the trail body from `_trailFixes`: every fix but the newest, each on
+ * the floor its own vehicle would stand on. A fix whose floor nothing can say
+ * yet is left out rather than drawn at the ellipsoid.
+ */
+function renderTrailBody() {
+  if (!_trail) return;
+  const body = [];
+  for (const fix of _trailFixes.slice(0, -1)) {
+    const floor = vehicleFloorM(fix.lat, fix.lon);
+    if (!Number.isFinite(floor)) continue;
+    body.push(Cesium.Cartesian3.fromDegrees(fix.lon, fix.lat, floor + GLYPH_LIFT_M));
+  }
+  _trail.setPositions(body);
+  _trailBodyEnd = body.length ? body[body.length - 1] : null;
+}
+
+/** Creates the trail polyline and its head segment on first use. */
+function ensureTrail() {
+  if (!_viewer || _trail) return;
+  _trail = createTrail(_viewer, { color: TRAIL_COLOR, width: 2.5 });
+  _trailHead = _viewer.entities.add({
+    // The 'gev-trail:' namespace is claimed by trailRenderer's pick owner, so
+    // a click on the head never reads as empty space and deselects the bus.
+    id: `gev-trail:transit-fr-head`,
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        const record = _trailFor ? _records.get(_trailFor) : null;
+        if (!record?.billboard?.show || !record.renderPosition || !_trailBodyEnd) return [];
+        return [_trailBodyEnd, Cesium.Cartesian3.clone(record.renderPosition)];
+      }, false),
+      width: 2.5,
+      material: Cesium.Color.fromCssColorString(TRAIL_COLOR).withAlpha(0.85),
+      depthFailMaterial: Cesium.Color.fromCssColorString(TRAIL_COLOR).withAlpha(0.4),
+      arcType: Cesium.ArcType.NONE,
+    },
+  });
+}
+
+/**
+ * Starts the trail for a newly selected vehicle: its current fix at once,
+ * then whatever the server kept for it, merged in when it arrives.
+ * @param {Object} record - Render record.
+ */
+function startTrail(record) {
+  const generation = ++_trailGeneration;
+  ensureTrail();
+  _trailFor = record.id;
+  const nowMs = Date.now();
+  _trailFixes = mergeTrailFixes([trailFixOf(record.vehicle, nowMs)], nowMs);
+  renderTrailBody();
+  _trail?.setVisible(true);
+  void (async () => {
+    try {
+      const resp = await fetch(`${TRAIL_ENDPOINT}?id=${encodeURIComponent(record.id)}`, { cache: 'no-store' });
+      if (!resp.ok) return;
+      const body = await resp.json();
+      if (generation !== _trailGeneration || _trailFor !== record.id) return;
+      const served = (Array.isArray(body?.fixes) ? body.fixes : [])
+        .map((row) => ({ t: Number(row?.[0]), lat: Number(row?.[1]), lon: Number(row?.[2]) }));
+      _trailFixes = mergeTrailFixes([...served, ..._trailFixes], Date.now());
+      renderTrailBody();
+      governorRequestRender('transit-fr-trail');
+    } catch {
+      // No history is not an error: the trail grows from the fixes this page sees.
+    }
+  })();
+}
+
+/**
+ * Adds the selected vehicle's newest fix to its trail.
+ * @param {Object} record - Render record, just reconciled.
+ * @param {number} nowMs
+ */
+function extendTrail(record, nowMs) {
+  if (!_trail || _trailFor !== record.id) return;
+  const fix = trailFixOf(record.vehicle, nowMs);
+  const last = _trailFixes[_trailFixes.length - 1];
+  if (last && fix.t <= last.t) return;
+  _trailFixes = mergeTrailFixes([..._trailFixes, fix], nowMs);
+  renderTrailBody();
+}
+
+/** Forgets the trail: nothing is selected any more. */
+function stopTrail() {
+  _trailGeneration += 1;
+  _trailFor = null;
+  _trailFixes = [];
+  _trailBodyEnd = null;
+  _trail?.clear();
+}
+
 /** Clear the selection, restoring the base glyph. */
 function clearSelection() {
+  stopTrail();
   if (_selectedId) {
     // The pointer is part of the same contact and follows it in and out of
     // selection; a cyan wedge left orbiting a deselected bus would read as a
@@ -1226,6 +1371,7 @@ function selectVehicle(id) {
   _selectedId = id;
   applyGlyphStyle(record, true);
   publishSelectionCard(record);
+  startTrail(record);
   governorRequestRender('transit-fr-select');
   void loadSelectedRoute(record);
 }
@@ -1576,6 +1722,7 @@ function reconcile(vehicles, feedsById, nowMs) {
     // A selected vehicle that has been given a new trip is running a
     // different line, or the same line the other way. The drawn run follows
     // it rather than staying on the one that was open when it was clicked.
+    if (id === _selectedId) extendTrail(record, nowMs);
     if (id === _selectedId && record.route && record.route.trip?.id
       && vehicle.tripId && record.route.trip.id !== vehicle.tripId) {
       record.route = null;
@@ -2193,6 +2340,10 @@ const transitFranceLayer = {
       _pointers = null;
     }
     destroyTransitRouteView(viewer);
+    _trail?.destroy();
+    _trail = null;
+    if (_trailHead) viewer.entities.remove(_trailHead);
+    _trailHead = null;
     releaseContinuousRender('transit-fr');
     _records.clear();
     _viewer = null;

@@ -46,7 +46,9 @@ function viewerWithView(degrees) {
         degrees.west, degrees.south, degrees.east, degrees.north,
       ) : undefined),
     },
-    entities: { remove() {} },
+    // The selected vehicle's trail adds a polyline and its head segment.
+    entities: { add: (entity) => entity, remove() {} },
+    isDestroyed: () => false,
   };
 }
 
