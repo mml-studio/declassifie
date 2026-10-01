@@ -388,10 +388,11 @@ let _stylePreset = 'normal';
 let _styleListenerBound = false;
 /**
  * The selected vehicle's trail: its fixes oldest first (`{t, lat, lon}`), the
- * polyline drawn through all but the newest, and a head segment from the last
- * drawn fix to the glyph wherever it is this frame — so the line never runs
- * ahead of a vehicle still gliding towards its newest fix. A generation
- * counter drops a server answer that lands after the selection moved on.
+ * polyline drawn through the fixes its playback clock has reached, and a head
+ * segment from the last drawn fix to the glyph wherever it is this frame — so
+ * the line never runs ahead of a vehicle drawn a delay behind its newest fix.
+ * A generation counter drops a server answer that lands after the selection
+ * moved on.
  */
 let _trail = null;
 let _trailHead = null;
@@ -400,6 +401,8 @@ let _trailFor = null;
 let _trailGeneration = 0;
 /** @type {?Cesium.Cartesian3} Last drawn body point: where the head starts. */
 let _trailBodyEnd = null;
+/** How many of `_trailFixes` the body was last drawn through. */
+let _trailBodyCount = 0;
 let _routeInFlight = null;
 let _routeGeneration = 0;
 let _routeTimer = null;
@@ -715,7 +718,7 @@ function reseatFleet() {
   // function — still gets the last word on what is visible.
   if (revealed) _lastCameraPoseSignature = '';
   // The trail's fixes stand on the same floors, so they follow them.
-  if (moved + revealed && _trailFor) renderTrailBody();
+  if (moved + revealed && _trailFor) renderTrailBody(trailDisplayTime(), true);
   return moved + revealed;
 }
 
@@ -1209,14 +1212,45 @@ function trailFixOf(vehicle, nowMs) {
 }
 
 /**
- * Redraws the trail body from `_trailFixes`: every fix but the newest, each on
- * the floor its own vehicle would stand on. A fix whose floor nothing can say
- * yet is left out rather than drawn at the ellipsoid.
+ * How many of a trail's fixes, oldest first, a playback clock has reached.
+ * @param {Array<{t: number}>} fixes
+ * @param {number} displayAtMs - The vehicle's display time.
+ * @returns {number}
  */
-function renderTrailBody() {
+export function trailFixesReached(fixes, displayAtMs) {
+  let count = 0;
+  while (count < fixes.length && fixes[count].t <= displayAtMs) count += 1;
+  return count;
+}
+
+/**
+ * The trail vehicle's display time, or +Infinity for a record with no
+ * playback track (drawn at its newest fix, so its whole trail is behind it).
+ * @returns {number}
+ */
+function trailDisplayTime() {
+  const record = _trailFor ? _records.get(_trailFor) : null;
+  return record?.track ? displayTime(record.track, Date.now()) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Redraws the trail body from `_trailFixes` through the fixes the vehicle's
+ * playback clock has reached, and no further: the glyph is drawn a delay
+ * behind its newest fix, and a body ending at that fix would run ahead of it.
+ * Each fix stands on the floor its own vehicle would; a fix whose floor
+ * nothing can say yet is left out rather than drawn at the ellipsoid. Redrawn
+ * only when the clock passes another fix, unless the fixes or their floors
+ * changed (`force`).
+ * @param {number} displayAtMs - The trail vehicle's display time.
+ * @param {boolean} [force]
+ */
+function renderTrailBody(displayAtMs, force = false) {
   if (!_trail) return;
+  const count = trailFixesReached(_trailFixes, displayAtMs);
+  if (!force && count === _trailBodyCount) return;
+  _trailBodyCount = count;
   const body = [];
-  for (const fix of _trailFixes.slice(0, -1)) {
+  for (const fix of _trailFixes.slice(0, count)) {
     const floor = vehicleFloorM(fix.lat, fix.lon);
     if (!Number.isFinite(floor)) continue;
     body.push(Cesium.Cartesian3.fromDegrees(fix.lon, fix.lat, floor + GLYPH_LIFT_M));
@@ -1258,7 +1292,7 @@ function startTrail(record) {
   _trailFor = record.id;
   const nowMs = Date.now();
   _trailFixes = mergeTrailFixes([trailFixOf(record.vehicle, nowMs)], nowMs);
-  renderTrailBody();
+  renderTrailBody(trailDisplayTime(), true);
   _trail?.setVisible(true);
   void (async () => {
     try {
@@ -1269,7 +1303,7 @@ function startTrail(record) {
       const served = (Array.isArray(body?.fixes) ? body.fixes : [])
         .map((row) => ({ t: Number(row?.[0]), lat: Number(row?.[1]), lon: Number(row?.[2]) }));
       _trailFixes = mergeTrailFixes([...served, ..._trailFixes], Date.now());
-      renderTrailBody();
+      renderTrailBody(trailDisplayTime(), true);
       governorRequestRender('transit-fr-trail');
     } catch {
       // No history is not an error: the trail grows from the fixes this page sees.
@@ -1288,7 +1322,7 @@ function extendTrail(record, nowMs) {
   const last = _trailFixes[_trailFixes.length - 1];
   if (last && fix.t <= last.t) return;
   _trailFixes = mergeTrailFixes([..._trailFixes, fix], nowMs);
-  renderTrailBody();
+  renderTrailBody(trailDisplayTime(), true);
 }
 
 /** Forgets the trail: nothing is selected any more. */
@@ -1297,6 +1331,7 @@ function stopTrail() {
   _trailFor = null;
   _trailFixes = [];
   _trailBodyEnd = null;
+  _trailBodyCount = 0;
   _trail?.clear();
 }
 
@@ -1538,6 +1573,8 @@ function onPreRender() {
     // two reported fixes; or, once the track's clock has passed the newest
     // fix, where the schedule projection has carried it along its run.
     const sample = sampleTrack(record.track, displayTime(record.track, now), _frameSample);
+    // The trail body grows as the clock passes each of its fixes.
+    if (record.id === _trailFor) renderTrailBody(sample.t);
     let wanted = null;
     if (record.projected && sample.state === 'holding') {
       wanted = record.target;

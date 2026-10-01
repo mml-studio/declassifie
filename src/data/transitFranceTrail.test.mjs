@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mergeTrailFixes } from './transitFrance.js';
+import { mergeTrailFixes, trailFixesReached } from './transitFrance.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = fs.readFileSync(path.join(HERE, 'transitFrance.js'), 'utf8');
@@ -40,8 +40,15 @@ test('the trail starts on selection, grows on each poll of the selected vehicle 
   assert.match(SOURCE, /function clearSelection\(\) \{\n  stopTrail\(\);/);
 });
 
-test('the body stops at the fix before the newest, and the head runs from there to the glyph', () => {
-  assert.match(SOURCE, /for \(const fix of _trailFixes\.slice\(0, -1\)\)/);
+test('the body stops at the last fix the playback clock has reached, and the head runs from there to the glyph', () => {
+  const fixes = [{ t: NOW - 60_000 }, { t: NOW - 30_000 }, { t: NOW - 15_000 }, { t: NOW }];
+  // The bus is drawn a delay behind its newest fix: two fixes still ahead of it.
+  assert.equal(trailFixesReached(fixes, NOW - 20_000), 2);
+  assert.equal(trailFixesReached(fixes, NOW - 15_000), 3, 'a fix the clock stands on is reached');
+  assert.equal(trailFixesReached(fixes, NOW - 90_000), 0);
+  assert.equal(trailFixesReached(fixes, Number.POSITIVE_INFINITY), 4, 'no track: the whole trail is behind it');
+  assert.match(SOURCE, /for \(const fix of _trailFixes\.slice\(0, count\)\)/);
+  assert.match(SOURCE, /if \(record\.id === _trailFor\) renderTrailBody\(sample\.t\);/);
   assert.match(SOURCE, /return \[_trailBodyEnd, Cesium\.Cartesian3\.clone\(record\.renderPosition\)\];/);
   assert.match(SOURCE, /id: `gev-trail:transit-fr-head`/, 'the head claims the trail pick namespace');
 });
