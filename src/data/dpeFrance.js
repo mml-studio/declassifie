@@ -8,7 +8,7 @@ import {
 } from './dpeFeed.js';
 import { addressMarkerGlyph, dpeLetterKind } from './addressMarkerIcons.js';
 import {
-  ADDRESS_SCAN_MIN_SHIFT_KM, createAddressScanLayer, mapKeyCarriesSelection,
+  ADDRESS_SCAN_MIN_SHIFT_KM, cameraScanPoint, createAddressScanLayer, mapKeyCarriesSelection,
 } from './addressScanLayer.js';
 import { drawScanBoundary } from './scanBoundary.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from './scanRegime.js';
 import { cameraViewBox } from './viewGate.js';
 import { bdtopoLoadedFootprints } from './bdtopoBuildings.js';
-import { createGroundAreaPaint } from './groundAreaPaint.js';
+import { createScanAreaLevels } from './scanAreaFade.js';
 import { drawGroundHighlight } from './groundHighlight.js';
 import { registerPickOwner, unregisterPickOwner } from './pickRegistry.js';
 import {
@@ -1420,7 +1420,7 @@ function onDpeSelectionChange(card) {
   // Above 600 m a card is opened on bare ground, and it is about the parcel
   // or section under that point — found by geometry, as the card was.
   _selectedShape = !site && _areaUnit && Number.isFinite(card?.lon) && Number.isFinite(card?.lat)
-    ? _areaPaint.shapeAt(card.lon, card.lat)
+    ? _areaLevels.shapeAt(card.lon, card.lat)
     : null;
   _selectedCard = card && !site && !_selectedShape ? card : null;
   if (_selectedShape) {
@@ -1450,7 +1450,7 @@ export function dpeSelectionPanel() {
   }
   if (_selectedShape) {
     return _selectedShape.kind === 'section'
-      ? dpeSectionPanel(_selectedShape.record, _areaPayload)
+      ? dpeSectionPanel(_selectedShape.record, _areaLevels.payloadOf(_selectedShape) || _areaPayload)
       : dpeParcelPanel(_selectedShape.record);
   }
   if (_selectedCard?.title) {
@@ -1479,7 +1479,7 @@ function dpeCompactCard(card) {
   // Resolved from the card itself: the shell asks for the compact form BEFORE
   // it tells `onSelectionChange`, so `_selectedShape` may still be the last one.
   const shape = _areaUnit && Number.isFinite(card?.lon) && Number.isFinite(card?.lat)
-    ? _areaPaint.shapeAt(card.lon, card.lat)
+    ? _areaLevels.shapeAt(card.lon, card.lat)
     : null;
   return shape ? dpeAreaTag(shape) : true;
 }
@@ -1822,8 +1822,38 @@ const DPE_AREA_STYLE = Object.freeze({
 /** Top of the parcel band — the altitude a section card sends a reader under. */
 const PARCEL_BAND_MAX_ALTITUDE_M = SCAN_BANDS.find((band) => band.dvfUnit === 'plots')?.maxAltitudeM;
 
-/** The parcels or sections on the globe. */
-const _areaPaint = createGroundAreaPaint({ renderReason: 'dpe-area-build' });
+/**
+ * The parcels and the sections on the globe, as two levels that fade into
+ * each other between 1 080 m and 1 800 m (`scanRegime.SCAN_SECTION_FADE`) —
+ * see `scanAreaFade.js`, and `dvfSales.js` for the same arrangement.
+ *
+ * WHY THE TWO MAY FADE: both wear the most frequent letter of the ratings they
+ * hold, on the official scale — the same statistic over a parcel and over a
+ * section. The section counts the register's 50 m squares lying wholly inside
+ * it and is painted from three up; measured against the exact placement it
+ * wore the same letter on every section painted (14 of 14, `dpeFeed.js`).
+ *
+ * WHAT A FADE STEP COSTS: one colour attribute per instance, written only when
+ * the quantised weight moves — the densest parcel box measured holds 2 469
+ * parcels (Lyon Presqu'île), a section box a few hundred.
+ */
+const _areaLevels = createScanAreaLevels({
+  ownerId: 'dpe-fr',
+  names: { fine: 'parcels', coarse: 'sections' },
+  renderReason: 'dpe-area-build',
+  endpoint: '/api/dpe',
+  unitOf: (payload) => {
+    const unit = dpeAreaUnit(payload);
+    if (unit === 'parcels') return 'fine';
+    return unit === 'sections' ? 'coarse' : null;
+  },
+  paintOf: (level, payload, runtime) => dpeAreaPaint(payload,
+    new Set(dpeClassFilterLetters(runtime?.classes ?? DPE_CLASS_FILTER_ALL))),
+  // The shell's own question, lifted to the coarse band: the 0.08° box, and
+  // only the tiles the screen shows.
+  coarseParams: (point, viewer) => dpeScanParams(point, cameraViewBox(viewer)),
+  scanPoint: cameraScanPoint,
+});
 
 /**
  * Which area answer is on screen: `'parcels'`, `'sections'`, or null for the
@@ -2205,18 +2235,21 @@ export function dpeAreaTag(shape) {
  */
 function dpeAreaGroundCard({ lon, lat, payload }) {
   if (!dpeAreaUnit(payload)) return null;
-  const shape = _areaPaint.shapeAt(lon, lat);
-  return shape ? dpeAreaCard(shape, payload) : null;
+  const shape = _areaLevels.shapeAt(lon, lat);
+  // Read against the answer the shape was painted from — inside the band a
+  // section and a parcel come from two answers.
+  return shape ? dpeAreaCard(shape, _areaLevels.payloadOf(shape) || payload) : null;
 }
 
 /**
- * Paint an area answer, through the class filter.
- * @returns {number} Shapes drawn.
+ * What one area answer paints through the class filter: a shape per parcel or
+ * section holding a shown letter, in its letter's colour.
+ * @param {object} payload @param {Set<string>} shown
+ * @returns {{items: Array<object>, style: ?object}}
  */
-function drawDpeArea(payload, viewer, classificationType, shown) {
-  _areaPaint.clear();
+function dpeAreaPaint(payload, shown) {
   const unit = dpeAreaUnit(payload);
-  if (!unit || !viewer?.scene?.primitives) return 0;
+  if (!unit) return { items: [], style: null };
   const kind = unit === 'parcels' ? 'parcel' : 'section';
   const items = dpeFilterAreaRecords(areaRecords(payload), shown).map((record) => ({
     id: `dpe-${kind}:${record.id}`,
@@ -2225,12 +2258,25 @@ function drawDpeArea(payload, viewer, classificationType, shown) {
     parts: record?.parts,
     css: dpeAreaColorCss(unit, record, shown),
   }));
-  return _areaPaint.draw(viewer, items, { style: DPE_AREA_STYLE[unit], classificationType });
+  return { items, style: DPE_AREA_STYLE[unit] };
 }
 
-/** Take the area draw and its selection off the globe. */
+/**
+ * Paint an area answer as the shell's level; the other level follows
+ * (`scanAreaFade.js`).
+ * @returns {number} Shapes drawn.
+ */
+function drawDpeArea(payload, context) {
+  if (!dpeAreaUnit(payload) || !context?.viewer?.scene?.primitives) {
+    _areaLevels.clearAll();
+    return 0;
+  }
+  return _areaLevels.primary(payload, context);
+}
+
+/** Take both area levels and the selection off the globe. */
 function clearAreaDraw() {
-  _areaPaint.clear();
+  _areaLevels.clearAll();
   _areaUnit = null;
   _areaPayload = null;
   _selectedShape = null;
@@ -2320,7 +2366,13 @@ const dpeScanLayer = createAddressScanLayer({
   onClear: () => {
     clearSiteHighlight();
     clearPills();
-    clearAreaDraw();
+    // NOT `clearAreaDraw`: the shell calls this before every redraw too, and
+    // the levels keep what they hold until the new draw has built. When no
+    // redraw follows (dormant above the ceiling) they go at the end of the task.
+    _areaLevels.cleared();
+    _areaUnit = null;
+    _areaPayload = null;
+    _selectedShape = null;
     _selectedSiteKey = null;
     _selectedCard = null;
   },
@@ -2356,14 +2408,18 @@ const dpeScanLayer = createAddressScanLayer({
       _join = null;
       _themeDirty = false;
       withdrawTheme();
-      const drawn = drawDpeArea(payload, viewer, gpuClassificationTypeForScene(viewer?.scene), shown);
+      const drawn = drawDpeArea(payload, {
+        viewer, point, classificationType: gpuClassificationTypeForScene(viewer?.scene), runtime,
+      });
       _areaUnit = unit;
       _areaPayload = payload;
       drawScanBoundary(dataSource, { id: 'dpe:scan-edge', box: payload.box });
       return drawn;
     }
     // Back under 600 m: whatever the box drew goes, even if the shell's own
-    // teardown did not run first.
+    // teardown did not run first. A hard cut, not a fade: the disc answers 200
+    // ratings at most within 200 m of one point, not a finer reading of the
+    // box's parcels — see `scanRegime.scanAreaLevelsAt`.
     clearAreaDraw();
     const everything = shown.size === DPE_LABELS.length;
     _entries = everything
@@ -2460,11 +2516,14 @@ const dpeScanLayer = createAddressScanLayer({
     return null;
   },
 
+  // Inside the fade band the key and the stats are the DOMINANT level's: the
+  // sections' near the band's top, where they still outweigh the parcels the
+  // shell holds.
   rowControls: (runtime, _summary, payload) => (dpeAreaUnit(payload)
-    ? dpeAreaRowControls(payload, runtime)
+    ? dpeAreaRowControls(_areaLevels.ownerPayload(payload), runtime)
     : dpeRowControls(payload, runtime)),
 
-  summarize: dpeSummarize,
+  summarize: (payload) => dpeSummarize(_areaLevels.ownerPayload(payload)),
 });
 
 /**
@@ -2500,6 +2559,7 @@ const dpeFranceLayer = {
     // A settle is finer than the half-view change Cesium re-clusters on.
     _removeMoveEnd?.();
     _removeMoveEnd = args[0]?.camera?.moveEnd?.addEventListener?.(() => { declutter(); }) || null;
+    _areaLevels.enable(args[0]);
     return dpeScanLayer.enable(...args);
   },
 
@@ -2523,6 +2583,7 @@ const dpeFranceLayer = {
     // After the shell, which keeps its payload and redraws from a fresh scan
     // on `enable` — so the shapes go now rather than sitting on a hidden
     // layer's ground.
+    _areaLevels.disable();
     clearAreaDraw();
     unregisterPickOwner('dpe-fr');
     return result;
@@ -2546,6 +2607,7 @@ const dpeFranceLayer = {
     _rowControlsListener = null;
     withdrawTheme();
     const result = dpeScanLayer.destroy(...args);
+    _areaLevels.disable();
     clearAreaDraw();
     unregisterPickOwner('dpe-fr');
     return result;
@@ -2586,7 +2648,7 @@ const dpeFranceLayer = {
    * @returns {{unit: ?string, shapes: number, fills: number, ready: boolean}}
    */
   getAreaDraw() {
-    return { unit: _areaUnit, ..._areaPaint.stats() };
+    return { unit: _areaUnit, ..._areaLevels.stats() };
   },
 };
 

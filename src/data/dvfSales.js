@@ -1,15 +1,16 @@
 import * as Cesium from 'cesium';
 import { addressMarkerGlyph } from './addressMarkerIcons.js';
 import {
-  ADDRESS_SCAN_MIN_SHIFT_KM, createAddressScanLayer, mapKeyCarriesSelection,
+  ADDRESS_SCAN_MIN_SHIFT_KM, cameraScanPoint, createAddressScanLayer, mapKeyCarriesSelection,
 } from './addressScanLayer.js';
 import { clearBuildingTheme, registerBuildingTheme } from './buildingTheme.js';
 import { DVF_SECTION_MIN_PRICED, mostRecentMutation, saleKind } from './dvfFeed.js';
-import { createGroundAreaPaint, groundShapeAt } from './groundAreaPaint.js';
+import { groundShapeAt } from './groundAreaPaint.js';
 import { drawGroundHighlight } from './groundHighlight.js';
 import { publishJoin } from './layerJoins.js';
 import { registerPickOwner, unregisterPickOwner } from './pickRegistry.js';
 import { drawScanBoundary } from './scanBoundary.js';
+import { createScanAreaLevels } from './scanAreaFade.js';
 import { SCAN_BANDS, SCAN_CELL_MIN_ALTITUDE_M, scanCellParams } from './scanRegime.js';
 import { gpuClassificationTypeForScene } from './urbanismeGpu.js';
 import {
@@ -1173,15 +1174,49 @@ const AREA_STYLE = Object.freeze({
 const PLOT_BAND_MAX_ALTITUDE_M = SCAN_BANDS.find((band) => band.dvfUnit === 'plots')?.maxAltitudeM;
 
 /**
- * Which area answer is on screen: `'plots'`, `'sections'`, or null for the
+ * Which area answer the SHELL holds: `'plots'`, `'sections'`, or null for the
  * disc regime. Written by `render` from the payload and read by `minShiftKm`,
  * never derived from the camera: the two disagree for exactly as long as a
  * scan is in flight, and during that window the threshold has to describe what
  * is drawn.
  */
 let _areaUnit = null;
-/** The plots or sections on the globe — see `groundAreaPaint.js`. */
-const _areaPaint = createGroundAreaPaint({ renderReason: 'dvf-area-build' });
+
+/**
+ * The plots and the sections on the globe, as two levels that fade into each
+ * other between 1 080 m and 1 800 m (`scanRegime.SCAN_SECTION_FADE`), each
+ * painted by its own `groundAreaPaint`. The shell's answer is one of them;
+ * inside the band the other is the sections, asked for around the same point
+ * — see `scanAreaFade.js`.
+ *
+ * WHY THE TWO MAY FADE: a section is painted by the MEDIAN of the ratios its
+ * plots are painted by one at a time (the latest sale's) — the same rows, the
+ * same commune medians, the same five frozen classes (`dvfFeed.areaInputs`).
+ * A median is the colour a coarser unit of the same ratios takes; a COUNT would
+ * not have been, and is not what either level paints.
+ *
+ * WHAT A FADE STEP COSTS: one colour attribute per instance, written only when
+ * the quantised weight moves. The densest plot box measured holds 1 698 plots
+ * (Paris 17e, `dvfFeed.aggregateSalesIntoPlots`), a section box ~400 sections:
+ * a few thousand typed-array writes in the frames of a zoom through the band,
+ * none while the camera is still.
+ */
+const _areaLevels = createScanAreaLevels({
+  ownerId: 'dvf-sales',
+  names: { fine: 'plots', coarse: 'sections' },
+  renderReason: 'dvf-area-build',
+  endpoint: '/api/dvf',
+  unitOf: (payload) => {
+    const unit = dvfAreaUnit(payload);
+    if (unit === 'plots') return 'fine';
+    return unit === 'sections' ? 'coarse' : null;
+  },
+  paintOf: (level, payload) => dvfAreaPaint(payload),
+  // The shell's own question, lifted to the coarse band: the box only, as
+  // `params` asks it — the type filter never reaches the proxy.
+  coarseParams: (point) => scanCellParams(point),
+  scanPoint: cameraScanPoint,
+});
 
 /**
  * The regime a payload answers in.
@@ -1446,7 +1481,7 @@ export function dvfSectionCard(section, payload) {
  * @param {Array<object>} [shapes]
  * @returns {?object}
  */
-export function dvfAreaShapeAt(lon, lat, shapes = _areaPaint.shapes()) {
+export function dvfAreaShapeAt(lon, lat, shapes = _areaLevels.shapes()) {
   return groundShapeAt(lon, lat, shapes);
 }
 
@@ -1456,27 +1491,31 @@ export function dvfAreaShapeAt(lon, lat, shapes = _areaPaint.shapes()) {
  * null off every shape, so the click falls through to a dismissal.
  */
 function dvfAreaGroundCard({ lon, lat, payload }) {
-  if (!dvfAreaUnit(payload) || !_areaPaint.shapes().length) return null;
+  if (!dvfAreaUnit(payload) || !_areaLevels.shapes().length) return null;
   const shape = dvfAreaShapeAt(lon, lat);
   if (!shape) return null;
+  // Read against the answer the shape was painted from: inside the band a
+  // section and a plot come from two answers over two boxes.
+  const own = _areaLevels.payloadOf(shape) || payload;
   return shape.kind === 'plot'
-    ? dvfPlotCard(shape.record, payload)
-    : dvfSectionCard(shape.record, payload);
+    ? dvfPlotCard(shape.record, own)
+    : dvfSectionCard(shape.record, own);
 }
 
-/** Take the area draw off the globe. Idempotent. */
+/** Take both area levels off the globe. Idempotent. */
 function clearAreaDraw() {
-  _areaPaint.clear();
+  _areaLevels.clearAll();
 }
 
 /**
- * Paint an area answer: one fill primitive per colour, one outline primitive.
- * @returns {number} Shapes drawn.
+ * What one area answer paints: a shape per plot or section, in its class
+ * colour, with the ink of its unit.
+ * @param {object} payload
+ * @returns {{items: Array<object>, style: ?object}}
  */
-function drawDvfArea(payload, viewer, classificationType) {
-  clearAreaDraw();
+function dvfAreaPaint(payload) {
   const unit = dvfAreaUnit(payload);
-  if (!unit || !viewer?.scene?.primitives) return 0;
+  if (!unit) return { items: [], style: null };
   const kind = unit === 'plots' ? 'plot' : 'section';
   const items = (unit === 'plots' ? payload.plots : payload.sections).map((record) => ({
     id: `dvf-${kind}:${record.id}`,
@@ -1485,7 +1524,20 @@ function drawDvfArea(payload, viewer, classificationType) {
     parts: record?.parts,
     css: dvfAreaColorCss(unit, record),
   }));
-  return _areaPaint.draw(viewer, items, { style: AREA_STYLE[unit], classificationType });
+  return { items, style: AREA_STYLE[unit] };
+}
+
+/**
+ * Paint an area answer as the shell's level; the other level follows
+ * (`scanAreaFade.js`).
+ * @returns {number} Shapes drawn.
+ */
+function drawDvfArea(payload, context) {
+  if (!dvfAreaUnit(payload) || !context?.viewer?.scene?.primitives) {
+    clearAreaDraw();
+    return 0;
+  }
+  return _areaLevels.primary(payload, context);
 }
 
 /* ── the selected sale: a lit plot, and its card beside the map ─────────── */
@@ -1605,7 +1657,11 @@ export function dvfResolveSelection(card, payload, {
   }
   if (Number.isFinite(card.lon) && Number.isFinite(card.lat) && dvfAreaUnit(payload)) {
     const shape = shapeAt(card.lon, card.lat);
-    return shape ? { card, sale: shape.record?.sale || null, parcelId: null, shape } : null;
+    // The shape's own answer travels with it: inside the fade band a section
+    // and a plot are read against two answers.
+    return shape
+      ? { card, sale: shape.record?.sale || null, parcelId: null, shape, payload: _areaLevels.payloadOf(shape) }
+      : null;
   }
   return null;
 }
@@ -1671,9 +1727,10 @@ export function dvfSalePanel(sale, reference, { parcelId = null, footnote = null
  * @param {?object} payload The answer on screen.
  * @returns {?object}
  */
-export function dvfSelectionPanel(selection, payload) {
-  if (!selection || !payload) return null;
+export function dvfSelectionPanel(selection, drawnPayload) {
+  if (!selection || !drawnPayload) return null;
   const { card, sale, shape, parcelId } = selection;
+  const payload = selection.payload || drawnPayload;
   if (shape?.kind === 'plot' && sale) {
     const commune = areaCommune(payload, shape.record?.communeCode);
     return dvfSalePanel(sale, {
@@ -1714,7 +1771,7 @@ function onDvfSelectionChange(card) {
   if (!_selection || !_drawViewer) return;
   if (_selection.shape) {
     drawSaleHighlight(_drawViewer, _selection.shape.parts,
-      dvfAreaColorCss(_areaUnit, _selection.shape.record));
+      dvfAreaColorCss(_selection.shape.kind === 'plot' ? 'plots' : 'sections', _selection.shape.record));
     return;
   }
   const parcel = _selection.parcelId
@@ -1776,7 +1833,11 @@ const baseLayer = createAddressScanLayer({
   // shell's own teardown — before a redraw, on going dormant, on destroy —
   // has to take them too. See `drawDvfArea`.
   onClear: () => {
-    clearAreaDraw();
+    // NOT `clearAreaDraw`: the shell calls this before every redraw too, and
+    // the levels keep what they hold until the new draw has built — a pan or
+    // a zoom across the band never shows bare ground. When no redraw follows
+    // (dormant above the ceiling) they go at the end of the task.
+    _areaLevels.cleared();
     clearSaleHighlight();
     _selection = null;
     _drawnPayload = null;
@@ -1817,7 +1878,9 @@ const baseLayer = createAddressScanLayer({
       // `cells` is the shape a box answer had until 2026-09-21; the browser
       // may hold one for the five minutes its HTTP cache allows. Nothing of it
       // is drawn, and the box outline says where the answer will come.
-      const drawn = drawDvfArea(payload, viewer, gpuClassificationTypeForScene(viewer?.scene));
+      const drawn = drawDvfArea(payload, {
+        viewer, point, classificationType: gpuClassificationTypeForScene(viewer?.scene), runtime,
+      });
       drawScanBoundary(dataSource, { id: 'dvf:scan-edge', box: payload.box });
       // The building theme paints volumes from the sales in hand and an area
       // answer holds shapes rather than sales, so it is WITHDRAWN rather than
@@ -1828,6 +1891,11 @@ const baseLayer = createAddressScanLayer({
       publishTheme();
       return drawn;
     }
+    // UNDER 600 m THE PLOTS AND SECTIONS GO AT ONCE — a hard cut, not a fade:
+    // the disc is a different question (300 m around one point, 400 sales at
+    // most, one marker each), not a finer reading of the box's plots. See
+    // `scanRegime.scanAreaLevelsAt`.
+    clearAreaDraw();
     const reference = dvfReference(payload);
     const sales = filterSalesByType(payload.sales, _typeFilter);
     // THE GROUND FIRST, so the markers are added after and pick above their
@@ -1907,7 +1975,7 @@ const baseLayer = createAddressScanLayer({
    * The key to the ramp, plus the two admissions A5 asks for: what was clipped
    * and what could not be placed.
    */
-  rowControls(runtime, _summary, payload) {
+  rowControls(runtime, _summary, drawn) {
     // READ, NEVER WRITTEN, here: `render` owns the mirror — see `_typeFilter`.
     // The chips still show the runtime, which is the truth even on the tick
     // before the draw has caught up with it.
@@ -1931,7 +1999,10 @@ const baseLayer = createAddressScanLayer({
     // hands over a null payload in exactly those two cases. The CHIPS are
     // published either way: a control a reader cannot find until the layer has
     // answered is a control they will not find.
-    if (!payload) return { chips };
+    if (!drawn) return { chips };
+    // Inside the fade band the key is the DOMINANT level's: the sections'
+    // near the band's top, where they still outweigh the plots the shell holds.
+    const payload = _areaLevels.ownerPayload(drawn);
     const unit = dvfAreaUnit(payload);
     if (unit) {
       // NO TYPE CHIPS IN AN AREA REGIME, and they are removed rather than
@@ -1970,7 +2041,9 @@ const baseLayer = createAddressScanLayer({
     };
   },
 
-  summarize(payload) {
+  summarize(drawn) {
+    // The dominant level's answer, as the key — see `rowControls`.
+    const payload = _areaLevels.ownerPayload(drawn);
     const summary = payload.summary || {};
     const unit = dvfAreaUnit(payload);
     if (unit) {
@@ -2090,6 +2163,7 @@ const dvfSalesLayer = {
     // Claimed so the sibling handlers that track or select read a click on a
     // plot as somebody's and leave it alone — see `pickRegistry.js`.
     registerPickOwner(DVF_LAYER_ID, isDvfAreaPickId);
+    _areaLevels.enable(viewer);
     baseLayer.enable(viewer);
     // Republish what is already in hand: a layer switched off and on again
     // repaints immediately instead of waiting for the next scan.
@@ -2104,7 +2178,7 @@ const dvfSalesLayer = {
     // After the shell, which keeps its payload and redraws from a fresh scan
     // on `enable` — so the shapes go now rather than sitting on a hidden
     // layer's ground.
-    clearAreaDraw();
+    _areaLevels.disable();
     clearSaleHighlight();
     _selection = null;
     _areaUnit = null;
@@ -2116,7 +2190,7 @@ const dvfSalesLayer = {
     _themePayload = null;
     publishTheme();
     baseLayer.destroy(viewer);
-    clearAreaDraw();
+    _areaLevels.disable();
     clearSaleHighlight();
     _selection = null;
     _drawnPayload = null;
@@ -2164,7 +2238,7 @@ const dvfSalesLayer = {
    * @returns {{unit: ?string, shapes: number, fills: number, ready: boolean}}
    */
   getAreaDraw() {
-    return { unit: _areaUnit, ..._areaPaint.stats() };
+    return { unit: _areaUnit, ..._areaLevels.stats() };
   },
 
   /** The mutation the operator clicked, ready to be spoken. */

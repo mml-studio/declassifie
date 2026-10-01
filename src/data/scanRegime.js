@@ -86,6 +86,76 @@ export const SCAN_BANDS = Object.freeze([
 const TILE_DEGS = Object.freeze(SCAN_BANDS.map((band) => band.tileDeg));
 
 /**
+ * THE BAND IN WHICH THE PLOTS AND THE SECTIONS ARE BOTH DRAWN (2026-10-01), in
+ * metres of camera altitude — the unit {@link scanBandFor} reads.
+ *
+ * Until then a zoom across 1 800 m swapped one wash for the other on a hard
+ * cut, and the swap read as the map reloading. Both are the same statistic at
+ * two resolutions, so they fade into each other between the two ends below
+ * (`zoomFade.js`). For the price layer a plot wears its latest sale's ratio to
+ * its own commune's median, a section the MEDIAN of the same ratios over its
+ * sales — the same rows (`dvfFeed.areaInputs`), the same denominators, the
+ * same five frozen classes; the section's floor of three priced sales paints
+ * the rest neutral, which is the honest colour of a median not computed. For
+ * the energy layer a parcel and a section both wear the most frequent letter
+ * of the ratings they hold, on the official A–G scale; the section counts the
+ * register's 50 m squares lying wholly inside it, and painted the same letter
+ * as the exact placement on every section measured (14 of 14, `dpeFeed.js`).
+ *
+ * `coarse` is the fine band's top — where the plots start loading today — so
+ * their box, their tiles and their caps are unchanged. `fine` is 0.6 of it:
+ * 1 080 m, a ratio of 1.67. The sections are therefore asked for down to
+ * 1 080 m, which costs the same question they answer at 1 800 m — the same
+ * 0.08° box, snapped to the same 0.04° grid, so a pan inside a tile asks
+ * nothing new — and for the energy layer fewer tiles, since only those on
+ * screen are asked for and the screen is smaller.
+ *
+ * Plain numbers rather than a `zoomFade.fadeBand`, because this module stays
+ * free of Cesium for the proxy's sake; the layers wrap it.
+ */
+export const SCAN_SECTION_FADE = Object.freeze({
+  fine: SCAN_BANDS[0].maxAltitudeM * 0.6,
+  coarse: SCAN_BANDS[0].maxAltitudeM,
+});
+
+/**
+ * Which area levels a settled camera draws: the plots in the fine band, the
+ * sections above the fade band's fine end — both inside it — and neither for
+ * the disc regime or a pinned scan, which is a disc whatever the altitude.
+ *
+ * THE 600 m SWITCH IS NOT A FADE, and stays the cut it was: below it the disc
+ * answers a different QUESTION — the sales or diagnostics within 300 m or
+ * 200 m of one point, capped at 400 sales or 200 ratings and drawn one mark
+ * each — while the plots answer a 2 × 2 km box, uncapped, one wash per plot.
+ * The colour is the same; the samples are not, and fading one into the other
+ * would blend a capped disc into an uncapped box as if one were a coarser
+ * reading of the other.
+ *
+ * @param {?{altitudeM: number, pinned?: boolean}} point
+ * @returns {{fine: boolean, coarse: boolean}}
+ */
+export function scanAreaLevelsAt(point) {
+  if (point?.pinned) return { fine: false, coarse: false };
+  const altitudeM = Number(point?.altitudeM);
+  if (!Number.isFinite(altitudeM) || altitudeM < SCAN_CELL_MIN_ALTITUDE_M) return { fine: false, coarse: false };
+  return {
+    fine: altitudeM < SCAN_SECTION_FADE.coarse,
+    coarse: altitudeM > SCAN_SECTION_FADE.fine,
+  };
+}
+
+/**
+ * The point a coarse-band question is asked from: the same place, lifted to
+ * the coarse band's floor, so the layers' own `params` build the section box
+ * (and the energy layer its tile mask) exactly as they do above 1 800 m.
+ * @param {{lat: number, lon: number, altitudeM: number}} point
+ * @returns {object}
+ */
+export function scanCoarsePoint(point) {
+  return { ...point, altitudeM: Math.max(Number(point?.altitudeM) || 0, SCAN_SECTION_FADE.coarse) };
+}
+
+/**
  * The band a camera altitude falls in, or null when the scan stays a disc.
  *
  * A PINNED scan is always a disc, whatever the altitude, and that is not an

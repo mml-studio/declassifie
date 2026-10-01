@@ -30,6 +30,7 @@ import * as Cesium from 'cesium';
 import { decodeParts } from './dvfFeed.js';
 import { pointInPolygons, polygonsBounds } from './ringGeometry.js';
 import { governorRequestRender } from '../renderGovernor.js';
+import { fadeInstances } from './zoomFade.js';
 
 /** Frames a freshly built draw is re-rendered for, at most, while it tessellates. */
 const BUILD_FRAME_CAP = 240;
@@ -74,34 +75,73 @@ function ringPositions(ring) {
  * One layer's painter. Each layer holds its own, so the two can be on screen
  * together and each tears down only what it drew.
  *
+ * A REDRAW NEVER SHOWS A BLANK FRAME (2026-10-01). The batches are built
+ * asynchronously on the worker pool, and the draw used to take the old ones
+ * off the globe the moment the new ones were ASKED for: a pan, a zoom across
+ * a band, a map-stack switch each left the ground bare for the hundreds of
+ * milliseconds tessellation takes — and the shapes then popped back, which
+ * read as the map reloading. A draw now builds a PENDING generation, hidden,
+ * beside the one on screen; {@link promote} swaps them only once every new
+ * batch is ready, in the frame that will draw them. The layer calls it from
+ * its per-frame fade (`scanAreaFade.js`), so the new shapes are already at the
+ * weight the frame gives them on the first frame they are seen.
+ *
+ * A WEIGHT IS WRITTEN PER INSTANCE. A `GroundPrimitive` builds its shaders
+ * from the appearance's type and cannot take a fade uniform, so the fade
+ * writes each instance's colour (`zoomFade.fadeInstances`, quantised, nothing
+ * written while the weight has not moved a step). That needs one id per
+ * instance — a multipart plot's second part used to share its first's, and
+ * Cesium answers an id with the first instance it finds — so the second and
+ * later parts and rings carry `#2`, `#3`: the prefix every pick test reads is
+ * unchanged.
+ *
  * @param {{renderReason: string}} options The render-governor reason the
  *   build pump requests frames under.
  * @returns {{
- *   draw: Function, clear: Function, shapeAt: Function,
- *   shapes: () => Array<object>, stats: () => {shapes: number, fills: number, ready: boolean},
+ *   draw: Function, clear: Function, promote: Function, fade: Function,
+ *   setShow: Function, drawn: () => boolean, shown: () => boolean,
+ *   generation: () => number, shapeAt: Function, shapes: () => Array<object>,
+ *   stats: () => {shapes: number, fills: number, ready: boolean, pending: boolean},
  * }}
  */
 export function createGroundAreaPaint({ renderReason }) {
   let viewer = null;
-  /** @type {Array<object>} One classification primitive per colour. */
-  let fills = [];
-  let outline = null;
+  /** The generation on screen. */
+  let current = emptyGeneration();
+  /** A generation still building, hidden, behind the one on screen. */
+  let pending = null;
   let pumpStop = null;
-  /** @type {Array<{kind: string, record: object, parts: Array, bounds: ?object, css: string}>} */
-  let shapes = [];
+  /** Whether the layer wants this paint drawn at all — see `setShow`. */
+  let wanted = true;
+  /** Bumped on every swap, so a layer can tell a new drawing arrived. */
+  let swaps = 0;
 
-  /** Take the draw off the globe. Idempotent. */
+  function emptyGeneration() {
+    return { fills: [], outline: null, instances: new Map(), shapes: [] };
+  }
+
+  function primitivesOf(generation) {
+    return generation.outline ? [...generation.fills, generation.outline] : generation.fills;
+  }
+
+  function removeGeneration(generation) {
+    const primitives = viewer?.scene?.primitives;
+    if (!generation || !primitives) return;
+    for (const primitive of primitivesOf(generation)) primitives.remove(primitive);
+  }
+
+  /** Take the draw off the globe, the one building behind it too. Idempotent. */
   function clear() {
     pumpStop?.();
     pumpStop = null;
-    const primitives = viewer?.scene?.primitives;
-    if (primitives) {
-      for (const fill of fills) primitives.remove(fill);
-      if (outline) primitives.remove(outline);
-    }
-    fills = [];
-    outline = null;
-    shapes = [];
+    removeGeneration(current);
+    removeGeneration(pending);
+    current = emptyGeneration();
+    pending = null;
+  }
+
+  function generationReady(generation) {
+    return primitivesOf(generation).every((primitive) => primitive.ready);
   }
 
   /**
@@ -110,19 +150,28 @@ export function createGroundAreaPaint({ renderReason }) {
    * The globe renders on demand, and nothing else asks for the frames in which
    * an asynchronous `GroundPrimitive` becomes ready — without this a box of
    * plots can land and stay invisible until the reader next moves. Bounded, so
-   * a primitive that never readies cannot hold the render loop open.
+   * a primitive that never readies cannot hold the render loop open: at the
+   * cap the pending draw is swapped in as it is.
    */
   function pumpUntilReady(scene) {
+    pumpStop?.();
+    pumpStop = null;
     if (!scene?.postRender) return;
     let framesLeft = BUILD_FRAME_CAP;
     const stop = scene.postRender.addEventListener(() => {
-      const pending = fills.some((fill) => !fill.ready) || (outline && !outline.ready);
       framesLeft -= 1;
       if (!pending || framesLeft <= 0) {
         stop();
         if (pumpStop === stop) pumpStop = null;
+        if (pending) {
+          // Never readied: swapped in as it is rather than left hidden for good.
+          pending.gaveUp = true;
+          promote();
+          governorRequestRender(renderReason);
+        }
         return;
       }
+      // Ready or not, one more frame: the swap happens in the next one.
       governorRequestRender(renderReason);
     });
     pumpStop = stop;
@@ -130,31 +179,55 @@ export function createGroundAreaPaint({ renderReason }) {
   }
 
   /**
+   * Swap the pending draw in, once every batch of it is ready: the old one
+   * leaves the globe in the same frame the new one is first drawn.
+   * @returns {boolean} Whether a swap happened.
+   */
+  function promote() {
+    if (!pending) return false;
+    if (!pending.gaveUp && !generationReady(pending)) return false;
+    removeGeneration(current);
+    current = pending;
+    pending = null;
+    for (const primitive of primitivesOf(current)) primitive.show = wanted;
+    swaps += 1;
+    return true;
+  }
+
+  /**
    * Paint shapes: one fill primitive per colour, one outline primitive.
    *
    * @param {object} targetViewer
    * @param {Iterable<{id: string, kind: string, record: object,
-   *   parts: Array, css: string}>} items `parts` ENCODED (`dvfFeed.encodeRing`),
-   *   decoded once here for the draw and the click test both; `id` is the pick
-   *   id every instance of the shape carries.
+   *   parts: Array, css: string, level?: string}>} items `parts` ENCODED
+   *   (`dvfFeed.encodeRing`), decoded once here for the draw and the click test
+   *   both; `id` is the pick id every instance of the shape carries.
    * @param {{style: {fill: number, outline: number, widthPx: number},
    *   classificationType: number}} options
    * @returns {number} Shapes drawn.
    */
   function draw(targetViewer, items, { style, classificationType }) {
-    clear();
-    if (!targetViewer?.scene?.primitives) return 0;
+    if (!targetViewer?.scene?.primitives) {
+      clear();
+      return 0;
+    }
     viewer = targetViewer;
+    // A newer draw supersedes one still building: only the newest is swapped in.
+    removeGeneration(pending);
+    pending = null;
+    const next = emptyGeneration();
     const fillsByColor = new Map();
     const outlines = [];
-    const drawn = [];
+    const outlineEntries = [];
     for (const item of items || []) {
       const parts = decodeParts(item?.parts);
       if (!parts.length) continue;
       const fill = Cesium.Color.fromCssColorString(item.css).withAlpha(style.fill);
       const stroke = Cesium.Color.fromCssColorString(item.css).withAlpha(style.outline);
       let batch = fillsByColor.get(item.css);
-      if (!batch) { batch = []; fillsByColor.set(item.css, batch); }
+      if (!batch) { batch = { instances: [], entries: [] }; fillsByColor.set(item.css, batch); }
+      let fillCount = 0;
+      let ringCount = 0;
       for (const rings of parts) {
         const outer = ringPositions(rings[0] || []);
         if (!outer) continue;
@@ -166,68 +239,127 @@ export function createGroundAreaPaint({ renderReason }) {
           // numbers are not about.
           if (hole) holes.push(new Cesium.PolygonHierarchy(hole));
         }
-        batch.push(new Cesium.GeometryInstance({
-          id: item.id,
+        fillCount += 1;
+        const fillId = fillCount === 1 ? item.id : `${item.id}#${fillCount}`;
+        batch.instances.push(new Cesium.GeometryInstance({
+          id: fillId,
           geometry: new Cesium.PolygonGeometry({
             polygonHierarchy: new Cesium.PolygonHierarchy(outer, holes),
             vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
           }),
           attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(fill) },
         }));
+        batch.entries.push([fillId, fill]);
         for (const ring of rings) {
           const positions = ringPositions(ring || []);
           if (!positions) continue;
+          ringCount += 1;
+          const ringId = ringCount === 1 ? item.id : `${item.id}#${ringCount}`;
           outlines.push(new Cesium.GeometryInstance({
-            id: item.id,
+            id: ringId,
             geometry: new Cesium.GroundPolylineGeometry({
               positions: [...positions, positions[0]],
               width: style.widthPx,
             }),
             attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(stroke) },
           }));
+          outlineEntries.push([ringId, stroke]);
         }
       }
-      drawn.push({ kind: item.kind, record: item.record, parts, bounds: polygonsBounds(parts), css: item.css });
+      next.shapes.push({
+        kind: item.kind, record: item.record, parts, bounds: polygonsBounds(parts), css: item.css,
+        level: item.level ?? null,
+      });
     }
     const primitives = viewer.scene.primitives;
-    for (const instances of fillsByColor.values()) {
+    for (const { instances, entries } of fillsByColor.values()) {
       if (!instances.length) continue;
       const primitive = new Cesium.GroundPrimitive({
         geometryInstances: instances,
         appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true }),
         classificationType,
         asynchronous: true,
+        // Hidden until the swap: building does not wait for `show`.
+        show: false,
       });
-      fills.push(primitive);
+      next.fills.push(primitive);
+      next.instances.set(primitive, entries);
       primitives.add(primitive);
     }
     if (outlines.length) {
       // One batch, colours per instance: safe for polylines, which cull by
       // distance to the line and not by bounding rectangle.
-      outline = new Cesium.GroundPolylinePrimitive({
+      next.outline = new Cesium.GroundPolylinePrimitive({
         geometryInstances: outlines,
         appearance: new Cesium.PolylineColorAppearance({ translucent: true }),
         classificationType,
         asynchronous: true,
+        show: false,
       });
-      primitives.add(outline);
+      next.instances.set(next.outline, outlineEntries);
+      primitives.add(next.outline);
     }
-    shapes = drawn;
+    if (!next.fills.length && !next.outline) {
+      // Nothing to build: an empty answer replaces the draw at once.
+      removeGeneration(current);
+      current = next;
+      swaps += 1;
+      governorRequestRender(renderReason);
+      return 0;
+    }
+    pending = next;
     pumpUntilReady(viewer.scene);
-    return drawn.length;
+    return next.shapes.length;
   }
+
+  /**
+   * Write one weight into every instance on screen — see the module header.
+   * @param {number} weight
+   * @param {{force?: boolean}} [options]
+   * @returns {boolean} Whether anything was written.
+   */
+  function fade(weight, options = {}) {
+    let wrote = false;
+    for (const [primitive, entries] of current.instances) {
+      if (fadeInstances(primitive, entries, weight, options)) wrote = true;
+    }
+    return wrote;
+  }
+
+  /**
+   * Draw this paint or not. A level at weight zero is hidden rather than drawn
+   * transparent: it would still cost its draw calls and answer picks.
+   * @param {boolean} on
+   */
+  function setShow(on) {
+    wanted = Boolean(on);
+    for (const primitive of primitivesOf(current)) primitive.show = wanted;
+  }
+
+  /** The newest draw's shapes — the one the layer's answer describes. */
+  const latest = () => (pending || current);
 
   return {
     draw,
     clear,
+    promote,
+    fade,
+    setShow,
+    /** Whether a drawing is on screen (built and swapped in). */
+    drawn: () => current.fills.length > 0 || current.outline !== null,
+    /** Whether the drawing on screen is shown. */
+    shown: () => wanted && (current.fills.length > 0 || current.outline !== null),
+    /** How many drawings have been swapped in. */
+    generation: () => swaps,
     /** The drawn shape under a ground point, or null. */
-    shapeAt: (lon, lat) => groundShapeAt(lon, lat, shapes),
-    shapes: () => shapes,
+    shapeAt: (lon, lat) => groundShapeAt(lon, lat, latest().shapes),
+    shapes: () => latest().shapes,
     /** What is on the globe, for the harnesses — see each layer's `getAreaDraw()`. */
     stats: () => ({
-      shapes: shapes.length,
-      fills: fills.length,
-      ready: fills.every((fill) => fill.ready) && (!outline || outline.ready),
+      shapes: latest().shapes.length,
+      fills: latest().fills.length,
+      ready: !pending && generationReady(current),
+      pending: Boolean(pending),
     }),
   };
 }

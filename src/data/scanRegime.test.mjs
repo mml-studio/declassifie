@@ -9,6 +9,9 @@ import assert from 'node:assert/strict';
 import {
   SCAN_BANDS,
   SCAN_CELL_MIN_ALTITUDE_M,
+  SCAN_SECTION_FADE,
+  scanAreaLevelsAt,
+  scanCoarsePoint,
   boxSamplePoints,
   readScanCellBox,
   readScanTileMask,
@@ -194,4 +197,45 @@ test('the ring around a 2 × 2 view is its twelve neighbours, nearest first', ()
   // A single tile has eight neighbours; nothing, nothing.
   assert.equal(scanTileRing(tiles.slice(0, 1), 0.01).length, 8);
   assert.deepEqual(scanTileRing([], 0.01), []);
+});
+
+// --- Fade on zoom: plots and sections ----------------------------------------
+//
+// The 1 800 m switch became a band: the plots and the sections are both drawn
+// between 1 080 m and 1 800 m and fade into each other (`scanAreaFade.js`).
+// The 600 m switch to the disc stays a cut.
+
+test('the plots-sections band ends where the plots start loading, and starts at 0.6 of it', () => {
+  assert.equal(SCAN_SECTION_FADE.coarse, SCAN_BANDS[0].maxAltitudeM, 'the plots are asked for exactly where they were');
+  assert.equal(SCAN_SECTION_FADE.fine, 1_080);
+  const ratio = SCAN_SECTION_FADE.coarse / SCAN_SECTION_FADE.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+  assert.ok(SCAN_SECTION_FADE.fine > SCAN_CELL_MIN_ALTITUDE_M, 'the band never reaches the disc');
+});
+
+test('a settled view in the band draws both levels, and outside it only its own', () => {
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 400 }), { fine: false, coarse: false }, 'the disc');
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 900 }), { fine: true, coarse: false });
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 1_080 }), { fine: true, coarse: false }, 'nothing of the sections at the fine end');
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 1_400 }), { fine: true, coarse: true });
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 1_800 }), { fine: false, coarse: true });
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 9_000 }), { fine: false, coarse: true });
+  assert.deepEqual(scanAreaLevelsAt({ altitudeM: 1_400, pinned: true }), { fine: false, coarse: false }, 'a pin is a disc');
+  assert.deepEqual(scanAreaLevelsAt(null), { fine: false, coarse: false });
+});
+
+test('the sections kept down to the fine end ask the very question they answer at 1 800 m', () => {
+  const point = { lat: 45.7753, lon: 4.8497, altitudeM: 1_100 };
+  const lifted = scanCoarsePoint(point);
+  assert.equal(lifted.altitudeM, SCAN_SECTION_FADE.coarse);
+  assert.equal(lifted.lat, point.lat);
+  // The same 0.08° box, snapped to the same 0.04° grid, as from 1 800 m or 5 km.
+  const atBandFloor = scanCellParams(lifted);
+  assert.deepEqual(atBandFloor, scanCellParams({ ...point, altitudeM: 1_800 }));
+  assert.deepEqual(atBandFloor, scanCellParams({ ...point, altitudeM: 5_000 }));
+  assert.ok(Math.abs(Number(atBandFloor.north) - Number(atBandFloor.south) - 0.08) < 1e-9);
+  // While the shell's own question at 1 100 m is still the plots' box.
+  assert.ok(Math.abs(Number(scanCellParams(point).north) - Number(scanCellParams(point).south) - 0.02) < 1e-9);
+  // A higher camera is not lowered.
+  assert.equal(scanCoarsePoint({ ...point, altitudeM: 7_000 }).altitudeM, 7_000);
 });
