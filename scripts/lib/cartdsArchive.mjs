@@ -54,7 +54,8 @@ export const CARTDS_SWEEP_STAMP = 'sweep.json';
  * name an instance's `intermediate` gives (see `CARTDS_INSTANCES`).
  *
  * `sectigo-dv-r36`: Sectigo Public Server Authentication CA DV R36, which
- * signs the `pemb.fr` hosts' certificate and is signed by Sectigo Public
+ * signs the certificate of the `pemb.fr` hosts and of `ads.lecotentin.fr`
+ * (renewed 2026-09-30, sent without it) and is signed by Sectigo Public
  * Server Authentication Root R46, a root Node ships. Downloaded on 2026-10-01
  * from the address those certificates name
  * (`http://crt.sectigo.com/SectigoPublicServerAuthenticationCADVR36.crt`);
