@@ -295,6 +295,36 @@ export const PERMIT_LISTS = Object.freeze([
       // i18n-ignore-end
     ]),
   }),
+  Object.freeze({
+    key: 'larochelle',
+    insee: '17300',
+    label: 'Ville de La Rochelle — demandes et décisions d’urbanisme', // i18n-ignore-line — the publisher and its lists
+    page: 'https://affichagelegal.larochelle.fr/demandes-d-autorisations-d-urbanisme/depots-des-demandes-d-urbanisme',
+    // `robots.txt` disallows the file proxy of both spaces (`…/-/espace`).
+    // Read by the project's decision, as Lyon's platform is: the files are
+    // the city's « affichage légal », which keeps them three to five months.
+    robots: 'overridden',
+    source: Object.freeze({
+      kind: 'liferay',
+      base: 'https://affichagelegal.larochelle.fr',
+      shelves: Object.freeze([
+        Object.freeze({
+          board: 'filings', layout: 'larochelle-filings',
+          path: '/demandes-d-autorisations-d-urbanisme/depots-des-demandes-d-urbanisme',
+          instance: 'depotdesdemandesdurbanisme_depotsdesdemandesdurbanisme',
+          space: '86c760f0-62f9-47fe-a7c9-918b5ac0830d',
+        }),
+        // One file per decision, its title the posting day and the number.
+        Object.freeze({
+          board: 'decisions', layout: 'larochelle-decision',
+          path: '/demandes-d-autorisations-d-urbanisme/decisions-des-demandes-d-urbanisme',
+          instance: 'decisionsdurbanisme_decisionsdesdemandesdurbanisme',
+          space: '8e73c61a-019d-49b1-91dc-0a9e62fe338f',
+        }),
+      ]),
+    }),
+    lists: Object.freeze([]),
+  }),
 ]);
 
 /**
@@ -1904,6 +1934,222 @@ export function parseDriveFolder(html) {
   return out;
 }
 
+// --- La Rochelle: a Liferay document space per board ------------------------
+
+/**
+ * A number as La Rochelle spells it, the Sitadel way: `DP 17300 26 1032`,
+ * `DP 17 300 26 0753`, `PC17300 19 0215 M03`, `DP 17300 26 918 m2` → the
+ * commune on five digits, the counter on five, the suffix on two
+ * (`DP 17300 26 01032`, `PC 17300 19 00215 M03`). Sitadel writes
+ * `0173002601046`.
+ * @param {?string} raw
+ * @returns {?string}
+ */
+export function laRochelleDossier(raw) {
+  const match = /^(PC|DP|PA|PD|CU)\s*(\d{2})\s?(\d{3})\s+(\d{2})\s+(\d{3,5})(?:\s*([MT])\s*(\d{1,2}))?$/i
+    .exec(text(raw) ?? '');
+  if (!match) return null;
+  const [, kind, dept, commune, year, counter, step, rank] = match;
+  const suffix = step ? ` ${step.toUpperCase()}${rank.padStart(2, '0')}` : '';
+  return `${kind.toUpperCase()} ${dept}${commune} ${year} ${counter.padStart(5, '0')}${suffix}`;
+}
+
+/**
+ * The address of a Liferay document space's children: a portlet resource
+ * that answers the space's files as JSON. `nbItems` caps the answer silently
+ * — the page asks 250, and the decisions' space held 371 on 2026-10-01 — so
+ * 5 000 is asked. The portlet's instance is the one the space's own links
+ * use (`depotdesdemandesdurbanisme_…`), not the hyphenated one the page
+ * embeds, which the file proxy refuses.
+ * @param {object} city
+ * @param {{path: string, instance: string, space: string}} shelf
+ */
+export function liferayTreeUrl(city, shelf) {
+  const portlet = `10030_WAR_fu_INSTANCE_${shelf.instance}`;
+  const p = `_${portlet}_`;
+  const params = new URLSearchParams({
+    p_p_id: portlet, p_p_lifecycle: '2', p_p_state: 'exclusive', p_p_mode: 'view',
+    p_p_resource_id: 'load-espace-children', p_p_cacheability: 'cacheLevelPage',
+    [`${p}displayIcons`]: 'false', [`${p}displayLinks`]: 'true', [`${p}displayDate`]: 'false',
+    [`${p}displayNbElements`]: 'false', [`${p}tri`]: 'cm:title', [`${p}downloadIcone`]: 'true',
+    [`${p}onlyFolders`]: 'false', [`${p}displayThumbnails`]: 'false', [`${p}displaySize`]: 'true',
+    [`${p}nbItems`]: '5000', [`${p}espaceId`]: shelf.space,
+  });
+  return `${city.source.base}${shelf.path}?${params}`;
+}
+
+/**
+ * The files of a space's answer: each node's `data.attr` holds the title and
+ * the link; a folder has no `file-` icon. Null for an answer that is not a
+ * list of nodes.
+ * @param {*} json
+ * @returns {?Array<{title: string, url: string}>}
+ */
+export function parseLiferayTree(json) {
+  if (!Array.isArray(json)) return null;
+  const out = [];
+  for (const node of json) {
+    const data = node?.data;
+    if (!/\bfile-/.test(String(data?.icon ?? ''))) continue;
+    const title = text(data?.attr?.title);
+    const url = text(data?.attr?.href);
+    if (title && url && /^https:\/\//.test(url)) out.push({ title, url });
+  }
+  return out;
+}
+
+/**
+ * A decision's file title: `2026-09-30 DP 17300 26 01057 <the applicant>`.
+ * Only its day — the day the decision was posted, a day after it was signed
+ * in the median — and its number are read: the rest names a person.
+ * @param {?string} title
+ * @returns {?{day: string, dossier: string}}
+ */
+export function laRochelleDecisionTitle(title) {
+  const match = /^(\d{4}-\d{2}-\d{2})[\s_]+((?:PC|DP|PA|PD|CU)\s*\d{2}\s?\d{3}\s+\d{2}\s+\d{3,5}(?:\s*[MT]\s*\d{1,2}\b)?)/i
+    .exec(text(title) ?? '');
+  const dossier = match ? laRochelleDossier(match[2]) : null;
+  return dossier ? { day: match[1], dossier } : null;
+}
+
+/**
+ * What an arrêté of La Rochelle decides, read from its title block and its
+ * first article — loosely, for a third of them are scans read by OCR
+ * (`REFUSt`, `SUSV1SEE`). Null when the text says nothing readable: three of
+ * 40 sampled were scans without text or fonts without characters.
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @returns {?string} The verdict, in words the shared ladder reads.
+ */
+export function laRochelleVerdict(document) {
+  const all = (document?.pages ?? []).flatMap((page) => [...(page.runs ?? [])]
+    .sort((a, b) => (b.y - a.y) || (a.x - b.x)).map((run) => run.text));
+  if (!all.length) return null;
+  const head = fold(all.slice(0, 14).join(' '));
+  const article = fold(/ARTICLE\s*1\s*:?(.{0,200})/i.exec(all.join(' '))?.[1] ?? '');
+  const both = `${head} ${article}`;
+  // i18n-ignore-start — the arrêtés' own words, matched on; the verdicts in the ladder's words
+  if (/RETIR/.test(article) || /PORTANT RETRAIT/.test(head)) return 'Retrait';
+  if (/REFUS/.test(head.replace(/NON[- ]?OPPOSITION/g, '')) || /REFUS/.test(article)) return 'Refus';
+  if (/OPPOSITION A/.test(head.replace(/NON[- ]?OPPOSITION/g, ''))) return 'Opposition';
+  if (/NON[- ]?OPPOSITION/.test(head) || /PEUVENT ETRE EXECUTES/.test(article)) return 'Non-opposition';
+  if (/TACI/.test(both)) return 'Accord tacite';
+  if (/ACCORDANT|ACCORDE/.test(both) || /AUTORISE A DIVISER/.test(article)) return 'Accord';
+  if (/TRANSFER/.test(both)) return 'Accord (transfert)';
+  // i18n-ignore-end
+  return null;
+}
+
+/**
+ * One decision file of La Rochelle as a row: the number and the day from the
+ * file's title, the verdict from its text.
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @param {{title?: string}} [context]
+ * @returns {Array<object>}
+ */
+export function readLaRochelleDecision(document, context = {}) {
+  const head = laRochelleDecisionTitle(context.title);
+  const verdict = head ? laRochelleVerdict(document) : null;
+  if (!head || !verdict) return [];
+  return [{
+    board: PERMIT_LIST_BOARDS.decisions, dossier: head.dossier, label: null, purpose: null, applicant: null,
+    address: null, postcode: null, locality: null, filedOn: null, verdict, decidedOn: null, postedOn: head.day,
+    landArea: null, housing: null, lots: null, floorArea: null, parcels: null,
+  }];
+}
+
+/** A La Rochelle filing number, `DP 17300 26 01046`, or the date stuck before it. */
+const LR_NUMBER_RE = /^(?:PC|DP|PA|PD|CU|AT)\s*\d{2}\s?\d{3}\s+\d{2}\s+\d{3,5}(?:\s*[MT]\s*\d{1,2})?$/i;
+const LR_MERGED_RE = /^(\d{2}\/\d{2}\/\d{4})\s*((?:PC|DP|PA|PD|CU|AT)\b.*)$/i;
+
+/**
+ * La Rochelle's weekly list of filed dossiers, an Excel sheet printed by
+ * Acrobat.
+ *
+ * BOTTOM-ALIGNED. Excel sits every cell on its row's bottom line: the date,
+ * the number and every cell's last line share the row's baseline, and a
+ * wrapped cell's other lines rise above it. So a line belongs to the nearest
+ * number at or below it. The columns are where the rows' baselines start —
+ * five sets of edges over 21 files, the header centred in some and not in
+ * others — the floor area and height at the right by their headers. Nine
+ * files of 21 draw a row's date and number as one run
+ * (`23/04/2026PC 17300 26 00075`): split, the number at the page's number
+ * column.
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw.
+ */
+export function readLaRochelleFilings(document) {
+  const rows = [];
+  const fields = ['filedOn', 'dossier', 'applicant', 'address', 'purpose'];
+  for (const page of document?.pages ?? []) {
+    const plain = page.runs.filter((run) => LR_NUMBER_RE.test(text(run.text) ?? '')).map((run) => run.x);
+    const numberX = plain.length ? plain.sort((a, b) => a - b)[Math.floor(plain.length / 2)] : null;
+    const runs = page.runs.flatMap((run) => {
+      const merged = LR_MERGED_RE.exec(text(run.text) ?? '');
+      if (!merged) return [run];
+      const x = numberX ?? run.x + 50;
+      return [{ ...run, x1: x - 3, text: merged[1] }, { ...run, x, text: merged[2] }];
+    });
+    // i18n-ignore-start — the sheet's own header words, matched on
+    const surface = runs.find((run) => fold(run.text) === 'SURFACE');
+    const height = runs.find((run) => fold(run.text) === 'HAUTEUR');
+    const bottoms = runs.filter((run) => /^(DEPOT|PROJETEE|MAXIMALE)$/.test(fold(run.text))).map((run) => run.y);
+    if (!surface || !bottoms.length) continue;
+    const headerBottom = Math.min(...bottoms);
+    const body = runs.filter((run) => run.y < headerBottom - 1 && !/^affich[ée] le /i.test(run.text));
+    // i18n-ignore-end
+    const anchors = body.filter((run) => LR_NUMBER_RE.test(text(run.text) ?? '')).sort((a, b) => b.y - a.y);
+    const edges = [];
+    for (const anchor of anchors) {
+      for (const run of body) {
+        if (Math.abs(run.y - anchor.y) < 1.5 && run.x < surface.x - 15 && !edges.some((edge) => Math.abs(edge - run.x) < 2)) edges.push(run.x);
+      }
+    }
+    edges.sort((a, b) => a - b);
+    const centre = (run) => (run.x + (run.x1 > run.x ? run.x1 : run.x)) / 2;
+    const columnOf = (run) => {
+      if (run.x > surface.x - 15) {
+        return !height || Math.abs(centre(run) - centre(surface)) < Math.abs(centre(run) - centre(height)) ? 'floorArea' : 'height';
+      }
+      let at = -1;
+      edges.forEach((edge, k) => { if (edge <= run.x + 2) at = k; });
+      return fields[at] ?? null;
+    };
+    const cells = anchors.map(() => ({}));
+    for (const run of body) {
+      let best = -1;
+      // The nearest number at or below the line: the highest of those under it.
+      anchors.forEach((anchor, i) => { if (run.y >= anchor.y - 1.5 && (best < 0 || anchor.y > anchors[best].y)) best = i; });
+      const field = best < 0 ? null : columnOf(run);
+      if (field) (cells[best][field] ??= []).push(run);
+    }
+    anchors.forEach((anchor, i) => {
+      const value = (field) => text(lines(cells[i][field] ?? []).join(' '));
+      const floor = number(value('floorArea'));
+      rows.push({
+        board: PERMIT_LIST_BOARDS.filings,
+        dossier: laRochelleDossier(anchor.text) ?? text(anchor.text),
+        label: null,
+        purpose: value('purpose'),
+        applicant: value('applicant'),
+        address: value('address'),
+        postcode: null,
+        locality: null,
+        filedOn: listDay(value('filedOn')),
+        verdict: null,
+        decidedOn: null,
+        postedOn: null,
+        landArea: null,
+        housing: null,
+        lots: null,
+        floorArea: floor ? String(floor) : null,
+        parcels: null,
+      });
+    });
+  }
+  return rows;
+}
+
 /**
  * How a layout's files are turned into text, where it differs from the
  * default (`extractPdfText`'s options): Annecy's, printed from Firefox, draw
@@ -1925,6 +2171,9 @@ export const PERMIT_LIST_READERS = Object.freeze({
   'annecy-filings': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.filings)),
   'annecy-decisions': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.decisions)),
   versailles: readVersaillesList,
+  'larochelle-filings': readLaRochelleFilings,
+  // One file per decision: the file's title, handed in, gives the number.
+  'larochelle-decision': readLaRochelleDecision,
   // The page's header says which of its two reports it is.
   clermont: (document) => [
     ...readBandTable(document, CLERMONT_DECISIONS),

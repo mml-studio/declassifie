@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand and Versailles publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles and La Rochelle publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4823,6 +4823,23 @@ at: all 2 912 numbers of the 34 files of 2026 come out (120 of them `AP`
 signs and `PP` pre-projects, not drawn). The parcels (`AX0288`) place 2 748
 rows on their plot; `par`, `Représentant` and `Propriétaire` name people, and
 only an organisation's `par` is kept.
+
+**La Rochelle** keeps two Liferay document spaces, listed as JSON through the
+space's `load-espace-children` resource (5 000 items asked: the page's 250
+cut the decisions off in August) — the instance its files' links use, not the
+hyphenated one the page embeds, which the file proxy refuses with HTTP 400.
+The weekly lists of filings are Excel sheets whose rows sit on their bottom
+line (`readLaRochelleFilings`: a line belongs to the nearest number at or
+below it, the columns where the rows' baselines start, a date and a number
+drawn as one run split); all 889 rows of the 21 lists since May come out. A
+decision is one arrêté per file, a third of them scans with an OCR layer: its
+verdict is read from the title block or the first article
+(`laRochelleVerdict`, 36 of 40 sampled; scans without text are left out), its
+number and day from the file's title — the posting day, kept as such, a day
+after the signature in the median — and the title, which names the
+applicant, is never stored. A four-digit counter is padded to Sitadel's five
+(`DP 17300 26 1032` → `0173002601032`). The file proxy is disallowed by
+`robots.txt` and read by the project's decision (`robots: 'overridden'`).
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

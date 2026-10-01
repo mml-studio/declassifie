@@ -33,6 +33,9 @@ import {
   parseWebdelibActs,
   readAixTables,
   driveFileUrl,
+  laRochelleDecisionTitle,
+  liferayTreeUrl,
+  parseLiferayTree,
   driveFolderUrl,
   parseDriveFolder,
   typo3ListLinks,
@@ -55,7 +58,7 @@ export const PERMIT_LISTS_ARCHIVE_DIR = path.join('.gev-cache', 'archive', 'perm
 export const PERMIT_LISTS_EDITION_DIR = path.join('.gev-cache', 'permit-lists');
 
 /** Bumped whenever a reader changes, so every edition is read again. */
-export const PERMIT_LISTS_READER_SCHEMA = 1;
+export const PERMIT_LISTS_READER_SCHEMA = 2;
 
 /**
  * How far back the daily sweep reads a Webdelib+ city. A year of Lyon is
@@ -181,7 +184,7 @@ export async function readPermitList(list, http, { dir } = {}) {
 }
 
 /** Parse a PDF's bytes with a list's reader into kept rows, or null. */
-function rowsOfPdf(bytes, layout, board) {
+function rowsOfPdf(bytes, layout, board, context = {}) {
   const reader = PERMIT_LIST_READERS[layout];
   let document = null;
   try {
@@ -191,7 +194,7 @@ function rowsOfPdf(bytes, layout, board) {
   } catch {
     return null;
   }
-  const rows = reader && document ? keptRows(reader(document), board) : [];
+  const rows = reader && document ? keptRows(reader(document, context), board) : [];
   return rows.length ? rows : null;
 }
 
@@ -225,8 +228,8 @@ async function readWebdelibAct(list, http, { dir, allows }) {
  * — a scan, two of Argenteuil's 480 decisions of 2026 — is kept as empty, so
  * it is not downloaded again every day to say the same nothing.
  */
-async function keepFile(dir, list, bytes) {
-  const rows = rowsOfPdf(bytes, list.layout, list.board) ?? [];
+async function keepFile(dir, list, bytes, context = {}) {
+  const rows = rowsOfPdf(bytes, list.layout, list.board, context) ?? [];
   await writeEdition(dir, {
     url: list.url, title: list.title ?? null, published: list.published ?? null, fields: PERMIT_LIST_FIELDS, rows,
   });
@@ -290,6 +293,61 @@ async function readDriveCity(city, http, { dir, allows, months, day, maxFiles })
   return {
     boards,
     lists: [{ url: driveFolderUrl(city.source.root), files: files.length, fetched, reused, skipped }],
+    failed,
+    skipped,
+    incomplete: failed > 0 || skipped > 0,
+  };
+}
+
+/**
+ * A city whose boards are Liferay document spaces (La Rochelle): each space's
+ * files listed as JSON, each file read once, at most `maxFiles` new ones a
+ * reading. A decision is one file whose title — `2026-09-30 DP 17300 26
+ * 01057 <applicant>` — gives the number and the posting day; the title is
+ * handed to the reader and never stored, for it names a person. Decisions
+ * posted before the reading's months are left alone.
+ */
+async function readLiferayCity(city, http, { dir, allows, months, day, maxFiles }) {
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const files = [];
+  for (const shelf of city.source.shelves) {
+    const url = liferayTreeUrl(city, shelf);
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response?.ok) return null;
+    let tree = null;
+    try { tree = parseLiferayTree(JSON.parse((await http.text(response, PAGE_MAX_BYTES)) ?? '')); } catch { tree = null; }
+    if (!tree) return null;
+    for (const file of tree) {
+      if (shelf.board === 'decisions') {
+        const head = laRochelleDecisionTitle(file.title);
+        if (!head || head.day < since) continue;
+      }
+      files.push({ list: { board: shelf.board, layout: shelf.layout, url: file.url }, context: { title: file.title } });
+    }
+  }
+  const boards = {};
+  let fetched = 0;
+  let failed = 0;
+  let skipped = 0;
+  let reused = 0;
+  for (const { list, context } of files) {
+    const kept = await readEdition(dir, list.url);
+    let answer = kept ? { rows: kept.rows, reused: true } : null;
+    if (kept) reused += 1;
+    else if (fetched >= maxFiles) { skipped += 1; continue; } else {
+      fetched += 1;
+      const response = allows(new URL(list.url).pathname) ? await http.fetch(list.url) : null;
+      const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
+      answer = bytes ? await keepFile(dir, list, bytes, context) : null;
+    }
+    if (!answer) { failed += 1; continue; }
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+  }
+  return {
+    boards,
+    lists: [{ url: city.source.base, files: files.length, fetched, reused, skipped }],
     failed,
     skipped,
     incomplete: failed > 0 || skipped > 0,
@@ -442,6 +500,7 @@ export async function readPermitCity(city, http, {
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'drive') return readDriveCity(city, http, { dir, allows, months, day, maxFiles });
+  if (city.source?.kind === 'liferay') return readLiferayCity(city, http, { dir, allows, months, day, maxFiles });
   const pageUrl = city.source?.kind === 'typo3' ? city.source.api : city.page;
   if (!allows(new URL(pageUrl).pathname)) return null;
   const response = await http.fetch(pageUrl, {

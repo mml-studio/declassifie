@@ -438,3 +438,51 @@ test('a Drive city lists its year and board folders, then reads each new file on
   await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
   assert.ok(!calls.some((call) => call.startsWith('/download')), 'a file read once is not downloaded again');
 });
+
+test('a Liferay city reads each space\'s files once, a decision titled by its day and number', async () => {
+  const dir = await tempDir();
+  const shelf = (board, layout, path, instance, space) => ({ board, layout, path, instance, space });
+  const city = Object.freeze({
+    key: 'lr', insee: '17300', label: 'LR — listes', page: 'https://lr.example/depots', robots: 'overridden',
+    source: Object.freeze({
+      kind: 'liferay', base: 'https://lr.example',
+      shelves: [shelf('decisions', 'larochelle-decision', '/decisions', 'dec_inst', 'space-dec')],
+    }),
+    lists: Object.freeze([]),
+  });
+  const node = (title, uuid) => ({ data: { icon: 'file-anytype file-pdf', attr: { title, href: `https://lr.example/decisions/-/espace/dec_inst/proxy/${uuid}/1.0/x.pdf` } } });
+  const tree = [
+    node('2026-09-30 PC 17300 26 0078 DUPONT Jean', 'u1'),
+    node('2026-06-30 DP 17300 26 0011 MARTIN Claire', 'u2'),
+  ];
+  const decision = (() => {
+    const content = 'BT /F1 12 Tf 1 0 0 1 50 780 Tm (ARR\xcAT\xc9) Tj ET\nBT /F1 12 Tf 1 0 0 1 50 760 Tm (ACCORDANT UN PERMIS DE CONSTRUIRE) Tj ET';
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>',
+      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+      '<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >>',
+    ];
+    let out = '%PDF-1.7\n';
+    objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+    return new Uint8Array(Buffer.from(`${out}trailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1'));
+  })();
+  const calls = [];
+  const http = {
+    async fetch(url) {
+      calls.push(url);
+      const ok = (payload) => ({ ok: true, status: 200, payload, body: { cancel: async () => {} }, headers: { get: () => null } });
+      if (new URL(url).searchParams.get('p_p_resource_id') === 'load-espace-children') return ok(JSON.stringify(tree));
+      if (url.includes('/proxy/u1/')) return ok(decision);
+      return { ok: false, status: 404 };
+    },
+    text: async (r) => r.payload,
+    bytes: async (r) => r.payload,
+  };
+  const answer = await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
+  assert.deepEqual(answer.boards.decisions.map((cells) => [cells[0], cells[8], cells[10]]), [['PC 17300 26 00078', 'Accord', '2026-09-30']]);
+  assert.ok(!calls.some((url) => url.includes('/proxy/u2/')), 'a decision posted before the window is not fetched');
+  const kept = await fsp.readFile(path.join(dir, (await fsp.readdir(dir))[0]), 'utf8');
+  assert.ok(!kept.includes('DUPONT'), 'the title, which names the applicant, is never stored');
+});

@@ -68,6 +68,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   fortnightly registers of filed and decided dossiers it posts in a public
   Google Drive folder: 1 764 dossiers in 2026, 2 748 rows on their cadastral
   parcel, 186 refusals.
+- **La Rochelle now shows its permits days after the fact**: its weekly lists
+  of filed dossiers since May, 889 rows, and the arrêté it posts for every
+  decision, read for its verdict — 785 dossiers on 2026-10-01, 32 of them
+  refused.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

@@ -24,6 +24,13 @@ import {
   scrubPermitListRow,
   PERMIT_LIST_TEXT,
   aixDossier,
+  laRochelleDecisionTitle,
+  laRochelleDossier,
+  laRochelleVerdict,
+  liferayTreeUrl,
+  parseLiferayTree,
+  readLaRochelleDecision,
+  readLaRochelleFilings,
   driveFileUrl,
   driveFolderUrl,
   parseDriveFolder,
@@ -913,4 +920,68 @@ test('a public Drive folder lists its folders and files by id', () => {
   ]);
   assert.equal(driveFolderUrl('abc'), 'https://drive.google.com/embeddedfolderview?id=abc');
   assert.equal(driveFileUrl('abc'), 'https://drive.usercontent.google.com/download?id=abc&export=download');
+});
+
+// --- La Rochelle: Liferay spaces, Excel lists, one file per decision ---------
+
+test('La Rochelle\'s numbers are padded as Sitadel writes them', () => {
+  assert.equal(laRochelleDossier('DP 17300 26 1032'), 'DP 17300 26 01032');
+  assert.equal(laRochelleDossier('DP 17 300 26 0753'), 'DP 17300 26 00753');
+  assert.equal(laRochelleDossier('PC17300 19 0215 M03'), 'PC 17300 19 00215 M03');
+  assert.equal(laRochelleDossier('PC 17300 22 0181 M1'), 'PC 17300 22 00181 M01');
+  assert.equal(laRochelleDossier('AT 17300 0049'), null);
+  assert.deepEqual(permitListDossier(laRochelleDossier('PC 17300 22 0181 M1')), { kind: 'PC', digits: '0173002200181M01' });
+  assert.deepEqual(laRochelleDecisionTitle('2026-09-30 DP 17300 26 1032 DUPONT Jean'), { day: '2026-09-30', dossier: 'DP 17300 26 01032' });
+  assert.equal(laRochelleDecisionTitle('AT 17300 0049 CAF'), null);
+});
+
+test('a La Rochelle decision reads its verdict from its title block or its first article', () => {
+  const doc = (...texts) => ({ pages: [{ runs: texts.map((t, i) => run(t, 50, 800 - i * 12)) }] });
+  assert.equal(laRochelleVerdict(doc('ARRÊTÉ', 'DE NON-OPPOSITION À UNE DECLARATION PREALABLE', 'ARTICLE 1 : Les travaux peuvent être exécutés')), 'Non-opposition');
+  assert.equal(laRochelleVerdict(doc('ARRÊTÉ', 'ACCORDANT UN PERMIS DE CONSTRUIRE')), 'Accord');
+  assert.equal(laRochelleVerdict(doc('ARRÊTÉ', 'DE REFUS UN PERMIS DE CONSTRUIRE')), 'Refus');
+  assert.equal(laRochelleVerdict(doc('ARRÊTÉ', 'ARTICLE 1 : Le Permis de Construire est REFUSt')), 'Refus');
+  assert.equal(laRochelleVerdict(doc('ARRÊTÉ', 'ARTICLE 1 : L’arrêté susvisé est RETIRÉ')), 'Retrait');
+  assert.equal(laRochelleVerdict(doc('Objet / Attestation de tacicité')), 'Accord tacite');
+  assert.equal(laRochelleVerdict({ pages: [{ runs: [] }] }), null);
+  const [row] = readLaRochelleDecision(doc('ARRÊTÉ', 'ACCORDANT UN PERMIS DE CONSTRUIRE'), { title: '2026-10-01 PC 17300 26 00078 DUPONT Jean' });
+  assert.deepEqual([row.board, row.dossier, row.verdict, row.postedOn, row.decidedOn, row.applicant], ['decisions', 'PC 17300 26 00078', 'Accord', '2026-10-01', null, null]);
+  assert.deepEqual(readLaRochelleDecision(doc('ACCORDANT'), { title: 'note de service' }), []);
+});
+
+test('La Rochelle\'s weekly list is read bottom-aligned, a stuck date and number split', () => {
+  const r = (t, x, y, x1) => run(t, x, y, { x1: x1 ?? x + t.length * 4, size: 11 });
+  const page = { runs: [
+    r('Date de', 84.8, 796.2), r('dépôt', 84.8, 783.6), r('Numéro d\'enregistrement', 145.7, 789), r('Demandeur', 422.9, 789),
+    r('Adresse des travaux', 707.1, 789), r('Nature des travaux', 970.1, 789), r('Surface', 1161.1, 803.4), r('plancher', 1161.1, 789),
+    r('projetée', 1161.1, 776), r('Hauteur', 1219, 796.2), r('maximale', 1219, 783.6),
+    // A wrapped nature: its first line above the row's baseline.
+    r('Modification de façade (peinture) - Sol', 878.7, 730.9), r('20/09/2026', 76.4, 716), r('DP 17300 26 01057', 138.1, 716),
+    r('SCI EXEMPLE', 273.1, 716), r('1 rue Exemple', 629.1, 716), r('intérieur', 878.7, 716.4),
+    // Date and number drawn as one run.
+    r('21/09/2026PC 17300 26 0075', 76.4, 690), r('Madame DUPONT', 273.1, 690), r('2 rue Exemple', 629.1, 690),
+    r('Piscine', 878.7, 690), r('89,63', 1170, 690, 1190),
+    r('Affiché le 28/09/2026', 1179.6, 40.8),
+  ] };
+  const rows = readLaRochelleFilings({ pages: [page] });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.filedOn, row.address, row.purpose, row.floorArea]), [
+    ['DP 17300 26 01057', '2026-09-20', '1 rue Exemple', 'Modification de façade (peinture) - Sol intérieur', null],
+    ['PC 17300 26 00075', '2026-09-21', '2 rue Exemple', 'Piscine', '89.63'],
+  ]);
+  assert.equal(scrubPermitListRow(rows[1])[3], null);
+});
+
+test('a Liferay space answers its files as JSON, folders and stray nodes left out', () => {
+  const laRochelle = PERMIT_LISTS.find((city) => city.key === 'larochelle');
+  const url = new URL(liferayTreeUrl(laRochelle, laRochelle.source.shelves[1]));
+  assert.equal(url.pathname, '/demandes-d-autorisations-d-urbanisme/decisions-des-demandes-d-urbanisme');
+  assert.equal(url.searchParams.get('p_p_resource_id'), 'load-espace-children');
+  assert.equal(url.searchParams.get('_10030_WAR_fu_INSTANCE_decisionsdurbanisme_decisionsdesdemandesdurbanisme_nbItems'), '5000');
+  const href = 'https://affichagelegal.larochelle.fr/x/-/espace/i/proxy/5bd335e5/1.0/x.pdf';
+  assert.deepEqual(parseLiferayTree([
+    { data: { icon: 'file-anytype file-pdf', attr: { title: '2026-10-01 PC 17300 26 00078 X', href } } },
+    { data: { icon: 'folder', attr: { title: 'Archives', href } }, state: 'closed' },
+    { nope: true },
+  ]), [{ title: '2026-10-01 PC 17300 26 00078 X', url: href }]);
+  assert.equal(parseLiferayTree({ error: true }), null);
 });
