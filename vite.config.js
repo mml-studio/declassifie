@@ -337,10 +337,12 @@ import {
   dropSitadelTwins,
   foldMmmRows,
   mmmCommuneFor,
-  mmmCsvUrl,
   mmmLabel,
-  parseMmmCsv,
+  mmmLagSummary,
+  mmmPostedOn,
+  MMM_COMMUNES,
   MMM_LICENCE,
+  MMM_ROWS,
 } from './src/data/mmmPermitsFeed.js';
 import {
   normalisePermitListRow,
@@ -378,6 +380,13 @@ import {
   PERMIT_LISTS_ARCHIVE_DIR,
   PERMIT_LISTS_EDITION_DIR,
 } from './scripts/lib/permitLists.mjs';
+import {
+  mmmSweepDue,
+  readMmmEdition,
+  recordMmmEdition,
+  sweepMmmArchive,
+  MMM_ARCHIVE_DIR,
+} from './scripts/lib/mmmPermits.mjs';
 import {
   anchorParcels,
   assignDivision,
@@ -27852,10 +27861,13 @@ function adsFranceProxy() {
     cartdsSweepArmed = true;
     // The PU boards and the cities' PDF lists are swept on the same clock:
     // other hosts, a minute's work each.
-    const sweep = () => { void sweepCartdsIfDue(); void sweepSirapIfDue(); void sweepPermitListsIfDue(); };
+    // Montpellier's métropole files too, once that day's export is out.
+    const sweep = () => {
+      void sweepCartdsIfDue(); void sweepSirapIfDue(); void sweepPermitListsIfDue(); void sweepMmmIfDue();
+    };
     setTimeout(sweep, CARTDS_SWEEP_WARMUP_MS).unref?.();
     setInterval(sweep, CARTDS_SWEEP_CHECK_MS).unref?.();
-    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board and every city list once a day, into ${CARTDS_ARCHIVE_DIR}, ${SIRAP_ARCHIVE_DIR} and ${PERMIT_LISTS_ARCHIVE_DIR}`);
+    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board, every city list and the Montpellier métropole files once a day, into ${CARTDS_ARCHIVE_DIR}, ${SIRAP_ARCHIVE_DIR}, ${PERMIT_LISTS_ARCHIVE_DIR} and ${MMM_ARCHIVE_DIR}`);
   }
 
   /**
@@ -28554,27 +28566,33 @@ function adsFranceProxy() {
 
   // --- Montpellier Méditerranée Métropole: favourable decisions, open data --
   /**
-   * One commune's file (`mmmPermitsFeed.js`), folded into dossiers and placed:
-   * on the cadastre first, the file's own Lambert-93 point for the rest. The
-   * métropole exports it every night, so a commune is held 24 hours and asked
-   * again with its `ETag`. The file is ODbL: read per scan, cut to the circle,
-   * never bundled. Sitadel's twins are dropped per scan, against the
+   * One commune's file (`mmmPermitsFeed.js`), archived, folded into dossiers
+   * and placed: on the cadastre first, the file's own Lambert-93 point for the
+   * rest. The métropole exports it every night, so a commune is held 24 hours,
+   * and dropped as soon as the daily sweep has archived a new edition. The
+   * file is ODbL: read per scan, cut to the circle, never bundled; the archive
+   * stays on the server. Sitadel's twins are dropped per scan, against the
    * commune's Sitadel rows (`dropSitadelTwins`).
    */
   const MMM_TTL_MS = 24 * 60 * 60 * 1000;
-  const MMM_SCHEMA = 1;
-  const MMM_MAX_BYTES = 64 * 1024 * 1024;
+  const MMM_SCHEMA = 2;
   /** insee → {at, value}. */
   const mmmCommunes = new Map();
   /** insee → the build in progress. */
   const mmmInFlight = new Map();
+  /** Every row a commune's file ever held, with the first edition that did (Trap 5). */
+  const mmmArchive = createCartdsArchiveStore(path.join(process.cwd(), MMM_ARCHIVE_DIR), console, MMM_ROWS);
+  const mmmBuildFile = (insee) => path.join(ADDRESS_CACHE_DIR, `mmm${MMM_SCHEMA}-${insee}.json`);
 
   async function buildMmmCommune(commune) {
     const report = { key: `mmm-${commune.insee}`, label: mmmLabel(commune), licence: MMM_LICENCE };
-    const response = await cartdsFetch(mmmCsvUrl(commune), { headers: { Accept: 'text/csv' } });
-    const csv = response?.ok ? await cartdsText(response, MMM_MAX_BYTES) : null;
-    if (!csv) return { permits: [], portal: { ...report, ok: false, count: 0 } };
-    const dossiers = foldMmmRows(parseMmmCsv(csv), commune);
+    const edition = await readMmmEdition(commune, cartdsHttp);
+    if (!edition) return { permits: [], portal: { ...report, ok: false, count: 0 } };
+    // The archive dates what the edition cannot: a dossier none of whose rows
+    // the first edition held carries the day it first appeared.
+    const { archive } = await recordMmmEdition(mmmArchive, commune, edition);
+    const { postedOn, rebased } = mmmPostedOn(archive);
+    const dossiers = foldMmmRows(edition.rows, commune, { postedOn });
     const ground = await placeOnGround(dossiers, { chaseDivisions: false });
     let fromPoint = 0;
     const permits = ground.permits.map((permit) => {
@@ -28590,8 +28608,39 @@ function adsFranceProxy() {
       portal: {
         ...report, ok: true, live: true, count: dossiers.length,
         onParcel: ground.cadastre?.placed ?? 0, fromPoint, unplaced: dossiers.length - permits.length,
+        edition: edition.day,
+        archive: {
+          since: archive.firstDay,
+          through: archive.lastDay,
+          days: archive.days,
+          dated: dossiers.filter((permit) => permit.postedOn).length,
+          // Rows a later edition no longer holds: withdrawn, cancelled, or reworded.
+          offExport: archive.rows.filter((row) => row.last < archive.lastDay).length,
+          rebased,
+        },
       },
     };
+  }
+
+  /** The daily sweep of every commune's file, beside the boards'. */
+  let mmmSweeping = null;
+  async function sweepMmmIfDue() {
+    if (mmmSweeping) return mmmSweeping;
+    mmmSweeping = (async () => {
+      if (!mmmSweepDue(await readCartdsSweepStamp(mmmArchive.dir))) return null;
+      const summary = await sweepMmmArchive({ communes: MMM_COMMUNES, store: mmmArchive, http: cartdsHttp });
+      await writeCartdsSweepStamp(mmmArchive.dir, summary);
+      // A commune built before the sweep has not seen today's edition.
+      if (summary.added > 0) {
+        mmmCommunes.clear();
+        await Promise.all(MMM_COMMUNES.map(({ insee }) => fsp.rm(mmmBuildFile(insee), { force: true }).catch(() => {})));
+      }
+      return summary;
+    })().catch((error) => {
+      console.warn(`[mmm-archive] sweep failed: ${error?.message || error}`);
+      return null;
+    }).finally(() => { mmmSweeping = null; });
+    return mmmSweeping;
   }
 
   /** The commune's dossiers filed in the scan's years (Trap 3: a year is the only date). */
@@ -28603,7 +28652,7 @@ function adsFranceProxy() {
     if (!entry || Date.now() - entry.at >= MMM_TTL_MS) {
       if (!mmmInFlight.has(insee)) {
         mmmInFlight.set(insee, (async () => {
-          const diskPath = path.join(ADDRESS_CACHE_DIR, `mmm${MMM_SCHEMA}-${insee}.json`);
+          const diskPath = mmmBuildFile(insee);
           try {
             const stat = await fsp.stat(diskPath);
             if (Date.now() - stat.mtimeMs < MMM_TTL_MS) {
@@ -28706,7 +28755,9 @@ function adsFranceProxy() {
               portals: [
                 ...(edition.portals || []), ...placed.portals, ...posted.portals, ...postedPu.portals,
                 ...published.portals, ...listed.portals,
-                ...opened.portals.map((portal) => ({ ...portal, sitadelTwins: metropole.twins })),
+                ...opened.portals.map((portal) => ({
+                  ...portal, sitadelTwins: metropole.twins, publishedLag: mmmLagSummary(metropole.lags),
+                })),
               ],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could

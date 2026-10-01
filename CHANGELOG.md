@@ -83,8 +83,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 - **Montpellier and 27 communes of its métropole now show the permits they
   granted**, from the files the métropole exports every night: every
   favourable decision since 2006, on its cadastral parcel, the ones that
-  create no floor area included. The file gives the filing year and no date;
-  a permit Sitadel already holds on the same parcel is not drawn twice.
+  create no floor area included. The file gives the filing year and no date,
+  so the server now keeps every nightly edition it reads: a permit that
+  appears after the first one is « Permis accordé : au plus tard le
+  2 oct. 2026 » (“Permit granted: by Oct 2, 2026”), the night it appeared,
+  while the permits the first edition already held carry no date. A permit Sitadel already holds on
+  the same parcel is not drawn twice.
 - **« Urbanisme » now shows the permits of 2 239 more communes days after the
   fact: 5.3 million more inhabitants, 17.5 % of the population instead of
   9.7 %.** They were found by asking the posting platforms which communes they

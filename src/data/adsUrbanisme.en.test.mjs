@@ -130,6 +130,10 @@ test('the date line names the date that is the news, in English', () => {
   assert.equal(line({ decidedOn: '2026-03-02' }), 'decided on Mar 2, 2026');
   assert.equal(withLocale('fr', () => adsDateLine({ completedOn: '2026-08-31' })),
     'achevé le 31/08/2026');
+  // Montpellier's export: no decision day, but the day the dossier appeared in it.
+  assert.equal(line({ state: 'accorde', postedOn: '2026-10-02' }), 'granted by Oct 2, 2026');
+  assert.equal(withLocale('fr', () => adsDateLine({ state: 'accorde', postedOn: '2026-10-02' })),
+    'accordé au plus tard le 02/10/2026');
 });
 
 /* ── the plot card ───────────────────────────────────────────────────────── */

@@ -62,6 +62,12 @@ export default defineMessages({
     steps: {
       filed: { fr: 'Demande déposée', en: 'Application filed' },
       granted: { fr: 'Permis accordé', en: 'Permit granted' },
+      /** A grant whose day is unknown, but not after the day it was published. */
+      grantedBy: {
+        fr: (date) => `Au plus tard le ${date}`,
+        en: (date) => `By ${date}`,
+        sample: ['Oct 2, 2026'],
+      },
       started: { fr: 'Début des travaux déclaré', en: 'Start of work declared' },
       completed: { fr: 'Fin des travaux', en: 'End of work' },
       missing: {
