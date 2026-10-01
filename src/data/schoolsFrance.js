@@ -24,6 +24,13 @@
  *   sites    — every school in the box, with its card. Gated by the proxy's
  *              own 0.35° ceiling, which bites before the altitude gate does.
  *
+ * The mesh and the sites share the screen inside one fade band, 0.35° → 0.21°
+ * of view ({@link SCHOOLS_SITE_FADE_BAND}): the mesh is a sample of the same
+ * schools at the same coordinates on the same level colours, so the schools
+ * it thinned away fade in around the ones it drew. The prisms never share the
+ * screen with either — their colour is a density, the dots' a level — and that
+ * transition stays a cut that no longer goes blank (`prismMeshSitesFade.js`).
+ *
  * ── What the colour means, and what the size means ──────────────────────────
  * In the two POSITION regimes (mesh, sites): colour is the school LEVEL —
  * école, collège, lycée, adapted, non-teaching — and it is a categorical
@@ -205,6 +212,23 @@ import {
   MESH_LON,
   MESH_PUPILS,
 } from './schoolsMesh.js';
+import { ARRIVAL_MS, fadeBand, watchZoomFade } from './zoomFade.js';
+import {
+  ARRIVAL_MESH,
+  ARRIVAL_NATIONAL,
+  ARRIVAL_SITES,
+  ROLE_MESH,
+  ROLE_SHARED,
+  ROLE_SITES,
+  createRecordFader,
+  dominantPointLevel,
+  familyAlphas,
+  pointArrivalKey,
+  pointRoles,
+  retiredPointLevel,
+  siteFadeScale,
+  wantedPointLevels,
+} from './prismMeshSitesFade.js';
 import { pickAt } from './pickAt.js';
 
 export const SCHOOLS_FR_LAYER_ID = 'schools-fr';
@@ -228,20 +252,65 @@ const DEPARTEMENTS_URL = new URL(
 
 // --- Activation / load gating ----------------------------------------------
 /**
- * Altitude (m) below which the layer draws individual schools. A school is a
- * street-scale object and the proxy refuses a box wider than 0.35° anyway.
+ * Altitude (m) at and above which the layer never draws individual schools. A
+ * school is a street-scale object and the proxy refuses a box wider than 0.35°
+ * anyway.
+ *
+ * It used to be an enter/exit pair (42 / 48 km) deciding the switch to the
+ * site regime. That switch is a fade band now ({@link SCHOOLS_SITE_FADE_BAND}),
+ * on the span the proxy's ceiling is written in, which a plan view reaches at
+ * ~25 km — long before this altitude. So it is a GUARD with no hysteresis to
+ * keep: both levels are drawn inside the band, so nothing can flap on it.
  */
 const SITE_ALTITUDE_M = 45_000;
-const SITE_ENTER_ALTITUDE_M = SITE_ALTITUDE_M - 3_000;
-const SITE_EXIT_ALTITUDE_M = SITE_ALTITUDE_M + 3_000;
+/**
+ * THE MESH ↔ SITES BAND, in degrees of the view's LARGER span ('deg-max'):
+ * 0.35° → 0.21°, the same band as `irve-fr` and for the same reasons.
+ *
+ * The coarse end is {@link SCHOOLS_MAX_BOX_DEG}, where the site level starts
+ * loading today and has to: the proxy refuses a wider box, so every view the
+ * band gives sites to is one it will answer, with its own completeness check
+ * (`complete`) and the 6 000-dot cap below unchanged. The fine end is 0.6× that
+ * (a ratio of 1.67, a little under one zoom level); on a 16:10 viewport the
+ * band runs from about 25 km of altitude to about 15 km. Keeping the mesh
+ * loaded for as long as it has a weight (down to 0.245°, below) costs a
+ * client-side re-pick over the national pack the layer already holds, at the
+ * 2 200-dot budget of the finest tier.
+ *
+ * The shape is a REVEAL: every view in the band used to show every school, so
+ * the schools reach full strength 30 % of the way in (0.300°), the mesh is gone
+ * by 70 % (0.245°), and the schools own the key from 0.314° down.
+ *
+ * WHY THIS ONE FADES: a mesh dot is a real school of the same register at its
+ * own coordinate, on the same level colours, and the site level holds the
+ * same school at the same point (`pickMeshSite` is how a click already joins
+ * the two). Inside the band the school both levels draw is drawn ONCE, as the
+ * site it is — on the SITE size scale, so no dot on screen is read against the
+ * smaller mesh scale beside it — and only the schools the mesh thinned away
+ * fade in. See `prismMeshSitesFade.js`.
+ */
+export const SCHOOLS_SITE_FADE_BAND = fadeBand(0.21, SCHOOLS_MAX_BOX_DEG);
+const SCHOOLS_FADE_BANDS_REPORT = Object.freeze({
+  'mesh-sites': Object.freeze({ fine: SCHOOLS_SITE_FADE_BAND.fine, coarse: SCHOOLS_SITE_FADE_BAND.coarse, unit: 'deg-max' }),
+});
 /**
  * View LATITUDE span (degrees) at or above which the choropleth answers.
  * Metropolitan France is 9.8° tall. The exit threshold is lower than the entry
  * one so a camera resting on the boundary does not swap the whole map back and
  * forth on sub-pixel drift.
+ *
+ * THIS STAYS A HARD CUT, AND KEEPS ITS HYSTERESIS. The prism's height is the
+ * same establishment count the dots draw, but its colour is the count per
+ * 1 000 km² on the green ramp below, and a dot's colour is the school LEVEL —
+ * a rate and a category, two keys, chosen to share no colour because the two
+ * regimes never draw at once. What changed is that the cut no longer goes
+ * blank while the next level loads (`prismMeshSitesFade.js`).
  */
 const NATIONAL_ENTER_SPAN_DEG = 9.5;
 const NATIONAL_EXIT_SPAN_DEG = 8;
+const SCHOOLS_FADE_CUTS_REPORT = Object.freeze({
+  'national-mesh': Object.freeze({ enter: NATIONAL_ENTER_SPAN_DEG, exit: NATIONAL_EXIT_SPAN_DEG, unit: 'deg-lat' }),
+});
 const CAMERA_DEBOUNCE_MS = 450;
 /**
  * Poll cadence (ms). Long on purpose: the register is rebuilt once a day, so
@@ -372,6 +441,11 @@ const SELECTED_POINT_PX = 18;
  * Mesh dots are smaller and flatter than exact sites. They stand for a sampled
  * network rather than a counted inventory, and a mesh dot the size of a site
  * dot would invite the eye to read one as the other.
+ *
+ * Which is why, inside the fade band, a school both levels draw is drawn on
+ * the SITE scale the moment the sites are in hand: once it is one of the
+ * inventory's dots it is sized like one, and the only mesh-sized dots left on
+ * screen are the ones fading out.
  */
 const MESH_POINT_MIN_PX = 3.4;
 const MESH_POINT_MAX_PX = 9;
@@ -459,6 +533,41 @@ let _meshPick = null;
  * invalidated: the annuaire is rebuilt daily and a name does not move.
  */
 let _meshNames = new Map();
+
+// Fade on zoom. The two point levels are held SEPARATELY, because inside the
+// mesh ↔ sites band both are drawn; `_records` is what they compose into
+// (`rebuildPoints`), and every dot in it carries a `fadeRole`.
+/** The mesh as drawn: its pick and the box it was picked over. */
+let _meshLevel = null;
+/** The site level as drawn: the viewport payload's sites. */
+let _siteLevel = null;
+/** Which point levels the current `_records` were built from. */
+let _drawn = { mesh: false, sites: false };
+/** The band scale of the last SETTLED view. */
+let _settledScale = Infinity;
+/** Incremented on every settle, so a slow pack never draws over a newer view. */
+let _viewGeneration = 0;
+let _meshLoading = false;
+let _siteLoading = false;
+/** Whether the département prisms are on screen right now. */
+let _depShown = false;
+/** The `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
+let _retireTimer = null;
+let _fadeReportDirty = true;
+const _fadeAlphas = {
+  national: 0, nationalShown: false, shared: 1, sites: 1, mesh: 1, meshLevel: 0, sitesLevel: 0,
+};
+let _fadeNow = 0;
+const _fadeState = {
+  national: false,
+  nationalReady: false,
+  meshDrawn: false,
+  sitesDrawn: false,
+  scale: Infinity,
+  band: null,
+  arrival: (key) => (_fade ? _fade.arrival(key, _fadeNow) : 1),
+};
 
 // --- Colour and size --------------------------------------------------------
 
@@ -628,10 +737,22 @@ export function schoolsViewSpanDeg(viewer) {
   return { lat, max: Math.max(lat, lon) };
 }
 
-/** Which regime the camera is in, with hysteresis at both boundaries. */
+/**
+ * The camera's scale for the mesh ↔ sites band: the larger span, or Infinity
+ * at and above {@link SITE_ALTITUDE_M}.
+ */
+export function schoolsSiteFadeScale(spanMaxDeg, altitudeM) {
+  return siteFadeScale(spanMaxDeg, altitudeM, SITE_ALTITUDE_M);
+}
+
+/**
+ * Which regime the camera is in — the level that owns the key, the card and
+ * the row line. The national cut keeps its hysteresis; below it both point
+ * levels can be on screen inside {@link SCHOOLS_SITE_FADE_BAND}, and the
+ * regime is the one the settled view gives the larger alpha.
+ */
 function updateRegime(viewer) {
   const span = schoolsViewSpanDeg(viewer);
-  const altitude = cameraAltitudeM(viewer);
 
   if (_regime === 'national') {
     if (span.lat >= NATIONAL_EXIT_SPAN_DEG) return _regime;
@@ -640,13 +761,13 @@ function updateRegime(viewer) {
     return _regime;
   }
 
-  if (_regime === 'sites') {
-    if (altitude > SITE_EXIT_ALTITUDE_M || span.max > SCHOOLS_MAX_BOX_DEG) _regime = 'mesh';
-  } else if (altitude < SITE_ENTER_ALTITUDE_M && span.max <= SCHOOLS_MAX_BOX_DEG) {
-    _regime = 'sites';
-  } else {
-    _regime = 'mesh';
-  }
+  _settledScale = schoolsSiteFadeScale(span.max, cameraAltitudeM(viewer));
+  _regime = dominantPointLevel({
+    meshDrawn: _drawn.mesh,
+    sitesDrawn: _drawn.sites,
+    scale: _settledScale,
+    band: SCHOOLS_SITE_FADE_BAND,
+  });
   return _regime;
 }
 
@@ -892,11 +1013,53 @@ export function selectSchoolsLabelCohort(entries, limit = SCHOOLS_FR_LABEL_COHOR
 
 // --- Selection --------------------------------------------------------------
 
+/** A record's fade weight — 1 for a record no fade has touched. */
+function fadeWeightOf(record) {
+  return record?.fadeWeight ?? 1;
+}
+
 function restoreRecordStyle(record) {
   if (!record?.point) return;
-  record.point.color = Cesium.Color.fromCssColorString(record.baseColor);
+  record.point.color = Cesium.Color.fromCssColorString(record.baseColor).withAlpha(fadeWeightOf(record));
   record.point.pixelSize = record.baseSize;
 }
+
+/**
+ * Whether a record belongs to the level that owns the key and the row. A dot
+ * both levels draw belongs to whichever owns them; a record built before roles
+ * existed (the test seeds) belongs to the regime, as every record used to.
+ */
+function inDominantLevel(record) {
+  const role = record?.fadeRole;
+  if (!role || role === ROLE_SHARED) return true;
+  return _regime === 'mesh' ? role === ROLE_MESH : role === ROLE_SITES;
+}
+
+const SELECTED_INK = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+/** Scratch for the per-frame writer: a point copies the colour it is given. */
+const _dotFadeScratch = new Cesium.Color();
+
+/**
+ * Write one record's fade weight onto its dot: the fill and the outline at
+ * their own alpha times the weight, and `show` off at zero — a dot faded out
+ * is hidden, not drawn transparent, because it would still answer a pick.
+ * Called only for records whose weight moved a step.
+ */
+function writeDotFade(record, weight) {
+  const point = record.point;
+  if (!point) return;
+  const selected = record.id === _selectedId;
+  if (!record.inkValue) record.inkValue = Cesium.Color.fromCssColorString(record.baseColor);
+  Cesium.Color.clone(selected ? SELECTED_INK : record.inkValue, _dotFadeScratch);
+  _dotFadeScratch.alpha = weight;
+  point.color = _dotFadeScratch;
+  Cesium.Color.clone(OUTLINE_COLOR, _dotFadeScratch);
+  _dotFadeScratch.alpha = OUTLINE_COLOR.alpha * weight;
+  point.outlineColor = _dotFadeScratch;
+  point.show = weight > 0;
+}
+
+const _dotFader = createRecordFader(writeDotFade);
 
 /**
  * Re-style the selected département's prism, keeping its geometry.
@@ -921,6 +1084,9 @@ function dropDepartementSelection() {
   if (_selectedId?.startsWith?.('dep:')) {
     _selectedId = null;
     _overlayHost.clearSource(SCHOOLS_FR_OVERLAY_SOURCE_ID);
+    // The prisms now stay on screen as the cover until the dots are drawn, so
+    // a cyan prism would outlive its card by that long: put its class back.
+    if (_depShown) repaintDepartements();
   }
 }
 
@@ -935,7 +1101,9 @@ function clearSelection() {
   const departement = _selectedId?.startsWith?.('dep:') === true;
   const record = departement || !_selectedId ? null : _records.get(_selectedId);
   _selectedId = null;
-  if (departement) repaintDepartements();
+  // Not while the prisms are off screen: the repaint SHOWS what it paints, and
+  // only the national side of the cut decides that (`applyNationalVisibility`).
+  if (departement && (_depShown || !_enabled)) repaintDepartements();
   else if (record) restoreRecordStyle(record);
   _overlayHost.clearSource(SCHOOLS_FR_OVERLAY_SOURCE_ID);
   governorRequestRender('schools-fr-deselect');
@@ -1055,7 +1223,7 @@ function selectSite(id) {
   if (_selectedId && _selectedId !== id) clearSelection();
   _selectedId = id;
   if (record.point) {
-    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(fadeWeightOf(record));
     record.point.pixelSize = SELECTED_POINT_PX;
   }
   // A maillage dot knows its level and its roll but not its name — ask the
@@ -1148,6 +1316,41 @@ function installClickHandler(viewer) {
     if (_selectedId) clearSelection();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   document.addEventListener('keydown', onKeyDown);
+}
+
+/**
+ * The per-frame half of fade on zoom: role weights, written onto the dots.
+ *
+ * Runs on `zoomFade.js`'s one shared `preRender` read of the camera; nothing
+ * is fetched or built here, and a frame in which no role weight moved a step
+ * costs three comparisons. The prisms are toggled at the ends of the cut's
+ * hand-over, never faded (`applyNationalVisibility`).
+ */
+function onZoomFadeFrame(scale, nowMs) {
+  if (!_enabled) return;
+  _fadeNow = nowMs;
+  _fadeState.national = _regime === 'national';
+  _fadeState.nationalReady = _nationalPainted;
+  _fadeState.meshDrawn = _drawn.mesh;
+  _fadeState.sitesDrawn = _drawn.sites;
+  _fadeState.scale = schoolsSiteFadeScale(Math.max(scale.latSpan, scale.lonSpan), scale.heightM);
+  _fadeState.band = SCHOOLS_SITE_FADE_BAND;
+  familyAlphas(_fadeState, _fadeAlphas);
+  const dots = _dotFader.apply(_records, _fadeAlphas);
+  const national = applyNationalVisibility(_fadeAlphas.nationalShown);
+  if (dots.changed || national || _fadeReportDirty) reportFade();
+}
+
+/** Publish the drawn state for the browser harness — on change only. */
+function reportFade() {
+  _fadeReportDirty = false;
+  _fade?.report({
+    levels: { national: _depShown ? 1 : 0, mesh: _fadeAlphas.meshLevel, sites: _fadeAlphas.sitesLevel },
+    marks: { shared: _fadeAlphas.shared, sites: _fadeAlphas.sites, mesh: _fadeAlphas.mesh },
+    dominant: _regime,
+    bands: SCHOOLS_FADE_BANDS_REPORT,
+    cuts: SCHOOLS_FADE_CUTS_REPORT,
+  });
 }
 
 /** Keep the selected card pinned to its dot as the camera moves. */
@@ -1468,17 +1671,48 @@ function hideDepartements() {
     for (const entity of parts) entity.show = false;
   }
   _overlayHost.clearSource(SCHOOLS_FR_LABEL_SOURCE_ID);
+  _depShown = false;
 }
 
+/**
+ * Put the prisms on screen or take them off — the national side of the cut.
+ *
+ * TOGGLED, NEVER FADED, as in `irve-fr` and for the same reason: four kinds of
+ * prism material plus a silhouette colour, of which only one could follow a
+ * weight, re-read on every entity every frame. The cut's 260 ms hand-over is
+ * carried by the dots; the entities are written at its two ends only.
+ *
+ * @param {boolean} show
+ * @returns {boolean} Whether anything changed.
+ */
+function applyNationalVisibility(show) {
+  if (show === _depShown) return false;
+  if (show) {
+    repaintDepartements();
+    _depShown = true;
+    publishDepartementOverlay();
+  } else {
+    hideDepartements();
+    if (_regime !== 'national') _nationalPainted = false;
+  }
+  governorRequestRender('schools-fr-national-cut');
+  return true;
+}
+
+/**
+ * Enter (or refresh) the national regime.
+ *
+ * The dots are no longer cleared on the way in: they stay whole until the
+ * prisms are painted, step down over one arrival ramp, and are dropped when it
+ * ends — a first zoom out used to show an empty globe for as long as the
+ * polygons and the rollup took. A forced refresh leaves the painted prisms up
+ * until the new rollup repaints them, for the same reason.
+ */
 async function loadNational({ force = false } = {}) {
   _error = null;
-  clearSites();
-  if (force) {
-    _national = null;
-    _nationalPainted = false;
-  }
+  if (force) _national = null;
   _loading = !_national;
-  const generation = _requestGeneration;
+  const generation = _viewGeneration;
   try {
     await ensureDepartementShapes();
   } catch (error) {
@@ -1489,7 +1723,7 @@ async function loadNational({ force = false } = {}) {
     return;
   }
   await ensureNational();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'national') return;
+  if (generation !== _viewGeneration || !_enabled || _regime !== 'national') return;
   _loading = false;
   if (!_national) {
     _error = _nationalError || 'national rollup unavailable';
@@ -1499,14 +1733,23 @@ async function loadNational({ force = false } = {}) {
   _count = _national.painted || 0;
   _lastUpdate = Number(_national.fetchedAt) || Date.now();
   _status = _count > 0 ? 'ready' : 'empty';
-  if (_nationalPainted) return;
+  if (_nationalPainted && !force) {
+    retirePoints();
+    return;
+  }
   _nationalPainted = true;
   repaintDepartements();
+  _depShown = true;
   publishDepartementOverlay();
+  if (_drawn.mesh || _drawn.sites) {
+    _fade?.arrive(ARRIVAL_NATIONAL);
+    scheduleRetire();
+  }
+  _fadeReportDirty = true;
   governorRequestRender('schools-fr-national');
 }
 
-// --- Mesh regime ------------------------------------------------------------
+// --- Mesh level -------------------------------------------------------------
 
 async function ensureMesh() {
   if (_mesh) return _mesh;
@@ -1537,35 +1780,149 @@ async function ensureMesh() {
 }
 
 /**
- * Draw a thinned selection of real school positions for the current view.
+ * Pick the mesh for one view and hold it as the drawn mesh level.
  *
  * Re-picked on every camera settle rather than cached: the pick is a function
  * of the box, and re-running it over 68 158 tuples costs a few milliseconds
- * against a round trip that would cost a few hundred.
+ * against a round trip that would cost a few hundred. Drawing is
+ * {@link rebuildPoints}'s job, because inside the fade band the mesh is drawn
+ * together with the sites.
  */
-function reconcileMesh(box) {
+function pickMeshLevel(box) {
   const pick = selectSchoolsMesh(_mesh?.sites, {
     box,
     // § 3.5 — see `profileCountBudget`. Coverage first, density second.
     budget: profileCountBudget(schoolsMeshBudget(box.north - box.south)),
   });
   _meshPick = pick;
+  _meshLevel = { pick, box };
+}
 
+/**
+ * Pick and draw the mesh once the national pack is in hand — the slow path,
+ * for the first settle of a session; later settles pick synchronously in
+ * {@link loadViewport}.
+ */
+async function loadMeshLevel(box, viewGeneration) {
+  _meshLoading = true;
+  syncLoading();
+  await ensureMesh();
+  _meshLoading = false;
+  syncLoading();
+  if (viewGeneration !== _viewGeneration || !_enabled || _regime === 'national') return;
+  if (!_mesh) {
+    _error = _meshError || 'national mesh unavailable';
+    _status = 'error';
+    return;
+  }
+  _error = null;
+  pickMeshLevel(box);
+  _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
+  rebuildPoints();
+}
+
+// --- The two point levels, composed -----------------------------------------
+
+/**
+ * Compose the dots from the point levels that are drawn, and draw them.
+ *
+ * Outside the fade band one level is drawn and this is what each reconcile
+ * path always did. Inside it both are, and each dot takes the role
+ * `prismMeshSitesFade.js` argues for:
+ *
+ *   - the school a mesh dot stands on is drawn ONCE, as the site it is, and
+ *     held whole through the band. The join is the one a mesh click already
+ *     makes (`pickMeshSite`): the coordinate, then the level the dot claimed,
+ *     then the largest roll — a coordinate is not a UAI, and a SEGPA sits at
+ *     its collège's address;
+ *   - a school the mesh thinned away fades in at the site level's alpha;
+ *   - a mesh dot the site query did not return (the padding outside the view,
+ *     or a capped answer) fades out at the mesh's alpha, as the mesh dot it is.
+ *
+ * A shared dot wears the SITE card in both halves of the band, and that is not
+ * the site level overruling the mesh: a mesh card whose name lookup has come
+ * back IS that card (`buildSchoolsMeshLabel`), and here the answer is already
+ * in hand.
+ */
+function rebuildPoints() {
+  if (!_points) return;
   clearSelection();
   _points.removeAll();
   _records.clear();
 
-  for (const site of pick.picked) {
-    if (_records.size >= MAX_RENDERED_SITES) break;
-    const lat = site[MESH_LAT];
-    const lon = site[MESH_LON];
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    const id = meshSchoolId(site);
-    if (_records.has(id)) continue;
+  const before = _drawn;
+  const pick = _meshLevel?.pick || null;
+  const sites = Array.isArray(_siteLevel?.sites) ? _siteLevel.sites : [];
+  _drawn = { mesh: Boolean(pick), sites: Boolean(_siteLevel) };
+  if (_regime !== 'national') {
+    _regime = dominantPointLevel({
+      meshDrawn: _drawn.mesh,
+      sitesDrawn: _drawn.sites,
+      scale: _settledScale,
+      band: SCHOOLS_SITE_FADE_BAND,
+    });
+    syncLoading();
+  }
+
+  // The sites by coordinate, so each mesh dot can find the school it stands on.
+  const siteIds = [];
+  const sitesAt = new Map();
+  for (const site of sites) {
+    if (!site?.id || !Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
+    siteIds.push(site.id);
+    const key = schoolSiteKey(site.lat, site.lon);
+    const here = sitesAt.get(key);
+    if (here) here.push(site);
+    else sitesAt.set(key, [site]);
+  }
+  /** Mesh coordinate id → its tuple, first one wins (one dot per coordinate, as before). */
+  const meshById = new Map();
+  /** Mesh coordinate id → the id of the site record that draws it, when there is one. */
+  const drawnAs = new Map();
+  for (const tuple of pick?.picked || []) {
+    if (!Number.isFinite(tuple[MESH_LAT]) || !Number.isFinite(tuple[MESH_LON])) continue;
+    const id = meshSchoolId(tuple);
+    if (meshById.has(id)) continue;
+    meshById.set(id, tuple);
     // i18n-ignore-next-line — a band key from the pack, not a word.
-    const level = SCHOOL_LEVELS[site[MESH_LEVEL]] || 'autre';
+    const level = SCHOOL_LEVELS[tuple[MESH_LEVEL]] || 'autre';
+    const match = _drawn.sites ? pickMeshSite(sitesAt.get(id), id, level).site : null;
+    drawnAs.set(id, match ? match.id : id);
+  }
+  const roles = pointRoles(drawnAs.values(), siteIds, { meshDrawn: _drawn.mesh, sitesDrawn: _drawn.sites });
+
+  const warm = [];
+  for (const site of sites) {
+    if (_records.size >= MAX_RENDERED_SITES) break;
+    const id = site?.id;
+    if (!id || _records.has(id) || !roles.has(id)) continue;
+    const position = sitePosition(site);
+    const color = schoolLevelColor(site.level);
+    const size = schoolPointSize(site.enrolled);
+    const point = _points.add({
+      id,
+      position,
+      color: Cesium.Color.fromCssColorString(color),
+      pixelSize: size,
+      outlineColor: OUTLINE_COLOR,
+      outlineWidth: 1,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      translucencyByDistance: new Cesium.NearFarScalar(500, 1.0, 60_000, 0.35),
+    });
+    _records.set(id, {
+      id, site, point, position, baseColor: color, baseSize: size, fadeRole: roles.get(id),
+    });
+    warm.push(site);
+  }
+  for (const [id, tuple] of meshById) {
+    if (_records.size >= MAX_RENDERED_SITES) break;
+    if (drawnAs.get(id) !== id || _records.has(id)) continue;
+    const lat = tuple[MESH_LAT];
+    const lon = tuple[MESH_LON];
+    // i18n-ignore-next-line — a band key from the pack, not a word.
+    const level = SCHOOL_LEVELS[tuple[MESH_LEVEL]] || 'autre';
     const color = schoolLevelColor(level);
-    const pupils = Number(site[MESH_PUPILS]) || 0;
+    const pupils = Number(tuple[MESH_PUPILS]) || 0;
     const size = schoolsMeshPointSize(pupils);
     // No ground warm-up here: at these altitudes a metre of vertical error is
     // invisible, and 2 200 terrain lookups per pan would not be.
@@ -1596,115 +1953,121 @@ function reconcileMesh(box) {
       position,
       baseColor: color,
       baseSize: size,
+      fadeRole: ROLE_MESH,
     });
   }
-  _count = _records.size;
-  governorRequestRender('schools-fr-mesh');
-}
 
-async function loadMesh(box) {
-  hideDepartements();
-  _nationalPainted = false;
-  dropDepartementSelection();
-  _summary = null;
-  _error = null;
-  _loading = !_mesh;
-  const generation = ++_requestGeneration;
-  await ensureMesh();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'mesh') return;
-  _loading = false;
-  if (!_mesh) {
-    _error = _meshError || 'national mesh unavailable';
-    _status = 'error';
-    return;
-  }
-  reconcileMesh(box);
-  _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
-  _status = _count > 0 ? 'ready' : 'empty';
-}
-
-// --- Site regime ------------------------------------------------------------
-
-function reconcile(payload) {
-  const sites = Array.isArray(payload?.sites) ? payload.sites : [];
-
-  clearSelection();
-  _points.removeAll();
-  _records.clear();
-
-  const warm = [];
-  for (const site of sites) {
-    if (_records.size >= MAX_RENDERED_SITES) break;
-    const id = site?.id;
-    if (!id || _records.has(id)) continue;
-    if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
-    const position = sitePosition(site);
-    const color = schoolLevelColor(site.level);
-    const size = schoolPointSize(site.enrolled);
-    const point = _points.add({
-      id,
-      position,
-      color: Cesium.Color.fromCssColorString(color),
-      pixelSize: size,
-      outlineColor: OUTLINE_COLOR,
-      outlineWidth: 1,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      translucencyByDistance: new Cesium.NearFarScalar(500, 1.0, 60_000, 0.35),
-    });
-    _records.set(id, { id, site, point, position, baseColor: color, baseSize: size });
-    warm.push(site);
-  }
-
-  _count = _records.size;
+  _count = dominantRecordCount();
   warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
-  governorRequestRender('schools-fr-reconcile');
+  _dotFader.invalidate();
+  _fadeReportDirty = true;
+  const arrival = pointArrivalKey(before, _drawn);
+  if (arrival && _fade) {
+    _fade.arrive(arrival);
+    scheduleRetire();
+  }
+  if (!_error) _status = _count > 0 ? 'ready' : 'empty';
+  governorRequestRender('schools-fr-points');
 }
 
+/** Dots in the level that owns the view — what the row and the stats count. */
+function dominantRecordCount() {
+  let count = 0;
+  for (const record of _records.values()) if (inDominantLevel(record)) count += 1;
+  return count;
+}
+
+/** Forget both point levels and every dot — the national regime, or disable. */
 function clearSites() {
   if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
   if (_points) _points.removeAll();
   _records.clear();
-  _count = 0;
+  _count = _regime === 'national' ? (_national?.painted || 0) : 0;
   _summary = null;
   _meshPick = null;
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _fadeReportDirty = true;
 }
 
-async function loadViewport({ force = false } = {}) {
-  if (!_enabled || !_viewer) return;
-  // Whatever this call concludes — records, a zoom-in verdict or a failure —
-  // it concludes it about the view the camera is showing right now. See
-  // `cameraSettle.js`: an arrival on any other view has to be read afresh.
-  markViewportRead(_viewer, SCHOOLS_FR_LAYER_ID);
-
-  const regime = updateRegime(_viewer);
-  if (regime === 'national') {
-    _lastBox = null;
+/**
+ * Let go of a level the view no longer wants, once the level replacing it is
+ * drawn and has finished arriving — see `retiredPointLevel`.
+ * @returns {boolean} Whether a level was dropped; the caller rebuilds.
+ */
+function retireLevel() {
+  const level = retiredPointLevel({
+    scale: _settledScale,
+    band: SCHOOLS_SITE_FADE_BAND,
+    meshDrawn: _drawn.mesh,
+    sitesDrawn: _drawn.sites,
+    meshArrival: _fade ? _fade.arrival(ARRIVAL_MESH) : 1,
+    sitesArrival: _fade ? _fade.arrival(ARRIVAL_SITES) : 1,
+  });
+  if (level === 'sites') {
+    _siteLevel = null;
+    _summary = null;
+    cancelSiteLevel();
+    return true;
+  }
+  if (level === 'mesh') {
+    _meshLevel = null;
     _meshPick = null;
-    await loadNational({ force });
+    return true;
+  }
+  return false;
+}
+
+/** Drop whatever the settled view has finished replacing. */
+function retirePoints() {
+  if (!_enabled) return;
+  if (_regime === 'national') {
+    const arriving = _fade ? _fade.arrival(ARRIVAL_NATIONAL) < 1 : false;
+    if (_nationalPainted && !arriving && (_drawn.mesh || _drawn.sites)) {
+      clearSites();
+      governorRequestRender('schools-fr-retire');
+    }
     return;
   }
+  if (!retireLevel()) return;
+  // A rebuild the reader did not ask for keeps what they selected.
+  const selected = _selectedId && !_selectedId.startsWith('dep:') ? _selectedId : null;
+  rebuildPoints();
+  if (selected && _records.has(selected)) selectSite(selected);
+}
 
-  if (regime === 'mesh') {
-    _lastBox = null;
-    await loadMesh(cameraSchoolsMeshBox(_viewer));
-    return;
-  }
+/** Run {@link retirePoints} once the arrival just started has finished. */
+function scheduleRetire() {
+  clearTimeout(_retireTimer);
+  _retireTimer = setTimeout(() => {
+    _retireTimer = null;
+    retirePoints();
+  }, ARRIVAL_MS + 60);
+}
 
-  const box = cameraSchoolsBox(_viewer);
-  if (!box) {
-    // Inside the altitude gate but looking at more than the proxy will answer
-    // — an oblique horizon shot. The maillage is the honest fallback, not an
-    // empty map.
-    _regime = 'mesh';
-    await loadMesh(cameraSchoolsMeshBox(_viewer));
-    return;
-  }
+/** Abandon the site query in flight, if any. */
+function cancelSiteLevel() {
+  if (!_inFlight && !_siteLoading) return;
+  _requestGeneration += 1;
+  _inFlight?.abort?.();
+  _inFlight = null;
+  _lastBox = null;
+  _siteLoading = false;
+  syncLoading();
+}
 
-  hideDepartements();
-  _nationalPainted = false;
-  _meshPick = null;
-  dropDepartementSelection();
+/** The row's "loading" belongs to the level that owns the row. */
+function syncLoading() {
+  if (_regime === 'national') return;
+  _loading = _regime === 'sites' ? _siteLoading : _meshLoading;
+}
 
+/**
+ * Fetch the schools in one box and hold them as the drawn site level. The old
+ * drawing stays until the answer replaces it, so a pan is a swap, never a gap.
+ */
+async function loadSiteLevel(box, { force = false } = {}) {
   const key = [box.south, box.west, box.north, box.east].map((v) => v.toFixed(3)).join(',');
   if (!force && key === _lastBox && _inFlight) return;
   _lastBox = key;
@@ -1714,7 +2077,8 @@ async function loadViewport({ force = false } = {}) {
   const controller = new AbortController();
   _inFlight = controller;
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  _loading = true;
+  _siteLoading = true;
+  syncLoading();
 
   try {
     const params = new URLSearchParams({
@@ -1734,24 +2098,74 @@ async function loadViewport({ force = false } = {}) {
       throw new Error(detail);
     }
     const payload = await response.json();
-    if (generation !== _requestGeneration || !_enabled) return;
+    if (generation !== _requestGeneration || !_enabled || _regime === 'national') return;
 
-    reconcile(payload);
     const { sites, ...summary } = payload;
+    _siteLevel = { sites: Array.isArray(sites) ? sites : [], box };
     _summary = summary;
     _lastUpdate = Number(payload.fetchedAt) || Date.now();
-    _status = _count > 0 ? 'ready' : 'empty';
     _error = null;
+    rebuildPoints();
   } catch (error) {
     if (error?.name === 'AbortError') return;
+    if (generation !== _requestGeneration) return;
     console.warn('[Data:Schools-FR] viewport failed:', error?.message || error);
     _error = error?.message || 'viewport unavailable';
     _status = 'error';
   } finally {
     clearTimeout(timer);
-    if (_inFlight === controller) _inFlight = null;
-    _loading = false;
+    if (generation === _requestGeneration) {
+      _siteLoading = false;
+      _inFlight = null;
+      syncLoading();
+    }
   }
+}
+
+/**
+ * Read the settled view: decide the regime, load every level whose weight is
+ * above zero, and let go of the levels that are fully replaced. Loading stays
+ * here, on the settle; the frame callback only fades what this has drawn.
+ */
+async function loadViewport({ force = false } = {}) {
+  if (!_enabled || !_viewer) return;
+  // Whatever this call concludes — records, a zoom-in verdict or a failure —
+  // it concludes it about the view the camera is showing right now. See
+  // `cameraSettle.js`: an arrival on any other view has to be read afresh.
+  markViewportRead(_viewer, SCHOOLS_FR_LAYER_ID);
+  const viewGeneration = ++_viewGeneration;
+  _fadeReportDirty = true;
+
+  const regime = updateRegime(_viewer);
+  if (regime === 'national') {
+    // The dots stay as the cover until the prisms are painted; only the
+    // question in flight is abandoned.
+    cancelSiteLevel();
+    await loadNational({ force });
+    return;
+  }
+
+  dropDepartementSelection();
+  const wanted = wantedPointLevels(_settledScale, SCHOOLS_SITE_FADE_BAND);
+  const siteBox = wanted.sites ? cameraSchoolsBox(_viewer) : null;
+  // Inside the altitude gate but looking at more than the proxy will answer —
+  // an oblique horizon shot. The mesh is the honest fallback, not an empty map.
+  const meshBox = wanted.mesh || !siteBox ? cameraSchoolsMeshBox(_viewer) : null;
+  if (!siteBox) cancelSiteLevel();
+
+  let rebuild = retireLevel();
+  const jobs = [];
+  if (meshBox && _mesh) {
+    pickMeshLevel(meshBox);
+    _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
+    rebuild = true;
+  } else if (meshBox) {
+    jobs.push(loadMeshLevel(meshBox, viewGeneration));
+  }
+  if (rebuild) rebuildPoints();
+  if (siteBox) jobs.push(loadSiteLevel(siteBox, { force }));
+  syncLoading();
+  await Promise.all(jobs);
 }
 
 function onCameraChanged() {
@@ -1954,7 +2368,12 @@ const schoolsFranceLayer = {
     _summary = null;
     _regime = 'national';
     _nationalPainted = false;
+    _depShown = false;
     _meshPick = null;
+    _meshLevel = null;
+    _siteLevel = null;
+    _drawn = { mesh: false, sites: false };
+    _settledScale = Infinity;
     _meshNames = new Map();
     _lastBox = null;
 
@@ -1983,6 +2402,11 @@ const schoolsFranceLayer = {
     if (!_preRenderRemover) {
       _preRenderRemover = viewer.scene.preRender.addEventListener(onPreRender);
     }
+    // Fade on zoom: one shared per-frame read of the camera, held only while
+    // the layer is on. See `onZoomFadeFrame`.
+    _fade = watchZoomFade(viewer, SCHOOLS_FR_LAYER_ID, onZoomFadeFrame);
+    _dotFader.invalidate();
+    _fadeReportDirty = true;
     void loadViewport({ force: true });
     restoreSpriteOrder(viewer);
   },
@@ -1990,13 +2414,20 @@ const schoolsFranceLayer = {
   disable(viewer) {
     _enabled = false;
     _requestGeneration += 1;
+    _viewGeneration += 1;
     _regime = 'national';
     _nationalPainted = false;
     _meshPick = null;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
+    clearTimeout(_retireTimer);
+    _retireTimer = null;
     _inFlight?.abort?.();
     _inFlight = null;
+    _siteLoading = false;
+    _meshLoading = false;
+    _fade?.release();
+    _fade = null;
 
     clearSelection();
     clearSites();
@@ -2088,6 +2519,10 @@ const schoolsFranceLayer = {
     }
     const tally = new Map();
     for (const record of _records.values()) {
+      // Inside the fade band the key is the dominant level's: a mesh key
+      // counts the sample, a site key the inventory, and the other level's
+      // dots belong to neither.
+      if (!inDominantLevel(record)) continue;
       const level = record.site?.level;
       if (level) tally.set(level, (tally.get(level) || 0) + 1);
     }
@@ -2168,6 +2603,39 @@ export function _setSchoolsStateForTest({
   _depEntities = new Map(depEntities || []);
   _depMeta = new Map(depMeta || []);
   _enabled = true;
+  // A seeded national regime is one whose prisms are on screen.
+  _depShown = _regime === 'national';
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _settledScale = Infinity;
+}
+
+/**
+ * Compose the two point levels through the production rebuild, on a real
+ * point collection and without a scene — the band's no-doubling contract.
+ * @returns {Map<string, object>} The records, as built.
+ */
+export function _composeSchoolsPointsForTest({ points, meshPick = null, sites = null, scale }) {
+  _points = points;
+  _meshLevel = meshPick ? { pick: meshPick, box: null } : null;
+  _meshPick = meshPick;
+  _siteLevel = sites ? { sites, box: null } : null;
+  _settledScale = scale;
+  _regime = 'mesh';
+  rebuildPoints();
+  return _records;
+}
+
+/** Move the settled regime without touching what is drawn. */
+export function _setSchoolsRegimeForTest(regime) {
+  _regime = regime;
+}
+
+/** Run one fade frame at a given view, as `zoomFade.js` would. */
+export function _schoolsFadeFrameForTest(scale) {
+  onZoomFadeFrame(scale, 0);
+  return { ..._fadeAlphas };
 }
 
 /** Exercise the production selection path in focused runtime tests. */
@@ -2192,6 +2660,12 @@ export function _clearSchoolsSelectionForTest() {
   _depMeta = new Map();
   _regime = 'sites';
   _enabled = false;
+  _depShown = false;
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _settledScale = Infinity;
+  _points = null;
 }
 
 /** Row-control legend, for tests that do not construct a viewer. */
