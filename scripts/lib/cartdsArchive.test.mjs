@@ -3,17 +3,22 @@
 // files. No request leaves the process.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { X509Certificate } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import tls from 'node:tls';
 import {
   cartdsRobotsVerdict,
   cartdsSweepDue,
   createCartdsArchiveStore,
   readCartdsSweepStamp,
   sweepCartdsArchive,
+  trustCartdsIntermediates,
   writeCartdsSweepStamp,
+  CARTDS_INTERMEDIATES,
 } from './cartdsArchive.mjs';
+import { CARTDS_INSTANCES } from '../../src/data/cartdsFeed.js';
 
 const OPEN = Object.freeze({
   key: 'open', base: 'https://open.example/guichet-unique', label: 'Open — affichage réglementaire',
@@ -206,4 +211,40 @@ test('a sweep is due once per French calendar day', async () => {
   assert.equal(cartdsSweepDue(stamp, '2026-09-30'), false);
   assert.equal(cartdsSweepDue(stamp, '2026-10-01'), true);
   assert.equal(cartdsSweepDue({ read: 3 }, '2026-10-01'), true);
+});
+
+test('every intermediate an instance names is a CA signed by a root Node ships', () => {
+  const roots = tls.rootCertificates.map((pem) => new X509Certificate(pem));
+  const named = new Set(CARTDS_INSTANCES.map((instance) => instance.intermediate).filter(Boolean));
+  assert.deepEqual([...named], ['sectigo-dv-r36']);
+  for (const name of named) {
+    const certificate = new X509Certificate(CARTDS_INTERMEDIATES[name]);
+    assert.ok(certificate.ca, name);
+    // Not a root itself: the chain must still end at one Node trusts.
+    assert.notEqual(certificate.subject, certificate.issuer, name);
+    const root = roots.find((candidate) => candidate.subject === certificate.issuer);
+    assert.ok(root && certificate.checkIssued(root) && certificate.verify(root.publicKey), name);
+    assert.ok(new Date(certificate.validTo) > new Date('2030-01-01'), name);
+  }
+});
+
+test('the intermediates are added to the default CA list once, after what is already there', () => {
+  const intermediate = CARTDS_INTERMEDIATES['sectigo-dv-r36'];
+  let list = [tls.rootCertificates[0], tls.rootCertificates[1]];
+  let sets = 0;
+  const tlsApi = {
+    getCACertificates: (which) => { assert.equal(which, 'default'); return [...list]; },
+    setDefaultCACertificates: (certificates) => { sets += 1; list = [...certificates]; },
+  };
+  const pemb = CARTDS_INSTANCES.filter((instance) => instance.intermediate);
+  assert.deepEqual(pemb.map((instance) => new URL(instance.base).host.split('.').slice(-2).join('.')),
+    ['pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr']);
+  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36']);
+  assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate]);
+  // A second server start in the same process adds nothing.
+  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), []);
+  assert.equal(sets, 1);
+  // Instances that need none leave the list alone.
+  assert.deepEqual(trustCartdsIntermediates([OPEN, SHUT], tlsApi), []);
+  assert.equal(sets, 1);
 });

@@ -335,6 +335,7 @@ import {
   readCartdsCommune,
   readCartdsSweepStamp,
   sweepCartdsArchive,
+  trustCartdsIntermediates,
   writeCartdsSweepStamp,
   CARTDS_ARCHIVE_DIR,
   CARTDS_USER_AGENT,
@@ -27602,7 +27603,7 @@ function adsFranceProxy() {
    * the only reason this register is read: a commune posts a decision 0 to 7
    * days after signing it, and a week of cache would hand most of that back.
    * Four reads a day is also as often as a map has any business knocking on a
-   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 129 communes —
+   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 194 communes —
    * so the map needs no eviction.
    */
   const CARTDS_TTL_MS = 6 * 60 * 60 * 1000;
@@ -27621,6 +27622,8 @@ function adsFranceProxy() {
   const cartdsInFlight = new Map();
   /** Every row a board ever showed — see `src/data/cartdsArchive.js`. */
   const cartdsArchive = createCartdsArchiveStore(path.join(process.cwd(), CARTDS_ARCHIVE_DIR));
+  // The `pemb.fr` hosts send their certificate without its intermediate.
+  trustCartdsIntermediates(CARTDS_INSTANCES);
 
   /** One request to an instance, or null. Never throws. */
   async function cartdsFetch(url, init = {}) {

@@ -140,13 +140,30 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  * day. Left out, and why:
  *
  * - the table answers an error page — Mauges Communauté;
- * - the certificate chain is incomplete, so Node refuses the connection —
- *   Joinville (`pemb.fr`).
+ * - the board's commune menu is empty — Nogent-sur-Marne and
+ *   Bry-sur-Marne (`pemb.fr`), measured 2026-10-01.
  *
- * Five of the thirteen kept answer `robots.txt` with `Disallow: /` and carry
+ * Eight more were read on 2026-10-01, found by checking the sixty most
+ * populous communes not yet covered: Saint-Étienne Métropole, Dijon
+ * Métropole, the Grand Nancy, Toulon, and four communes of Paris Est Marne &
+ * Bois — Champigny-sur-Marne, Joinville-le-Pont, Charenton-le-Pont and
+ * Maisons-Alfort. Every commune their menus offer had posted something: 65
+ * communes, 4 218 rows, 98.8 % of them naming their parcel. Toulouse
+ * Métropole runs Cart@DS too, behind a JavaScript challenge that answers
+ * every request without a browser, `robots.txt` included; it is not read.
+ *
+ * Five of the twenty-one kept answer `robots.txt` with `Disallow: /` and carry
  * `robots: 'overridden'` — Le Cotentin, Grand Libournais, Conches-en-Ouche,
  * Sainte-Marie (La Réunion), Brie Nangissienne; see Trap 5. They added 37
  * communes and 1 850 rows, 99.1 % of them naming their parcel.
+ *
+ * `intermediate` names a certificate the host does not send. The four
+ * `pemb.fr` hosts present their own certificate without the Sectigo
+ * intermediate that signed it: a browser fetches the missing link from the
+ * address the certificate gives, Node does not, and refuses the connection
+ * (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`). The reader supplies that intermediate
+ * (`trustCartdsIntermediates` in `scripts/lib/cartdsArchive.mjs`); the chain
+ * still has to end at a root Node already trusts.
  *
  * `codes` says what the instance's commune menu sends as `NCommune`: the INSEE
  * code (`'insee'`) or the commune's three-digit number with the leading zeros
@@ -281,6 +298,76 @@ export const CARTDS_INSTANCES = Object.freeze([
       '77086', '77089', '77147', '77317', '77327', '77381', '77383', '77416',
       '77428', '77481', '77493', '77496',
     ]),
+  }),
+  Object.freeze({
+    key: 'saintetienne',
+    base: 'https://urbanisme.saint-etienne-metropole.fr/guichet-unique',
+    label: 'Saint-Étienne Métropole — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze([
+      '42031', '42032', '42036', '42043', '42083', '42085', '42095', '42099',
+      '42225', '42103', '42183', '42308', '42322', '42044', '42092', '42110',
+      '42123', '42133', '42167', '42186', '42189', '42207', '42208', '42218',
+      '42223', '42234', '42242', '42271', '42275', '42283', '42302', '42307',
+      '42316', '42330',
+    ]),
+  }),
+  Object.freeze({
+    key: 'dijon',
+    base: 'https://extrageo.metropole-dijon.fr/guichet-unique',
+    label: 'Dijon Métropole — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze([
+      '21003', '21105', '21106', '21166', '21171', '21192', '21231', '21263',
+      '21270', '21278', '21315', '21355', '21370', '21390', '21452', '21473',
+      '21481', '21485', '21515', '21540', '21605', '21617',
+    ]),
+  }),
+  Object.freeze({
+    key: 'grandnancy',
+    base: 'https://cartads.grandnancy.eu/guichet-au-dia',
+    label: 'Métropole du Grand Nancy — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['54265', '54395', '54547', '54578']),
+  }),
+  Object.freeze({
+    key: 'toulon',
+    base: 'https://toulon.geosphere.fr/guichet-unique',
+    label: 'Toulon — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['83137']),
+  }),
+  Object.freeze({
+    key: 'champigny',
+    base: 'https://demarche-urbanisme-champigny.pemb.fr/gu_champigny',
+    label: 'Champigny-sur-Marne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    intermediate: 'sectigo-dv-r36',
+    communes: Object.freeze(['94017']),
+  }),
+  Object.freeze({
+    key: 'joinville',
+    base: 'https://demarche-urbanisme-joinville.pemb.fr/gu_joinville',
+    label: 'Joinville-le-Pont — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    intermediate: 'sectigo-dv-r36',
+    communes: Object.freeze(['94042']),
+  }),
+  Object.freeze({
+    key: 'charenton',
+    base: 'https://demarche-urbanisme-charenton.pemb.fr/gu_charenton',
+    label: 'Charenton-le-Pont — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    intermediate: 'sectigo-dv-r36',
+    communes: Object.freeze(['94018']),
+  }),
+  Object.freeze({
+    key: 'maisonsalfort',
+    base: 'https://demarche-urbanisme-maisonsalfort.pemb.fr/gu_maisonsalfort',
+    label: 'Maisons-Alfort — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    intermediate: 'sectigo-dv-r36',
+    communes: Object.freeze(['94046']),
   }),
 ]);
 

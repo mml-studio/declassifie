@@ -4180,7 +4180,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 13 Cart@DS *affichage réglementaire* boards (129 communes) and their daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 21 Cart@DS *affichage réglementaire* boards (194 communes) and their daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4578,11 +4578,19 @@ every scan inside that commune afterwards is served from cache.
 Their permits are instructed with Inetum's Cart@DS software, whose public
 *affichage réglementaire* board is the same table on every instance: filing
 notices (*avis de dépôt*) and decisions, every family, 0 to 7 days after the
-fact (`src/data/cartdsFeed.js`). Thirteen instances are read — Bretagne
-romantique (41 communes), Aix-Marseille-Provence (26), Brie Nangissienne (20),
-Orléans Métropole (12), Grand Libournais (9), Pays de Fayence (8), Le Cotentin
-(6), ATD 24 (2), Porto-Vecchio, Châtillon, Soultz-Haut-Rhin, Conches-en-Ouche
-and Sainte-Marie on La Réunion. The proxy honours each host's `robots.txt`,
+fact (`src/data/cartdsFeed.js`). Twenty-one instances are read — Bretagne
+romantique (41 communes), Saint-Étienne Métropole (34), Aix-Marseille-Provence
+(26), Dijon Métropole (22), Brie Nangissienne (20), Orléans Métropole (12),
+Grand Libournais (9), Pays de Fayence (8), Le Cotentin (6), the Grand Nancy
+(4), ATD 24 (2), Toulon, Champigny-sur-Marne, Joinville-le-Pont,
+Charenton-le-Pont, Maisons-Alfort, Porto-Vecchio, Châtillon, Soultz-Haut-Rhin,
+Conches-en-Ouche and Sainte-Marie on La Réunion; the eight added on
+2026-10-01 brought 65 communes and 1.13 million inhabitants. The four
+`pemb.fr` hosts send their certificate without the Sectigo intermediate that
+signed it, which Node refuses; the server adds that one intermediate to its
+default CA list at start (`trustCartdsIntermediates`), and the chain must
+still end at a root Node ships. Toulouse Métropole's board sits behind a
+JavaScript challenge and is not read. The proxy honours each host's `robots.txt`,
 re-read daily, so a host that adds a refusal stops being read — except the
 five that already answered `Disallow: /` on 2026-09-30 (Le Cotentin, Grand
 Libournais, Conches-en-Ouche, Sainte-Marie, Brie Nangissienne), which the
@@ -4608,8 +4616,8 @@ drawn with its decision. Two decisions kept for one dossier — a grant and its
 later withdrawal — resolve to the later one. When a board does not answer,
 the archive is served alone, marked `live: false` and not cached. Under
 `vite preview`, the hosted server, every board is swept once per French
-calendar day whether or not anybody looks (about 270 requests one second
-apart, some seven minutes; `sweep.json` in the same directory says what the
+calendar day whether or not anybody looks (about 410 requests one second
+apart, some ten minutes; `sweep.json` in the same directory says what the
 last sweep read); under `vite dev` it is off. `CARTDS_ARCHIVE=daily|off`
 overrides either, and `npm run cartds:archive` runs the same sweep from a
 shell (`--join <dir>` folds in an archive swept elsewhere). The archive starts

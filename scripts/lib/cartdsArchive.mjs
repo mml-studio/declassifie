@@ -14,8 +14,10 @@
  * tests a fake.
  */
 
+import { X509Certificate } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
+import tls from 'node:tls';
 import {
   CARTDS_BOARDS,
   CARTDS_DATA_PATH,
@@ -45,6 +47,83 @@ export const CARTDS_ARCHIVE_DIR = path.join('.gev-cache', 'archive', 'cartds');
 
 /** The file that says when the last sweep ran and what it found. */
 export const CARTDS_SWEEP_STAMP = 'sweep.json';
+
+/**
+ * The intermediate certificates some hosts leave out of their chain, by the
+ * name an instance's `intermediate` gives (see `CARTDS_INSTANCES`).
+ *
+ * `sectigo-dv-r36`: Sectigo Public Server Authentication CA DV R36, which
+ * signs the `pemb.fr` hosts' certificate and is signed by Sectigo Public
+ * Server Authentication Root R46, a root Node ships. Downloaded on 2026-10-01
+ * from the address those certificates name
+ * (`http://crt.sectigo.com/SectigoPublicServerAuthenticationCADVR36.crt`);
+ * SHA-256 8C:54:C3:34:B6:6B:A4:E4:26:77:2A:F4:A3:F9:13:6C:19:A1:AE:C7:29:FD:B2:8C:53:5C:07:A5:A4:EF:22:E0,
+ * valid until 2036-03-21.
+ */
+export const CARTDS_INTERMEDIATES = Object.freeze({
+  'sectigo-dv-r36': `-----BEGIN CERTIFICATE-----
+MIIGTDCCBDSgAwIBAgIQOXpmzCdWNi4NqofKbqvjsTANBgkqhkiG9w0BAQwFADBf
+MQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTYwNAYDVQQD
+Ey1TZWN0aWdvIFB1YmxpYyBTZXJ2ZXIgQXV0aGVudGljYXRpb24gUm9vdCBSNDYw
+HhcNMjEwMzIyMDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBgMQswCQYDVQQGEwJHQjEY
+MBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTcwNQYDVQQDEy5TZWN0aWdvIFB1Ymxp
+YyBTZXJ2ZXIgQXV0aGVudGljYXRpb24gQ0EgRFYgUjM2MIIBojANBgkqhkiG9w0B
+AQEFAAOCAY8AMIIBigKCAYEAljZf2HIz7+SPUPQCQObZYcrxLTHYdf1ZtMRe7Yeq
+RPSwygz16qJ9cAWtWNTcuICc++p8Dct7zNGxCpqmEtqifO7NvuB5dEVexXn9RFFH
+12Hm+NtPRQgXIFjx6MSJcNWuVO3XGE57L1mHlcQYj+g4hny90aFh2SCZCDEVkAja
+EMMfYPKuCjHuuF+bzHFb/9gV8P9+ekcHENF2nR1efGWSKwnfG5RawlkaQDpRtZTm
+M64TIsv/r7cyFO4nSjs1jLdXYdz5q3a4L0NoabZfbdxVb+CUEHfB0bpulZQtH1Rv
+38e/lIdP7OTTIlZh6OYL6NhxP8So0/sht/4J9mqIGxRFc0/pC8suja+wcIUna0HB
+pXKfXTKpzgis+zmXDL06ASJf5E4A2/m+Hp6b84sfPAwQ766rI65mh50S0Di9E3Pn
+2WcaJc+PILsBmYpgtmgWTR9eV9otfKRUBfzHUHcVgarub/XluEpRlTtZudU5xbFN
+xx/DgMrXLUAPaI60fZ6wA+PTAgMBAAGjggGBMIIBfTAfBgNVHSMEGDAWgBRWc1hk
+lfmSGrASKgRieaFAFYghSTAdBgNVHQ4EFgQUaMASFhgOr872h6YyV6NGUV3LBycw
+DgYDVR0PAQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0lBBYwFAYI
+KwYBBQUHAwEGCCsGAQUFBwMCMBsGA1UdIAQUMBIwBgYEVR0gADAIBgZngQwBAgEw
+VAYDVR0fBE0wSzBJoEegRYZDaHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdv
+UHVibGljU2VydmVyQXV0aGVudGljYXRpb25Sb290UjQ2LmNybDCBhAYIKwYBBQUH
+AQEEeDB2ME8GCCsGAQUFBzAChkNodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3Rp
+Z29QdWJsaWNTZXJ2ZXJBdXRoZW50aWNhdGlvblJvb3RSNDYucDdjMCMGCCsGAQUF
+BzABhhdodHRwOi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEA
+YtOC9Fy+TqECFw40IospI92kLGgoSZGPOSQXMBqmsGWZUQ7rux7cj1du6d9rD6C8
+ze1B2eQjkrGkIL/OF1s7vSmgYVafsRoZd/IHUrkoQvX8FZwUsmPu7amgBfaY3g+d
+q1x0jNGKb6I6Bzdl6LgMD9qxp+3i7GQOnd9J8LFSietY6Z4jUBzVoOoz8iAU84OF
+h2HhAuiPw1ai0VnY38RTI+8kepGWVfGxfBWzwH9uIjeooIeaosVFvE8cmYUB4TSH
+5dUyD0jHct2+8ceKEtIoFU/FfHq/mDaVnvcDCZXtIgitdMFQdMZaVehmObyhRdDD
+4NQCs0gaI9AAgFj4L9QtkARzhQLNyRf87Kln+YU0lgCGr9HLg3rGO8q+Y4ppLsOd
+unQZ6ZxPNGIfOApbPVf5hCe58EZwiWdHIMn9lPP6+F404y8NNugbQixBber+x536
+WrZhFZLjEkhp7fFXf9r32rNPfb74X/U90Bdy4lzp3+X1ukh1BuMxA/EEhDoTOS3l
+7ABvc7BYSQubQ2490OcdkIzUh3ZwDrakMVrbaTxUM2p24N6dB+ns2zptWCva6jzW
+r8IWKIMxzxLPv5Kt3ePKcUdvkBU/smqujSczTzzSjIoR5QqQA6lN1ZRSnuHIWCvh
+JEltkYnTAH41QJ6SAWO66GrrUESwN/cgZzL4JLEqz1Y=
+-----END CERTIFICATE-----\n`,
+});
+
+/**
+ * Add the intermediates these instances need to Node's default CA list, once.
+ *
+ * What a browser does by itself when a host forgets to send the middle of its
+ * chain. The certificate joins the list as a link, not a root: OpenSSL still
+ * has to reach a root Node trusts, so a host it signs is accepted only if
+ * that root is there, and nothing else changes for any other host. Process
+ * wide by necessity — Node's `fetch` takes no CA of its own — and additive:
+ * every certificate already in the list stays.
+ *
+ * @param {Array<object>} instances `CARTDS_INSTANCES`, or a subset.
+ * @param {{getCACertificates: Function, setDefaultCACertificates: Function}} [tlsApi]
+ * @returns {Array<string>} The names added by this call.
+ */
+export function trustCartdsIntermediates(instances, tlsApi = tls) {
+  const wanted = [...new Set(instances.map((instance) => instance.intermediate).filter(Boolean))];
+  if (!wanted.length) return [];
+  const current = tlsApi.getCACertificates('default');
+  const known = new Set(current.map((pem) => new X509Certificate(pem).fingerprint256));
+  const missing = wanted.filter((name) => !known.has(new X509Certificate(CARTDS_INTERMEDIATES[name]).fingerprint256));
+  if (missing.length) {
+    tlsApi.setDefaultCACertificates([...current, ...missing.map((name) => CARTDS_INTERMEDIATES[name])]);
+  }
+  return missing;
+}
 
 /** A table page may be large; a robots.txt is a few lines. */
 const ROBOTS_MAX_BYTES = 512 * 1024;
@@ -281,13 +360,14 @@ export function cartdsSweepDue(stamp, day = cartdsDay()) {
 /**
  * Read every board of every instance once and fold it into the archive.
  *
- * SEQUENTIAL AND SLOW ON PURPOSE. Eleven of the thirteen instances sit on one
- * host family (`*.geosphere.fr`), so the pause is between any two requests of
- * the sweep, not per host: 129 communes, two table requests each, plus one
- * page per instance — about 270 requests, some seven minutes at one second
- * apart, once a day. A commune whose read fails is retried once on a fresh
- * session (a session can lapse during a 41-commune instance) and otherwise
- * left for tomorrow and named in the summary.
+ * SEQUENTIAL AND SLOW ON PURPOSE. Eleven of the twenty-one instances sit on
+ * one host family (`*.geosphere.fr`) and four on another (`*.pemb.fr`), so the
+ * pause is between any two requests of the sweep, not per host: 194 communes,
+ * two table requests each, plus one page per instance — about 410 requests,
+ * some ten minutes at one second apart, once a day. A commune whose read
+ * fails is retried once on a fresh session (a session can lapse during a
+ * 41-commune instance) and otherwise left for tomorrow and named in the
+ * summary.
  *
  * @param {object} options
  * @param {Array<object>} options.instances `CARTDS_INSTANCES`, or a subset.

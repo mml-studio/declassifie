@@ -39,7 +39,7 @@
  * dossiers, in-instruction plus three months of decisions.
  *
  * ── Register 3: the communes' own boards, fresh, every family ───────────────
- * Ninety-two communes post their filing notices and decisions on a Cart@DS
+ * 194 communes post their filing notices and decisions on a Cart@DS
  * « affichage réglementaire » board, days after the fact and including the
  * déclarations préalables Sitadel never holds. `cartdsFeed.js` reads them and
  * normalises them into the shape below, so they merge with Sitadel exactly as
