@@ -18,6 +18,11 @@ import assert from 'node:assert/strict';
 
 import amenitiesFranceLayer, {
   AMENITIES_FR_LABEL_COHORT_LIMIT,
+  AMENITIES_SITES_BAND,
+  amenitiesLevelAlphas,
+  planAmenitiesLevels,
+  _amenitiesDrawLevelsForTest,
+  _amenitiesFadeFrameForTest,
   amenitiesSitesBox,
   amenitiesViewSpanDeg,
   cameraAmenitiesBox,
@@ -70,17 +75,29 @@ ContextLimits._maximumAliasedLineWidth = 16;
 /** `toLocaleString('fr-FR')` separates thousands with U+202F. */
 const norm = (value) => String(value).replace(/[\s  ]+/g, ' ');
 
-/** A points collection with the two methods the layer actually calls. */
+/**
+ * A points collection with the methods the layer and the fade adapter call.
+ * Like a Cesium billboard, a mark's `color` setter COPIES what it is given: the
+ * adapter writes one scratch colour into every mark.
+ */
 function fakePoints() {
   const added = [];
   return {
     show: true,
     added,
     add(options) {
-      const point = { ...options, show: true };
+      let color = options.color ? Cesium.Color.clone(options.color) : null;
+      const point = { ...options, show: true, scale: 1 };
+      Object.defineProperty(point, 'color', {
+        enumerable: true,
+        get: () => color,
+        set: (value) => { color = Cesium.Color.clone(value); },
+      });
       added.push(point);
       return point;
     },
+    get length() { return added.length; },
+    get(index) { return added[index]; },
     removeAll() { added.length = 0; },
   };
 }
@@ -132,6 +149,9 @@ test.afterEach(() => {
     regime: 'national', records: new Map(), national: null, mesh: null, meshPick: null,
     count: 0, status: 'idle', loading: false, error: null, summary: null, selectedId: null,
     enabled: false, points: null, overlayHost: null, truncated: 0,
+    meshPoints: null, sharedPoints: null, meshLevel: null, sitesLevel: null, plan: null,
+    nationalReady: false, pointsAnswered: false, depShown: false, depEntities: new Map(),
+    depPaintedCodes: [], medecinsDrawing: false,
   });
 });
 
@@ -555,7 +575,7 @@ test('the maillage draws the tuples the thinning kept and marks every record as 
     [45.5, 3.5, 0, AMENITY_FAMILIES.indexOf('piscine')],
   ];
   _setAmenitiesStateForTest({
-    regime: 'maillage', enabled: true, points, records: new Map(), mesh: { rows, rowCount: 2 },
+    regime: 'maillage', enabled: true, meshPoints: points, records: new Map(), mesh: { rows, rowCount: 2 },
   });
   _amenitiesReconcileMeshForTest({ south: 44, west: 2, north: 46, east: 4 });
   assert.equal(points.added.length, 2);
@@ -707,17 +727,21 @@ const viewerSpanning = (latDeg, lonDeg) => ({
   },
 });
 
-test('the regime ladder is entered on latitude and left with hysteresis', () => {
+test('the national view is entered on latitude with hysteresis, and the key changes hands inside the band', () => {
   _setAmenitiesStateForTest({ regime: 'sites' });
   // Metropolitan France is 9.8° tall; the national view starts at 9.5°.
   assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(10, 24)), 'national');
   // 8.5° is below the enter threshold but above the exit one — it stays.
   assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(8.5, 20)), 'national');
   assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(4, 10)), 'maillage');
-  assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.3)), 'sites');
-  // Leaving `sites` needs the LARGER span to exceed the proxy's own ceiling, so
-  // a wide-but-short oblique view does not flicker between the two.
-  assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.34)), 'sites');
+  // The LARGER span decides, because the proxy refuses a box too wide on
+  // either axis. 0.30° is the band's coarse end: the sites weigh nothing yet.
+  assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.3)), 'maillage');
+  // Past the crossing of the two weights (0.270°) the sites own the key, and
+  // the way back is the same line: inside the band both levels are drawn, so
+  // there is nothing left to flicker and no hysteresis to keep.
+  assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.25)), 'sites');
+  assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.29)), 'maillage');
   assert.equal(_amenitiesUpdateRegimeForTest(viewerSpanning(0.2, 0.5)), 'maillage');
   _setAmenitiesStateForTest({ regime: 'national' });
 });
@@ -736,4 +760,188 @@ test('the sites box is refused by the SAME ceiling the proxy enforces', () => {
   // 0.34° padded by 8% is 0.367° and does not.
   assert.equal(amenitiesSitesBox(viewerSpanning(0.34, 0.34)), null);
   assert.equal(amenitiesSitesBox(viewerSpanning(1, 1)), null);
+});
+
+// --- Fade on zoom -------------------------------------------------------------
+
+/** Both mark levels drawn, the départements painted: the band's own state. */
+const bothLevels = Object.freeze({
+  regime: 'maillage', nationalReady: true, pointsReady: true, meshReady: true, sitesReady: true,
+});
+
+test('the sites band starts where the exact marks could actually load, one zoom level and a half wide', () => {
+  assert.deepEqual({ ...AMENITIES_SITES_BAND }, { fine: 0.18, coarse: 0.3 });
+  const ratio = AMENITIES_SITES_BAND.coarse / AMENITIES_SITES_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+  // At the coarse end the box `/sites` is asked for — the view padded by 8 %
+  // each way — still fits under the proxy's 0.35° ceiling, so the request,
+  // its 12 000-row cap and its rarest-first order are unchanged...
+  assert.ok(amenitiesSitesBox(viewerSpanning(AMENITIES_SITES_BAND.coarse, AMENITIES_SITES_BAND.coarse)));
+  // ...and the old 0.32° entry never did: the layer fell back to the maillage there.
+  assert.equal(amenitiesSitesBox(viewerSpanning(0.32, 0.32)), null);
+});
+
+test('a settled view inside the band loads both levels, and a view outside it drops the other', () => {
+  const inBand = planAmenitiesLevels({ lat: 0.2, max: 0.25 }, { regime: 'maillage' });
+  assert.deepEqual([inBand.mesh, inBand.sites, inBand.dominant], [true, true, 'sites']);
+  const close = planAmenitiesLevels({ lat: 0.1, max: 0.15 }, { regime: 'sites' });
+  assert.deepEqual([close.mesh, close.sites, close.dominant], [false, true, 'sites']);
+  const wide = planAmenitiesLevels({ lat: 1, max: 1.5 }, { regime: 'sites' });
+  assert.deepEqual([wide.mesh, wide.sites, wide.dominant], [true, false, 'maillage']);
+  // The maillage's own marks are gone by 0.30 × 0.6^0.7 = 0.210°.
+  assert.equal(planAmenitiesLevels({ lat: 0.2, max: 0.205 }, { regime: 'sites' }).mesh, false);
+  assert.equal(planAmenitiesLevels({ lat: 0.2, max: 0.215 }, { regime: 'sites' }).mesh, true);
+  // No box the proxy would answer (a dateline view): the maillage, never a blank.
+  const noBox = planAmenitiesLevels({ lat: 0.1, max: 0.15 }, { regime: 'sites', sitesBox: false });
+  assert.deepEqual([noBox.mesh, noBox.sites, noBox.dominant], [true, false, 'maillage']);
+  // And the national view excludes the marks altogether.
+  const national = planAmenitiesLevels({ lat: 9, max: 20 }, { regime: 'national' });
+  assert.deepEqual([national.national, national.mesh, national.sites], [true, false, false]);
+});
+
+test('the départements and the marks still change on a hard cut, and the level being left holds until its replacement is drawn', () => {
+  for (const span of [0.15, 0.25, 0.5, 5, 9, 12, Infinity]) {
+    for (const regime of ['national', 'maillage', 'sites']) {
+      for (const nationalReady of [false, true]) {
+        for (const pointsReady of [false, true]) {
+          const alphas = amenitiesLevelAlphas(span, {
+            regime, nationalReady, pointsReady, meshReady: pointsReady, sitesReady: pointsReady,
+            meshArrival: 0.5, sitesArrival: 0.5,
+          });
+          // A share of communes is never drawn through the plates, not even mid-ramp.
+          assert.ok(alphas.national === 0 || alphas.national === 1, `national ${alphas.national}`);
+          assert.ok(alphas.points === 0 || alphas.points === 1, `points ${alphas.points}`);
+        }
+      }
+    }
+  }
+  // Zooming in: until the marks have answered, the départements stay.
+  assert.equal(amenitiesLevelAlphas(5, { regime: 'maillage', nationalReady: true }).national, 1);
+  const inMarks = amenitiesLevelAlphas(5, { regime: 'maillage', nationalReady: true, pointsReady: true, meshReady: true });
+  assert.deepEqual([inMarks.national, inMarks.mesh], [0, 1]);
+  // Zooming out: the marks stay until the départements are painted.
+  assert.equal(amenitiesLevelAlphas(12, { regime: 'national', pointsReady: true, meshReady: true }).mesh, 1);
+  const out = amenitiesLevelAlphas(12, { regime: 'national', nationalReady: true, pointsReady: true, meshReady: true });
+  assert.deepEqual([out.national, out.mesh, out.shared], [1, 0, 0]);
+});
+
+test('across the band a mark both levels hold stays at full strength, and only the others fade', () => {
+  let previous = { mesh: 2, sites: -1 };
+  for (let span = 0.32; span >= 0.16; span -= 0.005) {
+    const alphas = amenitiesLevelAlphas(span, bothLevels);
+    assert.equal(alphas.shared, 1, `shared mark dipped at ${span}`);
+    assert.ok(alphas.mesh <= previous.mesh && alphas.sites >= previous.sites, `not monotonic at ${span}`);
+    assert.ok(alphas.mesh + alphas.sites >= 1 - 1e-12, `the layer dipped at ${span}`);
+    previous = alphas;
+  }
+  // `reveal`: the detail is in at full strength from 0.258°, well inside the band.
+  assert.equal(amenitiesLevelAlphas(0.255, bothLevels).sites, 1);
+  assert.ok(amenitiesLevelAlphas(0.255, bothLevels).mesh > 0);
+  // Shared plates grow from the maillage's size to the exact one with the sites.
+  assert.equal(amenitiesLevelAlphas(0.31, bothLevels).sharedScale, 0.8);
+  assert.equal(amenitiesLevelAlphas(0.2, bothLevels).sharedScale, 1);
+  // The sites landing over a drawn maillage ramp in, the maillage's own marks
+  // step down in proportion, and the shared ones do not move.
+  const ramp = amenitiesLevelAlphas(0.15, { ...bothLevels, sitesArrival: 0.5 });
+  assert.equal(ramp.shared, 1);
+  assert.ok(Math.abs(ramp.sites - 0.5) < 1e-12 && Math.abs(ramp.mesh - 0.5) < 1e-12);
+  // Until the sites land, the maillage holds whatever the camera does.
+  assert.equal(amenitiesLevelAlphas(0.15, { ...bothLevels, sitesReady: false }).mesh, 1);
+});
+
+const MEDECIN = AMENITY_FAMILIES.indexOf('medecin');
+const PISCINE = AMENITY_FAMILIES.indexOf('piscine');
+const PARIS_BOX = Object.freeze({ south: 48.7, west: 2.2, north: 48.9, east: 2.4 });
+
+/** A maillage of two tuples and a `/sites` answer sharing one of them. */
+function drawBothLevels() {
+  const marks = { sites: fakePoints(), mesh: fakePoints(), shared: fakePoints() };
+  const rows = [
+    [48.83801, 2.34276, 3, MEDECIN],
+    [48.85, 2.3, 3, PISCINE],
+  ];
+  _setAmenitiesStateForTest({
+    regime: 'sites', enabled: true, records: new Map(), mesh: { rows, rowCount: 2 },
+    points: marks.sites, meshPoints: marks.mesh, sharedPoints: marks.shared,
+  });
+  _amenitiesDrawLevelsForTest({
+    meshBox: PARIS_BOX,
+    payload: {
+      sites: [
+        site({ id: `a:${MEDECIN}:48.83801,2.34276` }),
+        site({ id: `a:${MEDECIN}:48.84000,2.35000`, lat: 48.84, lon: 2.35 }),
+      ],
+    },
+  });
+  return marks;
+}
+
+test('inside the band a position both levels hold is drawn once, as the exact mark', () => {
+  const marks = drawBothLevels();
+  // The shared GP is the exact mark, at the exact plate size; the second GP
+  // only the sites hold; the bassin only the maillage holds.
+  assert.deepEqual(marks.shared.added.map((point) => point.id), [`a:${MEDECIN}:48.83801,2.34276`]);
+  assert.equal(marks.shared.added[0].width, AMENITY_POINT_PX.medecin);
+  assert.deepEqual(marks.sites.added.map((point) => point.id), [`a:${MEDECIN}:48.84000,2.35000`]);
+  assert.deepEqual(marks.mesh.added.map((point) => point.id), [`a:${PISCINE}:48.85000,2.30000`]);
+  assert.equal(marks.mesh.added[0].width, amenityPointSize('piscine', { mesh: true }));
+  const ids = [...marks.shared.added, ...marks.sites.added, ...marks.mesh.added].map((point) => point.id);
+  assert.equal(new Set(ids).size, ids.length, 'no mark is drawn twice');
+  // The key belongs to the dominant level: the sites count their two marks...
+  assert.equal(_amenitiesStatsForTest().count, 2);
+  const sitesKey = _amenitiesRowControlsForTest().legend;
+  assert.equal(sitesKey.find((row) => row.label === amenityFamilyLabel('medecin')).count, 2);
+  assert.equal(sitesKey.find((row) => row.label === amenityFamilyLabel('piscine')).count, 0);
+  // ...and the maillage, owning the key, counts its own two.
+  _setAmenitiesStateForTest({ regime: 'maillage' });
+  const meshKey = _amenitiesRowControlsForTest().legend;
+  assert.equal(meshKey.find((row) => row.label === amenityFamilyLabel('medecin')).count, 1);
+  assert.equal(meshKey.find((row) => row.label === amenityFamilyLabel('piscine')).count, 1);
+});
+
+test('a frame fades each class by its own weight and drops the maillage once it is out', () => {
+  const marks = drawBothLevels();
+  _setAmenitiesStateForTest({
+    plan: planAmenitiesLevels({ lat: 0.2, max: 0.25 }, { regime: 'sites' }),
+    nationalReady: true, pointsAnswered: true,
+  });
+  // 0.29°: the sites are coming in, the maillage's own bassin is still up.
+  let frame = _amenitiesFadeFrameForTest(0.29);
+  const expected = amenitiesLevelAlphas(0.29, bothLevels);
+  assert.ok(expected.sites > 0 && expected.sites < 1);
+  const quantised = (value) => Math.round(value * 64) / 64;
+  assert.ok(Math.abs(marks.sites.added[0].color.alpha - quantised(expected.sites)) < 1e-9);
+  assert.equal(marks.shared.added[0].color.alpha, 1, 'the shared mark is not faded');
+  assert.ok(marks.shared.added[0].scale > 0.8 && marks.shared.added[0].scale < 1);
+  assert.ok(frame.meshLevel, 'the settled view still wants the maillage');
+  // The camera settles at 0.15°: the maillage is not wanted, and at zero it goes.
+  _setAmenitiesStateForTest({ plan: planAmenitiesLevels({ lat: 0.1, max: 0.15 }, { regime: 'sites' }) });
+  frame = _amenitiesFadeFrameForTest(0.15);
+  assert.equal(frame.meshLevel, null);
+  assert.equal(marks.mesh.added.length, 0);
+  assert.equal(marks.mesh.show, false);
+  assert.equal(frame.records.size, 2);
+  assert.equal(marks.shared.added[0].scale, 1);
+  assert.equal(marks.sites.added[0].color.alpha, 1);
+});
+
+test('zooming out to France swaps the marks for the départements in one frame, once they are painted', () => {
+  const marks = drawBothLevels();
+  const entity = { show: false };
+  _setAmenitiesStateForTest({
+    regime: 'national',
+    plan: planAmenitiesLevels({ lat: 12, max: 20 }, { regime: 'maillage' }),
+    pointsAnswered: true, nationalReady: false, overlayHost: fakeOverlayHost(),
+    depEntities: new Map([['32', [entity]]]), depPaintedCodes: ['32'],
+  });
+  let frame = _amenitiesFadeFrameForTest(12);
+  assert.equal(entity.show, false, 'the outlines are not painted yet');
+  assert.equal(marks.mesh.show, true, 'so the marks hold');
+  assert.ok(frame.meshLevel && frame.sitesLevel);
+  _setAmenitiesStateForTest({ nationalReady: true });
+  frame = _amenitiesFadeFrameForTest(12);
+  assert.equal(entity.show, true);
+  assert.equal(frame.depShown, true);
+  assert.deepEqual([frame.meshLevel, frame.sitesLevel, frame.pointsAnswered], [null, null, false]);
+  assert.equal(frame.records.size, 0);
 });

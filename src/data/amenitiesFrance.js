@@ -194,6 +194,15 @@ import { AMENITY_GLYPH_RASTER_PX, amenityFamilyGlyph } from './amenityFamilyIcon
 import { boxKey, validBox } from './viewportBox.js';
 import { pickAt } from './pickAt.js';
 import { serverFailureMessage } from '../i18n/serverMessages.js';
+import {
+  bandPosition,
+  fadeBand,
+  levelVisible,
+  quantizeFade,
+  reveal,
+  watchZoomFade,
+} from './zoomFade.js';
+import { fadeMarkLevel, meshSitesAlphas, nationalCutAlphas } from './amenitiesMedecinsAnfrFade.js';
 
 export const AMENITIES_FR_LAYER_ID = 'amenities-fr';
 
@@ -219,12 +228,57 @@ const DEPARTEMENTS_URL = new URL(
  * swapping the whole map back and forth on sub-pixel drift. The pair
  * `schools-fr` and `sup-fr` settled on, because it is a fact about France
  * (9.8° tall) and the screen rather than about any register.
+ *
+ * ── Why this is still a HARD CUT and not a fade ─────────────────────────────
+ * The other boundary of this layer fades (see {@link AMENITIES_SITES_BAND});
+ * this one may not, because the two sides are not the same statistic. The
+ * choropleth paints a SHARE — of a département's communes holding at least
+ * one everyday equipment, over the five families the fold counts — on a
+ * sand-to-rust ramp; the marks are positions, coloured by family on a
+ * categorical palette. A crossfade would draw one through the other for as
+ * long as the camera rested between 9.5° and 8°, and a rust département seen
+ * through a pharmacy's green plate means nothing.
+ *
+ * What changed is the blank between them. Zooming in used to hide the
+ * départements before the national mesh (the ~10 MB tuple pack, on a first
+ * entry) had arrived, and zooming out cleared the marks before the outlines
+ * were repainted with new materials, which rebuilds their ground batch. Now
+ * the level being left stays drawn until the one replacing it is, and the two
+ * trade places in one frame — never blended, never both at rest
+ * ({@link amenitiesLevelAlphas}). The materials are kept per bin, so the
+ * départements come back with a show write and no rebuild.
  */
 const NATIONAL_ENTER_SPAN_DEG = 9.5;
 const NATIONAL_EXIT_SPAN_DEG = 8;
-/** Where the exact regime takes over from the maillage, with the same hysteresis. */
-const SITES_ENTER_SPAN_DEG = 0.32;
-const SITES_EXIT_SPAN_DEG = AMENITIES_MAX_BOX_DEG;
+/**
+ * The band, in the view's LARGER span (degrees), across which the maillage
+ * hands over to every site: 0.30° → 0.18°.
+ *
+ * It replaces the 0.32 / 0.35 hysteresis, and its coarse end is where the
+ * exact marks could ACTUALLY load, which was never 0.32. The `/sites` box is
+ * the view padded by 8 % on each side — 1.16 × the view — and the proxy
+ * refuses anything over 0.35° (`AMENITIES_MAX_BOX_DEG`, checked with the same
+ * `validBox`), so the widest view it answers is 0.35 / 1.16 = 0.302°. At 0.32°
+ * the box was 0.371° and the layer quietly fell back to the maillage. At
+ * 0.30° it is 0.348°: the request, the proxy's cap (12 000 rows, rarest family
+ * first) and the densest square it can bite in (53 121 dots, Paris) are all
+ * unchanged. The fine end is 0.6 × 0.30; coarse / fine = 1.67.
+ *
+ * The weights are `reveal`, because the band can only sit BELOW the old
+ * threshold: the sites are at full strength by 0.30 × 0.6^0.3 = 0.258°, the
+ * maillage's own marks are gone by 0.30 × 0.6^0.7 = 0.210°, and the sites own
+ * the key from 0.270° in (where the two weights cross). Keeping the maillage
+ * down to 0.21° costs a re-pick of the national tuples already in memory —
+ * what every maillage settle already pays, now skipped when the box has not
+ * moved — and nothing on the wire.
+ *
+ * And the two levels are not faded into each other wholesale. The maillage is
+ * a thinned SUBSET of the very records `/sites` answers (one fold, one id,
+ * `meshAmenityId` = `foldAmenitySites`'s key), so a mark both levels hold is
+ * drawn once and never fades; only what the sites add comes in, and only what
+ * the maillage alone held goes out. See `amenitiesMedecinsAnfrFade.js`.
+ */
+export const AMENITIES_SITES_BAND = fadeBand(0.18, 0.3);
 const CAMERA_DEBOUNCE_MS = 450;
 /**
  * Poll cadence (ms). Very long on purpose: BPE is published once a year and
@@ -452,7 +506,17 @@ const DEFAULT_OVERLAY_HOST = Object.freeze({
 // --- Module state -----------------------------------------------------------
 
 let _viewer = null;
+/**
+ * The marks, in three collections by what the camera's band does to them —
+ * see `amenitiesMedecinsAnfrFade.js`. `_points` holds the exact marks the
+ * maillage does not (they come in with the sites), `_meshPoints` the maillage
+ * marks the exact answer does not hold (they go out with the maillage), and
+ * `_sharedPoints` the marks both levels draw, drawn once and never faded.
+ * Outside the band only one of the first two is in use.
+ */
 let _points = null;
+let _meshPoints = null;
+let _sharedPoints = null;
 let _enabled = false;
 let _records = new Map();
 let _selectedId = null;
@@ -482,7 +546,39 @@ let _depDataSource = null;
 let _depEntities = new Map();
 let _depMeta = new Map();
 let _depShapesPromise = null;
-let _lastBoxKey = null;
+/**
+ * One material per bin, kept across repaints. Assigning a NEW material object
+ * to an entity rebuilds its ground batch, so a repaint that hands every
+ * département the object it already has is free — and showing the level again
+ * after the marks is a show-attribute write, not a rebuild.
+ */
+let _depMaterials = new Map();
+/** Codes the rollup paints; the rest are drawn as absence. */
+let _depPaintedCodes = new Set();
+/** Whether the départements are shown, as the swap last decided. */
+let _depShown = false;
+/**
+ * The national level has answered for this view: painted, or failed. A level
+ * that cannot come must not keep the marks on a national view waiting for it.
+ */
+let _nationalReady = false;
+/** The maillage on screen — `{ pick, box }` — or null. */
+let _meshLevel = null;
+/** The exact answer on screen — `{ payload, key }` — or null. */
+let _sitesLevel = null;
+/**
+ * The marks have answered for the view the camera settled on, possibly with
+ * nothing (an empty box, a failed request). Until then the départements hold.
+ */
+let _pointsAnswered = false;
+/** What the last settle asked for — see {@link planAmenitiesLevels}. */
+let _plan = null;
+/** `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
+/** Rewrite every mark's alpha on the next frame: a class was rebuilt or a mark restyled. */
+let _fadeForce = false;
+/** The scale last written onto the shared marks. */
+let _sharedScaleWritten = null;
 let _overlayHost = DEFAULT_OVERLAY_HOST;
 
 // --- Pure presentation helpers ---------------------------------------------
@@ -600,23 +696,97 @@ export function amenitiesSitesBox(viewer) {
   return validBox(box, AMENITIES_MAX_BOX_DEG);
 }
 
-/** Which regime the camera is in, with hysteresis at both boundaries. */
+/**
+ * Which levels a settled view loads, and which of them owns the key.
+ *
+ * National is decided on the latitude span with its hysteresis, as before,
+ * and excludes the marks (a hard cut, see {@link NATIONAL_ENTER_SPAN_DEG}).
+ * Below it, every level whose weight in {@link AMENITIES_SITES_BAND} is above
+ * zero is loaded — both inside the band — and a level whose weight is zero is
+ * not. The sites also need a box the proxy will answer; without one (a view
+ * crossing the dateline) the maillage is the honest fallback, not a blank.
+ *
+ * The level with the larger weight owns the key, the status line and the
+ * count: `dominant`, which is the regime the rest of this file reads.
+ *
+ * @param {{lat: number, max: number}} span `amenitiesViewSpanDeg()`.
+ * @param {{regime?: string, sitesBox?: boolean}} [context] The regime in force, and
+ *   whether `amenitiesSitesBox` gave a box for this view.
+ * @returns {{national: boolean, mesh: boolean, sites: boolean, dominant: string,
+ *   position: number, weights: {mesh: number, sites: number}}}
+ */
+export function planAmenitiesLevels(span, { regime = 'national', sitesBox = true } = {}) {
+  const lat = Number(span?.lat);
+  const national = regime === 'national'
+    ? !(lat < NATIONAL_EXIT_SPAN_DEG)
+    : !(lat < NATIONAL_ENTER_SPAN_DEG);
+  if (national) {
+    return {
+      national: true, mesh: false, sites: false, dominant: 'national', position: 0, weights: { mesh: 0, sites: 0 },
+    };
+  }
+  const position = bandPosition(Number(span?.max), AMENITIES_SITES_BAND);
+  const target = reveal(position);
+  const sites = Boolean(sitesBox) && levelVisible(true, target.fine);
+  const mesh = !sites || levelVisible(true, target.coarse);
+  return {
+    national: false,
+    mesh,
+    sites,
+    dominant: sites && target.fine > target.coarse ? 'sites' : 'maillage',
+    position,
+    weights: { mesh: target.coarse, sites: target.fine },
+  };
+}
+
+/**
+ * Plan the settled view and make its dominant level the regime.
+ * @returns {string} The regime.
+ */
 function updateRegime(viewer) {
   const span = amenitiesViewSpanDeg(viewer);
-  if (_regime === 'national') {
-    if (span.lat >= NATIONAL_EXIT_SPAN_DEG) return _regime;
-  } else if (span.lat >= NATIONAL_ENTER_SPAN_DEG) {
-    _regime = 'national';
-    return _regime;
-  }
-  if (_regime === 'sites') {
-    if (span.max > SITES_EXIT_SPAN_DEG) _regime = 'maillage';
-  } else if (span.max <= SITES_ENTER_SPAN_DEG) {
-    _regime = 'sites';
-  } else {
-    _regime = 'maillage';
-  }
+  _plan = planAmenitiesLevels(span, { regime: _regime, sitesBox: Boolean(amenitiesSitesBox(viewer)) });
+  _regime = _plan.dominant;
   return _regime;
+}
+
+/**
+ * The alpha every level is drawn at, for one frame.
+ *
+ * Two rules compose. Between the national level and the marks, the hard cut
+ * of {@link nationalCutAlphas}: the settled regime is the target, the level
+ * being left holds until the one replacing it has answered, and nothing is
+ * ever between 0 and 1. Between the maillage and the sites, the fade of
+ * {@link meshSitesAlphas}, on the camera's own span this frame — the marks
+ * both levels hold stay at full strength, the rest follow their level.
+ *
+ * Shared marks also GROW across the band, from the maillage's plate (0.8 of
+ * the exact one — "a sample must not read as an inventory") to the exact
+ * plate, in step with the sites coming in: they are the sample becoming the
+ * inventory, and a 20 % jump in two thousand plates at the moment the sites
+ * land would be the reload this replaces.
+ *
+ * @param {number} span The view's larger span this frame, degrees.
+ * @param {object} state
+ * @returns {{national: number, points: number, mesh: number, sites: number,
+ *   shared: number, sharedScale: number, position: number}}
+ */
+export function amenitiesLevelAlphas(span, {
+  regime = 'national', nationalReady = false, pointsReady = false,
+  meshReady = false, sitesReady = false, meshArrival = 1, sitesArrival = 1,
+} = {}) {
+  const cut = nationalCutAlphas({ national: regime === 'national', nationalReady, pointsReady });
+  const position = bandPosition(span, AMENITIES_SITES_BAND);
+  const band = meshSitesAlphas(position, { meshReady, sitesReady, meshArrival, sitesArrival });
+  return {
+    national: cut.national,
+    points: cut.points,
+    mesh: band.mesh * cut.points,
+    sites: band.sites * cut.points,
+    shared: band.shared * cut.points,
+    sharedScale: MESH_SIZE_FACTOR + (1 - MESH_SIZE_FACTOR) * quantizeFade(band.sites),
+    position,
+  };
 }
 
 function sitePosition(site) {
@@ -812,6 +982,9 @@ function restoreRecordStyle(record) {
     .withAlpha(record.baseAlpha);
   record.point.width = record.baseSize;
   record.point.height = record.baseSize;
+  // The fade multiplies whatever colour a mark carries; a restyled mark gets
+  // its level's weight back on the next frame instead of waiting for a step.
+  _fadeForce = true;
 }
 
 function highlightSelectedDepartement() {
@@ -857,6 +1030,7 @@ function selectSite(id) {
     record.point.color = Cesium.Color.WHITE;
     record.point.width = SELECTED_POINT_PX;
     record.point.height = SELECTED_POINT_PX;
+    _fadeForce = true;
   }
   const entry = createAmenitySelectedOverlayEntry(record);
   if (entry) {
@@ -968,37 +1142,61 @@ async function ensureDepartementShapes() {
   return _depShapesPromise;
 }
 
+/**
+ * Give every département its bin's fill.
+ *
+ * Paints, and does not decide visibility: whether the level is on screen is
+ * the swap's call ({@link amenitiesLevelAlphas}), made per frame, so the
+ * départements can stay painted under the marks and come back with a show
+ * write rather than a ground-batch rebuild.
+ */
 function repaintDepartements() {
   if (!_national) return;
-  const materials = new Map();
   const painted = new Set();
   for (const row of _national.departements || []) {
     const color = amenitiesDepartementColor(row.bin);
     if (!color) continue;
-    let material = materials.get(row.bin);
+    let material = _depMaterials.get(row.bin);
     if (!material) {
       material = new Cesium.ColorMaterialProperty(
         Cesium.Color.fromCssColorString(color).withAlpha(amenitiesDepartementAlpha(row.bin)),
       );
-      materials.set(row.bin, material);
+      _depMaterials.set(row.bin, material);
     }
     const parts = _depEntities.get(row.code);
     if (!parts) continue;
     painted.add(row.code);
     for (const entity of parts) {
       if (!entity.polygon) continue;
-      entity.polygon.material = material;
-      entity.show = true;
+      // The same object again is no change at all; a new one is a rebuild.
+      if (entity.polygon.material !== material) entity.polygon.material = material;
     }
   }
   // A département the rollup does not cover is drawn as absence rather than as
-  // the bottom of the scale.
-  for (const [code, parts] of _depEntities) {
-    if (painted.has(code)) continue;
-    for (const entity of parts) entity.show = false;
-  }
+  // the bottom of the scale: it stays hidden whatever the swap decides.
+  _depPaintedCodes = painted;
+  applyDepartementShow();
   highlightSelectedDepartement();
   _viewer?.scene?.requestRender?.();
+}
+
+/** Write `_depShown` onto the entities — at a transition, never per frame. */
+function applyDepartementShow() {
+  for (const [code, parts] of _depEntities) {
+    const show = _depShown && _depPaintedCodes.has(code);
+    for (const entity of parts) {
+      if (entity.show !== show) entity.show = show;
+    }
+  }
+}
+
+/** Show or hide the national level, with its labels. */
+function setDepartementsShown(show) {
+  if (show === _depShown) return;
+  _depShown = show;
+  applyDepartementShow();
+  if (show) publishDepartementOverlay();
+  else _overlayHost.clearSource(AMENITIES_FR_LABEL_SOURCE_ID);
 }
 
 function publishDepartementOverlay() {
@@ -1052,16 +1250,25 @@ async function ensureNational() {
 }
 
 function hideDepartements() {
-  for (const parts of _depEntities.values()) {
-    for (const entity of parts) entity.show = false;
-  }
+  _depShown = false;
+  applyDepartementShow();
   _overlayHost.clearSource(AMENITIES_FR_LABEL_SOURCE_ID);
 }
 
+/**
+ * Load and paint the national level for a settled national view.
+ *
+ * The marks are NOT cleared here, as they used to be before the outlines had
+ * even been fetched: they stay on screen until the départements are painted,
+ * and the frame callback swaps the two then ({@link amenitiesLevelAlphas}).
+ */
 async function loadNational({ force = false } = {}) {
   _error = null;
-  clearSites();
+  // A sites request still in flight is for a view the camera has left.
+  _inFlight?.abort?.();
   if (force) {
+    // The old paint stays on screen until the new rollup repaints it, so the
+    // level stays "ready" through a forced refresh.
     _national = null;
     _nationalPainted = false;
   }
@@ -1074,6 +1281,7 @@ async function loadNational({ force = false } = {}) {
     _error = messages().departementShapesUnavailable;
     _status = 'error';
     _loading = false;
+    nationalAnswered();
     return;
   }
   await ensureNational();
@@ -1082,16 +1290,26 @@ async function loadNational({ force = false } = {}) {
   if (!_national) {
     _error = _nationalError || 'national rollup unavailable';
     _status = 'error';
+    nationalAnswered();
     return;
   }
   _count = _national.painted || 0;
   _lastUpdate = Number(_national.fetchedAt) || Date.now();
   _status = _count > 0 ? 'ready' : 'empty';
-  if (_nationalPainted) return;
-  _nationalPainted = true;
-  repaintDepartements();
-  publishDepartementOverlay();
+  if (!_nationalPainted) {
+    _nationalPainted = true;
+    repaintDepartements();
+  }
+  // Already shown (a refresh on a national view): the labels follow the new rollup.
+  if (_depShown) publishDepartementOverlay();
+  nationalAnswered();
   governorRequestRender('amenities-fr-national');
+}
+
+/** The national level has answered: let the swap run now rather than on the next camera move. */
+function nationalAnswered() {
+  _nationalReady = true;
+  _fade?.frame();
 }
 
 // --- Maillage regime --------------------------------------------------------
@@ -1125,14 +1343,15 @@ async function ensureMesh() {
 }
 
 /**
- * Draw a thinned, family-balanced selection of real positions for this view.
+ * Pick a thinned, family-balanced selection of real positions for one box.
  *
- * Re-picked on every camera settle rather than cached: the pick is a function
- * of the box, and re-running seven passes over 95 406 tuples costs a few
- * milliseconds against a round trip that would cost a few hundred.
+ * Re-picked on every camera settle that moved the box rather than cached: the
+ * pick is a function of the box, and re-running seven passes over 95 406
+ * tuples costs a few milliseconds against a round trip that would cost a few
+ * hundred.
  */
-function reconcileMesh(box) {
-  const pick = selectAmenitiesMesh(_mesh?.rows, {
+function pickMesh(box) {
+  return selectAmenitiesMesh(_mesh?.rows, {
     box,
     // § 3.5 — see `profileCountBudget`. The per-family floor is a share of the
     // budget, so a thinner budget keeps the same protection against erasure.
@@ -1144,15 +1363,14 @@ function reconcileMesh(box) {
     // view can afford.
     families: drawnFamilies(),
   });
-  _meshPick = pick;
-  _truncated = 0;
+}
 
-  clearSelection();
-  _points.removeAll();
-  _records.clear();
-
-  for (const row of pick.picked) {
-    if (_records.size >= MAX_RENDERED_SITES) break;
+/** The maillage marks one pick draws, as plain entries — no billboard yet. */
+function meshEntries(pick) {
+  const entries = [];
+  const seen = new Set();
+  for (const row of pick?.picked || []) {
+    if (entries.length >= MAX_RENDERED_SITES) break;
     const lat = row[MESH_LAT];
     const lon = row[MESH_LON];
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
@@ -1161,68 +1379,21 @@ function reconcileMesh(box) {
     const color = amenityFamilyColor(family);
     if (!color) continue;
     const id = meshAmenityId(row);
-    if (_records.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
     const precision = meshAmenityPrecision(row);
-    const size = amenityPointSize(family, { mesh: true });
-    const alpha = amenityPrecisionAlpha(precision);
-    // No ground warm-up here: at these altitudes a metre of vertical error is
-    // invisible, and 2 200 terrain lookups per pan would not be.
-    const position = Cesium.Cartesian3.fromDegrees(lon, lat, POINT_LIFT_M);
-    const point = _points.add({
+    entries.push({
       id,
-      position,
-      image: familyGlyph(family),
-      width: size,
-      height: size,
-      color: Cesium.Color.fromCssColorString(color).withAlpha(alpha),
-      scaleByDistance: MARK_SCALE_BY_DISTANCE,
-      translucencyByDistance: MARK_TRANSLUCENCY,
-      // The plate stands on the pavement and every building beside it is
-      // taller. With the depth test ON, a mark anchored at street level is
-      // eaten from below by the ground that is NEARER the camera at those
-      // screen pixels — the « parasol » that made these read as marks half
-      // sunk into the roofs. `Infinity` is this repository's value everywhere,
-      // and it is safe without a horizon curtain because every row drawn came
-      // out of the CURRENT view rectangle.
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-    });
-    _records.set(id, {
-      id,
-      mesh: true,
-      site: {
-        id, family, lat, lon, precision, count: 0, names: [], kinds: [], commune: '',
-        register: row[MESH_FAMILY] >= 0 ? null : null,
-      },
-      point,
-      position,
-      baseColor: color,
-      baseAlpha: alpha,
-      baseSize: size,
+      family,
+      lat,
+      lon,
+      precision,
+      color,
+      alpha: amenityPrecisionAlpha(precision),
+      size: amenityPointSize(family, { mesh: true }),
     });
   }
-  _count = _records.size;
-  governorRequestRender('amenities-fr-mesh');
-}
-
-async function loadMesh(box) {
-  hideDepartements();
-  _nationalPainted = false;
-  dropDepartementSelection();
-  _summary = null;
-  _error = null;
-  _loading = !_mesh;
-  const generation = ++_requestGeneration;
-  await ensureMesh();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'maillage') return;
-  _loading = false;
-  if (!_mesh) {
-    _error = _meshError || 'national mesh unavailable';
-    _status = 'error';
-    return;
-  }
-  reconcileMesh(box);
-  _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
-  _status = _count > 0 ? 'ready' : 'empty';
+  return entries;
 }
 
 // --- Sites regime -----------------------------------------------------------
@@ -1420,39 +1591,27 @@ function familyDeferred(family) {
   return _medecinsDrawing && family === AMENITIES_DEFERRED_FAMILY;
 }
 
-function reconcile(payload) {
+/** The exact marks one `/sites` answer draws, as plain entries, and how many it did not. */
+function siteEntries(payload) {
   const sites = Array.isArray(payload?.sites) ? payload.sites : [];
-
-  clearSelection();
-  _points.removeAll();
-  _records.clear();
-  _meshPick = null;
-
-  const warm = [];
+  const entries = [];
+  const seen = new Set();
   for (const site of sites) {
-    if (_records.size >= MAX_RENDERED_SITES) break;
+    if (entries.length >= MAX_RENDERED_SITES) break;
     const id = site?.id;
-    if (!id || _records.has(id)) continue;
+    if (!id || seen.has(id)) continue;
     if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
     if (familyDeferred(site.family)) continue;
     const color = amenityFamilyColor(site.family);
     if (!color) continue;
-    const position = sitePosition(site);
-    const size = amenityPointSize(site.family);
-    const alpha = amenityPrecisionAlpha(site.precision);
-    const point = _points.add({
+    seen.add(id);
+    entries.push({
       id,
-      position,
-      image: familyGlyph(site.family),
-      width: size,
-      height: size,
-      color: Cesium.Color.fromCssColorString(color).withAlpha(alpha),
-      scaleByDistance: MARK_SCALE_BY_DISTANCE,
-      translucencyByDistance: MARK_TRANSLUCENCY,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      site,
+      color,
+      alpha: amenityPrecisionAlpha(site.precision),
+      size: amenityPointSize(site.family),
     });
-    _records.set(id, { id, site, point, position, baseColor: color, baseAlpha: alpha, baseSize: size });
-    warm.push(site);
   }
   // Everything the payload carried and this layer did not draw — the render cap
   // if it ever bit, plus any row whose family the palette does not know. The
@@ -1464,36 +1623,212 @@ function reconcile(payload) {
   const deferred = _medecinsDrawing
     ? sites.filter((site) => familyDeferred(site?.family)).length
     : 0;
-  _truncated = Math.max(0, sites.length - deferred - _records.size);
-  _count = _records.size;
-  warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
-  governorRequestRender('amenities-fr-reconcile');
+  return { entries, truncated: Math.max(0, sites.length - deferred - entries.length) };
 }
 
-function clearSites() {
-  if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
-  if (_points) _points.removeAll();
+/** One plate. Every mark of every class is drawn by this, so the classes cannot drift. */
+function addMark(collection, id, position, family, color, alpha, size) {
+  if (!collection) return null;
+  return collection.add({
+    id,
+    position,
+    image: familyGlyph(family),
+    width: size,
+    height: size,
+    color: Cesium.Color.fromCssColorString(color).withAlpha(alpha),
+    scaleByDistance: MARK_SCALE_BY_DISTANCE,
+    translucencyByDistance: MARK_TRANSLUCENCY,
+    // The plate stands on the pavement and every building beside it is
+    // taller. With the depth test ON, a mark anchored at street level is
+    // eaten from below by the ground that is NEARER the camera at those
+    // screen pixels — the « parasol » that made these read as marks half
+    // sunk into the roofs. `Infinity` is this repository's value everywhere,
+    // and it is safe without a horizon curtain because every row drawn came
+    // out of the CURRENT view rectangle.
+    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+  });
+}
+
+/**
+ * Draw the marks of the levels on screen, each once, in its class.
+ *
+ * The exact answer is drawn first, so a position both levels hold is drawn as
+ * the EXACT mark — the one with the names and the multiplicity on its card —
+ * into the shared collection, and the maillage then draws only what the exact
+ * answer does not hold. Ids are shared by construction (`meshAmenityId` is
+ * `foldAmenitySites`'s key), so the intersection is exact, not a proximity
+ * guess.
+ *
+ * Billboards are built synchronously, so a redraw of the same levels — a pan —
+ * replaces the old marks in the frame it runs in: no gap to cover.
+ *
+ * @param {?{pick: object, box: object}} meshLevel
+ * @param {?{payload: object, key: ?string}} sitesLevel
+ */
+function drawPoints(meshLevel, sitesLevel) {
+  clearSelection();
+  _points?.removeAll();
+  _meshPoints?.removeAll();
+  _sharedPoints?.removeAll();
   _records.clear();
-  _count = 0;
-  _summary = null;
-  _meshPick = null;
-  _truncated = 0;
+  _meshLevel = meshLevel || null;
+  _sitesLevel = sitesLevel || null;
+  _meshPick = _meshLevel?.pick || null;
+
+  const mesh = _meshLevel ? meshEntries(_meshLevel.pick) : [];
+  const meshIds = new Set(mesh.map((entry) => entry.id));
+  const { entries: sites, truncated } = _sitesLevel
+    ? siteEntries(_sitesLevel.payload)
+    : { entries: [], truncated: 0 };
+  _truncated = truncated;
+
+  const warm = [];
+  for (const entry of sites) {
+    const shared = meshIds.has(entry.id);
+    const position = sitePosition(entry.site);
+    const point = addMark(
+      shared ? _sharedPoints : _points,
+      entry.id, position, entry.site.family, entry.color, entry.alpha, entry.size,
+    );
+    _records.set(entry.id, {
+      id: entry.id,
+      site: entry.site,
+      point,
+      position,
+      baseColor: entry.color,
+      baseAlpha: entry.alpha,
+      baseSize: entry.size,
+      cls: shared ? 'shared' : 'sites',
+      inSites: true,
+      inMesh: shared,
+    });
+    warm.push(entry.site);
+  }
+  for (const entry of mesh) {
+    // Already drawn above, once, as the exact mark.
+    if (_records.has(entry.id)) continue;
+    // No ground warm-up here: at these altitudes a metre of vertical error is
+    // invisible, and 2 200 terrain lookups per pan would not be.
+    const position = Cesium.Cartesian3.fromDegrees(entry.lon, entry.lat, POINT_LIFT_M);
+    const point = addMark(_meshPoints, entry.id, position, entry.family, entry.color, entry.alpha, entry.size);
+    _records.set(entry.id, {
+      id: entry.id,
+      mesh: true,
+      site: {
+        id: entry.id,
+        family: entry.family,
+        lat: entry.lat,
+        lon: entry.lon,
+        precision: entry.precision,
+        count: 0,
+        names: [],
+        kinds: [],
+        commune: '',
+        register: null,
+      },
+      point,
+      position,
+      baseColor: entry.color,
+      baseAlpha: entry.alpha,
+      baseSize: entry.size,
+      cls: 'mesh',
+      inSites: false,
+      inMesh: true,
+    });
+  }
+  if (warm.length) warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
+  _count = dominantCount();
+  // Every mark is new: its level's weight is written on the next frame.
+  _fadeForce = true;
+  governorRequestRender('amenities-fr-marks');
 }
 
-async function loadSites(box, { force = false } = {}) {
-  const key = boxKey(box);
-  if (!force && key === _lastBoxKey && _records.size && _regime === 'sites') return;
-  hideDepartements();
-  _nationalPainted = false;
-  dropDepartementSelection();
-  _lastBoxKey = key;
+/**
+ * Whether a record is part of one level's drawing. A record drawn before the
+ * classes existed belongs to whichever level is asked about.
+ */
+function recordInLevel(record, level) {
+  return level === 'mesh' ? record?.inMesh !== false : record?.inSites !== false;
+}
 
-  const generation = ++_requestGeneration;
+/** How many marks the dominant level draws: what the count and the key report. */
+function dominantCount() {
+  const level = _regime === 'maillage' ? 'mesh' : 'sites';
+  let count = 0;
+  for (const record of _records.values()) {
+    if (recordInLevel(record, level)) count += 1;
+  }
+  return count;
+}
+
+/** Remove one class of marks; the shared marks lose that level's membership. */
+function dropClass(cls, collection) {
+  if (_selectedId && _records.get(_selectedId)?.cls === cls) clearSelection();
+  collection?.removeAll();
+  for (const [id, record] of _records) {
+    if (record.cls === cls) _records.delete(id);
+    else if (record.cls === 'shared') {
+      if (cls === 'mesh') record.inMesh = false;
+      else record.inSites = false;
+    }
+  }
+  _count = dominantCount();
+  governorRequestRender('amenities-fr-drop');
+}
+
+/** The maillage has faded out under the sites, and the settled view no longer wants it. */
+function dropMeshLevel() {
+  if (!_meshLevel) return;
+  _meshLevel = null;
+  _meshPick = null;
+  dropClass('mesh', _meshPoints);
+}
+
+/** The sites have faded out under the maillage, and the settled view no longer wants them. */
+function dropSitesLevel() {
+  if (!_sitesLevel) return;
+  _sitesLevel = null;
+  _summary = null;
+  _truncated = 0;
+  dropClass('sites', _points);
+}
+
+/** Every mark goes: the départements have taken over, or the layer is off. */
+function dropPointLevels() {
+  if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
+  _points?.removeAll();
+  _meshPoints?.removeAll();
+  _sharedPoints?.removeAll();
+  _records.clear();
+  _meshLevel = null;
+  _sitesLevel = null;
+  _meshPick = null;
+  _summary = null;
+  _truncated = 0;
+  _pointsAnswered = false;
+}
+
+/** Test seams' names for the two single-level drawings. */
+function reconcile(payload) {
+  drawPoints(null, { payload, key: null });
+}
+
+function reconcileMesh(box) {
+  drawPoints({ pick: pickMesh(box), box }, null);
+}
+
+/**
+ * Ask `/sites` about one box.
+ *
+ * @returns {Promise<?{payload: object, key: string}|{error: string}>} The level,
+ *   an error, or null when the request was aborted — superseded by a newer view
+ *   or timed out, which the caller's generation check tells apart.
+ */
+async function fetchSitesLevel(box, key) {
   _inFlight?.abort?.();
   const controller = new AbortController();
   _inFlight = controller;
   const timer = setTimeout(() => controller.abort(), VIEWPORT_TIMEOUT_MS);
-  _loading = true;
   try {
     const params = new URLSearchParams({
       south: String(box.south), west: String(box.west),
@@ -1508,23 +1843,76 @@ async function loadSites(box, { force = false } = {}) {
     const response = await fetch(`/api/amenities-fr/sites?${params}`, { signal: controller.signal });
     if (!response.ok) throw new Error(await serverFailureMessage(response));
     const payload = await response.json();
-    if (generation !== _requestGeneration || !_enabled) return;
-    reconcile(payload);
-    const { sites, ...summary } = payload;
-    _summary = summary;
-    _lastUpdate = Number(payload.fetchedAt) || Date.now();
-    _status = _count > 0 ? 'ready' : 'empty';
-    _error = null;
+    return { payload, key };
   } catch (error) {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError') return null;
     console.warn('[Data:Amenities-FR] viewport failed:', error?.message || error);
-    _error = error?.message || 'viewport unavailable';
-    _status = 'error';
+    return { error: error?.message || 'viewport unavailable' };
   } finally {
     clearTimeout(timer);
     if (_inFlight === controller) _inFlight = null;
-    _loading = false;
   }
+}
+
+/**
+ * Load every level of marks the settled view wants, and draw them together.
+ *
+ * Both requests are awaited before anything is drawn, so a view in the band
+ * never shows half of its hand-over, and a pan replaces the whole drawing in
+ * one frame. A level the view wants and could not get keeps what it had on
+ * screen — an older box is still a true map of the amenities in it — and a
+ * level the view no longer wants stays until the frame callback has faded it
+ * out under its partner ({@link onFadeFrame}).
+ */
+async function loadPoints(plan, { force = false } = {}) {
+  dropDepartementSelection();
+  _error = null;
+  const generation = ++_requestGeneration;
+  const meshBox = plan.mesh ? cameraAmenitiesBox(_viewer) : null;
+  const sitesBox = plan.sites ? amenitiesSitesBox(_viewer) : null;
+  const sitesKey = sitesBox ? boxKey(sitesBox) : null;
+  const reuseSites = Boolean(sitesKey) && !force && _sitesLevel?.key === sitesKey;
+  const reuseMesh = Boolean(meshBox) && !force && Boolean(_meshLevel)
+    && boxKey(_meshLevel.box) === boxKey(meshBox);
+  if (!sitesBox) _inFlight?.abort?.();
+  _loading = Boolean((meshBox && !_mesh) || (sitesBox && !reuseSites));
+  const [, fetched] = await Promise.all([
+    meshBox && !reuseMesh ? ensureMesh() : null,
+    sitesBox && !reuseSites ? fetchSitesLevel(sitesBox, sitesKey) : null,
+  ]);
+  if (generation !== _requestGeneration || !_enabled || _regime === 'national') return;
+  _loading = false;
+
+  const previousMesh = _meshLevel;
+  const previousSites = _sitesLevel;
+  let nextMesh = previousMesh;
+  if (meshBox && !reuseMesh) {
+    if (_mesh) nextMesh = { pick: pickMesh(meshBox), box: meshBox };
+    else _error = _meshError || 'national mesh unavailable';
+  }
+  let nextSites = previousSites;
+  if (sitesBox && !reuseSites) {
+    if (fetched?.payload) nextSites = fetched;
+    else _error = fetched?.error || _error || 'viewport unavailable';
+  }
+
+  if (nextMesh !== previousMesh || nextSites !== previousSites) drawPoints(nextMesh, nextSites);
+  else _count = dominantCount();
+  if (nextSites && nextSites !== previousSites) {
+    const { sites, ...summary } = nextSites.payload;
+    _summary = summary;
+    _lastUpdate = Number(nextSites.payload.fetchedAt) || Date.now();
+  } else if (nextMesh && nextMesh !== previousMesh) {
+    _lastUpdate = Number(_mesh?.fetchedAt) || Date.now();
+  }
+  // A level arriving over its partner ramps in, and its partner steps down in
+  // the same proportion. A redraw of the same level, or the first marks over
+  // the départements (a hard cut), swaps in one frame.
+  if (nextSites && !previousSites && previousMesh) _fade?.arrive('sites');
+  if (nextMesh && !previousMesh && previousSites) _fade?.arrive('mesh');
+  _pointsAnswered = true;
+  _status = _error ? 'error' : (_count > 0 ? 'ready' : 'empty');
+  _fade?.frame();
 }
 
 /**
@@ -1553,29 +1941,96 @@ async function loadViewportInner({ force = false } = {}) {
   // it concludes it about the view the camera is showing right now. See
   // `cameraSettle.js`: an arrival on any other view has to be read afresh.
   markViewportRead(_viewer, AMENITIES_FR_LAYER_ID);
-  const regime = updateRegime(_viewer);
-  if (regime === 'national') {
-    _lastBoxKey = null;
+  updateRegime(_viewer);
+  if (_plan.national) {
     await loadNational({ force });
     return;
   }
-  if (regime === 'maillage') {
-    _lastBoxKey = null;
-    const box = cameraAmenitiesBox(_viewer);
-    if (!box) return;
-    await loadMesh(box);
-    return;
+  await loadPoints(_plan, { force });
+}
+
+// --- The hand-overs, per frame ------------------------------------------------
+
+/** A level's arrival ramp, 1 when none runs or the layer has no handle. */
+function arrivalOf(key, nowMs) {
+  return _fade ? _fade.arrival(key, nowMs) : 1;
+}
+
+/** Scale the shared marks from the maillage's plate to the exact one. */
+function scaleSharedMarks(scale, force) {
+  const collection = _sharedPoints;
+  if (!collection || typeof collection.get !== 'function') return;
+  if (!force && scale === _sharedScaleWritten) return;
+  _sharedScaleWritten = scale;
+  for (let i = 0; i < collection.length; i += 1) {
+    const point = collection.get(i);
+    // The selected plate is already drawn at its own size.
+    const next = point.id === _selectedId ? 1 : scale;
+    if (point.scale !== next) point.scale = next;
   }
-  const box = amenitiesSitesBox(_viewer);
-  if (!box) {
-    // Inside the span gate but looking at more than the ceiling allows — an
-    // oblique horizon shot. The maillage is the honest fallback, not a blank.
-    _regime = 'maillage';
-    const wide = cameraAmenitiesBox(_viewer);
-    if (wide) await loadMesh(wide);
-    return;
+}
+
+/** Write one frame's alphas: transitions as show writes, fades through the shared adapter. */
+function applyLevelAlphas(alphas) {
+  const force = _fadeForce;
+  _fadeForce = false;
+  setDepartementsShown(levelVisible(_enabled, alphas.national));
+  fadeMarkLevel(_points, alphas.sites, { enabled: _enabled, force });
+  fadeMarkLevel(_meshPoints, alphas.mesh, { enabled: _enabled, force });
+  fadeMarkLevel(_sharedPoints, alphas.shared, { enabled: _enabled, force });
+  scaleSharedMarks(alphas.sharedScale, force);
+}
+
+/**
+ * Per frame: weight arithmetic and adapter writes, nothing else.
+ *
+ * Nothing here fetches or builds. A level is DROPPED here — its marks removed
+ * — only once it has faded out AND the settled view no longer asks for it; a
+ * level the camera merely passed over on its way somewhere stays until the
+ * next settle decides.
+ */
+function onFadeFrame(scale, nowMs) {
+  if (!_enabled) return;
+  const span = Math.max(scale?.latSpan, scale?.lonSpan);
+  const alphas = amenitiesLevelAlphas(span, {
+    regime: _regime,
+    nationalReady: _nationalReady,
+    pointsReady: _pointsAnswered,
+    meshReady: Boolean(_meshLevel),
+    sitesReady: Boolean(_sitesLevel),
+    meshArrival: arrivalOf('mesh', nowMs),
+    sitesArrival: arrivalOf('sites', nowMs),
+  });
+  applyLevelAlphas(alphas);
+  if (_regime === 'national') {
+    if (_pointsAnswered && !levelVisible(true, alphas.points)) dropPointLevels();
+  } else if (_plan) {
+    if (_meshLevel && !_plan.mesh && !levelVisible(true, alphas.mesh)) dropMeshLevel();
+    if (_sitesLevel && !_plan.sites && !levelVisible(true, alphas.sites)) dropSitesLevel();
   }
-  await loadSites(box, { force });
+  _fade?.report({
+    levels: {
+      national: alphas.national,
+      mesh: alphas.mesh,
+      sites: alphas.sites,
+      shared: alphas.shared,
+    },
+    // i18n-ignore-next-line — level keys, read by the harness.
+    dominant: _regime === 'maillage' ? 'mesh' : _regime,
+    bands: {
+      'mesh-sites': { fine: AMENITIES_SITES_BAND.fine, coarse: AMENITIES_SITES_BAND.coarse, unit: 'deg-max' },
+    },
+    hardCuts: {
+      'national-points': { enter: NATIONAL_ENTER_SPAN_DEG, exit: NATIONAL_EXIT_SPAN_DEG, unit: 'deg-lat' },
+    },
+    marks: {
+      mesh: _meshPoints?.length ?? 0,
+      sites: _points?.length ?? 0,
+      shared: _sharedPoints?.length ?? 0,
+    },
+    sharedScale: alphas.sharedScale,
+    pending: _loading,
+  });
 }
 
 function onCameraChanged() {
@@ -1602,10 +2057,19 @@ function onCameraSettled() {
   void loadViewport();
 }
 
+/** The collection a record's mark lives in, by its class. */
+function markCollection(record) {
+  if (record?.cls === 'mesh') return _meshPoints;
+  if (record?.cls === 'shared') return _sharedPoints;
+  return _points;
+}
+
 function collectDetectableObjects(options = {}) {
-  if (!_enabled || !_points?.show || !_records.size) return [];
+  if (!_enabled || !_records.size) return [];
   const records = [];
   for (const record of _records.values()) {
+    // A class faded out is hidden as a whole collection: nothing in it is on screen.
+    if (!markCollection(record)?.show) continue;
     if (!record.point?.show && record.id !== _selectedId) continue;
     records.push(record);
   }
@@ -1720,13 +2184,21 @@ const amenitiesFranceLayer = {
 
   init(viewer) {
     _viewer = viewer;
-    _points = new Cesium.BillboardCollection({
-      scene: viewer.scene,
-      blendOption: Cesium.BlendOption.TRANSLUCENT,
-    });
-    _points.show = false;
-    viewer.scene.primitives.add(_points);
-    registerSpriteCollection(AMENITIES_FR_LAYER_ID, _points);
+    // Bottom to top: the maillage's own marks, the exact ones, then the marks
+    // both levels hold — so a shared plate is never under a fading one.
+    const collection = () => {
+      const marks = new Cesium.BillboardCollection({
+        scene: viewer.scene,
+        blendOption: Cesium.BlendOption.TRANSLUCENT,
+      });
+      marks.show = false;
+      viewer.scene.primitives.add(marks);
+      registerSpriteCollection(AMENITIES_FR_LAYER_ID, marks);
+      return marks;
+    };
+    _meshPoints = collection();
+    _points = collection();
+    _sharedPoints = collection();
 
     _enabled = false;
     _records = new Map();
@@ -1741,7 +2213,10 @@ const amenitiesFranceLayer = {
     _nationalPainted = false;
     _meshPick = null;
     _truncated = 0;
-    _lastBoxKey = null;
+    _meshLevel = null;
+    _sitesLevel = null;
+    _pointsAnswered = false;
+    _plan = null;
 
     _overlayHost.setVisible(AMENITIES_FR_OVERLAY_SOURCE_ID, false);
     _overlayHost.setVisible(AMENITIES_FR_LABEL_SOURCE_ID, false);
@@ -1751,7 +2226,9 @@ const amenitiesFranceLayer = {
   enable(viewer) {
     _enabled = true;
     _error = null;
-    _points.show = true;
+    // Which collection and which département is shown is the swap's call,
+    // made per frame ({@link onFadeFrame}).
+    _fade = watchZoomFade(viewer, AMENITIES_FR_LAYER_ID, onFadeFrame);
     if (_depDataSource) _depDataSource.show = true;
     _overlayHost.setVisible(AMENITIES_FR_OVERLAY_SOURCE_ID, true);
     _overlayHost.setVisible(AMENITIES_FR_LABEL_SOURCE_ID, true);
@@ -1784,17 +2261,20 @@ const amenitiesFranceLayer = {
 
   disable(viewer) {
     _enabled = false;
+    _fade?.release();
+    _fade = null;
     _requestGeneration += 1;
     _regime = 'national';
+    _plan = null;
     _nationalPainted = false;
-    _meshPick = null;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
     _inFlight?.abort?.();
     _inFlight = null;
 
     clearSelection();
-    clearSites();
+    dropPointLevels();
+    _count = 0;
     hideDepartements();
     if (_depDataSource) _depDataSource.show = false;
     _overlayHost.setVisible(AMENITIES_FR_OVERLAY_SOURCE_ID, false);
@@ -1820,10 +2300,11 @@ const amenitiesFranceLayer = {
       _preRenderRemover = null;
     }
 
-    _points.show = false;
+    for (const marks of [_points, _meshPoints, _sharedPoints]) {
+      if (marks) marks.show = false;
+    }
     _loading = false;
     _status = 'idle';
-    _lastBoxKey = null;
   },
 
   async update() {
@@ -1964,12 +2445,15 @@ const amenitiesFranceLayer = {
       return { chips: [], legend };
     }
 
+    const meshRegime = _regime === 'maillage';
+    // The key counts the DOMINANT level's marks: inside the band both levels
+    // are drawn, and the one with the larger weight owns the key.
     const tally = new Map();
     for (const record of _records.values()) {
+      if (!recordInLevel(record, meshRegime ? 'mesh' : 'sites')) continue;
       const family = record.site?.family;
       if (family) tally.set(family, (tally.get(family) || 0) + 1);
     }
-    const meshRegime = _regime === 'maillage';
     const inView = new Map(
       (_meshPick?.perFamily || []).map((row) => [row.family, row.inBox]),
     );
@@ -2062,11 +2546,19 @@ const amenitiesFranceLayer = {
     _depEntities = new Map();
     _depMeta = new Map();
     _depShapesPromise = null;
-    if (_points) {
-      unregisterSpriteCollection(AMENITIES_FR_LAYER_ID, _points);
-      viewer.scene?.primitives?.remove?.(_points);
-      _points = null;
+    _depMaterials = new Map();
+    _depPaintedCodes = new Set();
+    _depShown = false;
+    _nationalReady = false;
+    _nationalPainted = false;
+    for (const marks of [_points, _meshPoints, _sharedPoints]) {
+      if (!marks) continue;
+      unregisterSpriteCollection(AMENITIES_FR_LAYER_ID, marks);
+      viewer.scene?.primitives?.remove?.(marks);
     }
+    _points = null;
+    _meshPoints = null;
+    _sharedPoints = null;
     _viewer = null;
     _national = null;
     _mesh = null;
@@ -2086,7 +2578,18 @@ export function _setAmenitiesStateForTest({
   regime, records, national, mesh, meshPick, count, status, loading, error,
   summary, selectedId, enabled, viewer, points, overlayHost, depEntities, depMeta,
   truncated, lastUpdate, medecinsDrawing,
+  meshPoints, sharedPoints, meshLevel, sitesLevel, plan, nationalReady, pointsAnswered,
+  depShown, depPaintedCodes,
 } = {}) {
+  if (meshPoints !== undefined) _meshPoints = meshPoints;
+  if (sharedPoints !== undefined) _sharedPoints = sharedPoints;
+  if (meshLevel !== undefined) _meshLevel = meshLevel;
+  if (sitesLevel !== undefined) _sitesLevel = sitesLevel;
+  if (plan !== undefined) _plan = plan;
+  if (nationalReady !== undefined) _nationalReady = nationalReady;
+  if (pointsAnswered !== undefined) _pointsAnswered = pointsAnswered;
+  if (depShown !== undefined) _depShown = depShown;
+  if (depPaintedCodes !== undefined) _depPaintedCodes = new Set(depPaintedCodes);
   if (medecinsDrawing !== undefined) _medecinsDrawing = Boolean(medecinsDrawing);
   if (regime !== undefined) _regime = regime;
   if (records !== undefined) _records = records instanceof Map ? records : new Map(records);
@@ -2118,6 +2621,21 @@ export function _amenitiesStatsForTest() { return amenitiesFranceLayer.getStats(
 export function _amenitiesDetectablesForTest(options) { return collectDetectableObjects(options); }
 export function _amenitiesReconcileForTest(payload) { reconcile(payload); }
 export function _amenitiesReconcileMeshForTest(box) { reconcileMesh(box); }
+/** Draw both levels at once, as a settle inside the band does. */
+export function _amenitiesDrawLevelsForTest({ meshBox = null, payload = null, key = null } = {}) {
+  drawPoints(meshBox ? { pick: pickMesh(meshBox), box: meshBox } : null, payload ? { payload, key } : null);
+}
+/** One production frame of the hand-overs, against a camera of this span. */
+export function _amenitiesFadeFrameForTest(span, nowMs = 0) {
+  onFadeFrame({ latSpan: span, lonSpan: span }, nowMs);
+  return {
+    meshLevel: _meshLevel,
+    sitesLevel: _sitesLevel,
+    pointsAnswered: _pointsAnswered,
+    depShown: _depShown,
+    records: _records,
+  };
+}
 export function _amenitiesUpdateRegimeForTest(viewer) { return updateRegime(viewer); }
 export function _amenitiesTruncatedForTest() { return _truncated; }
 /** Test seam: run the half of enable/disable that follows `medecins-fr`. */
