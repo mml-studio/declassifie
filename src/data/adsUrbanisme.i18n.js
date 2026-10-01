@@ -105,6 +105,12 @@ export default defineMessages({
       en: (date) => `decided on ${date}`,
       sample: ['Aug 31, 2026'],
     },
+    /** Granted on a day the register does not give, but not after this one. */
+    decidedBy: {
+      fr: (date) => `accordé au plus tard le ${date}`,
+      en: (date) => `granted by ${date}`,
+      sample: ['Aug 31, 2026'],
+    },
     /** `2026-08-31` → `31/08/2026` / `Aug 31, 2026`. */
     format: {
       fr: (year, month, day) => `${day}/${month}/${year}`,

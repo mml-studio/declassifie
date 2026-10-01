@@ -160,7 +160,7 @@ function frenchTable(catalog) {
 
 /** Attribution carried on every payload (see DATA_SOURCES.md). */
 // i18n-ignore-next-line — the registry owns a layer's source line (layerTaxonomy.i18n.js)
-export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains, + affichage réglementaire communal (Cart@DS, Sirap)';
+export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains, + affichage réglementaire communal (Cart@DS, Sirap), + listes publiées par les villes';
 
 /** DiDo's per-datafile JSON endpoint. Keyless, `access-control-allow-origin: *`. */
 export const SITADEL_JSON_BASE =

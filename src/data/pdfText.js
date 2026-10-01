@@ -429,7 +429,11 @@ function fontDecoder(font, resolve, inflate) {
       : null;
     if (data !== null) unicode = parseToUnicode(data);
   }
-  const bytesPerCode = composite ? (unicode?.bytes ?? 2) : (unicode?.bytes === 2 ? 2 : 1);
+  // A simple font's codes are one byte, whatever its ToUnicode map declares:
+  // Acrobat's PDFMaker writes `<0000> <FFFF>` as the codespace of a WinAnsi
+  // TrueType font whose map then lists one-byte codes (Lyon's list of 7-13
+  // September 2026), and reading that file two bytes a code printed CJK.
+  const bytesPerCode = composite ? (unicode?.bytes ?? 2) : 1;
   const differences = new Map();
   const encoding = resolve(dict.Encoding);
   if (encoding && Array.isArray(resolve(encoding.Differences))) {
@@ -529,7 +533,7 @@ function spellOut(text) {
  * new run, whichever operator put it there. The clip each run was drawn under
  * is kept too, as the layout hint it is.
  */
-function runContent(content, decoders) {
+function runContent(content, decoders, wordGapEm = null) {
   const lexer = new Lexer(content, 0);
   const runs = [];
   let operands = [];
@@ -561,6 +565,14 @@ function runContent(content, decoders) {
       if (!joined && glyph.text && glyph.text.trim()) {
         runs.push({ x, x1: x, y, size: em, text: '', clip });
       }
+      // A word gap drawn as a move rather than a space glyph, for a caller that
+      // says its file is written that way (`wordGapEm`). Cairo — Firefox's
+      // print to PDF — writes no space at all and moves every word 0.34 em on
+      // (4 329 gaps of Annecy's two lists of 25 September 2026): read glued,
+      // `DP 074 010 25` was `DP07401025`. Not by default: Word and Excel
+      // justify with gaps of that size inside words (`photovoltaïqu es`).
+      if (wordGapEm && joined && glyph.text && glyph.text.trim() && x - pen.x > em * wordGapEm
+        && !/\s$/.test(runs[runs.length - 1].text)) runs[runs.length - 1].text += ' ';
       if (joined || (glyph.text && glyph.text.trim())) runs[runs.length - 1].text += spellOut(glyph.text);
       const advance = ((glyph.width / 1000) * size + charSpacing + (glyph.space ? wordSpacing : 0)) * scale;
       tm = multiply([1, 0, 0, 1, advance, 0], tm);
@@ -660,13 +672,15 @@ function runContent(content, decoders) {
  * The text runs of every page, in drawing order.
  *
  * @param {Uint8Array} bytes The file.
- * @param {{inflate: function(Uint8Array): Uint8Array, maxPages?: number}} options
+ * @param {{inflate: function(Uint8Array): Uint8Array, maxPages?: number, wordGapEm?: ?number}} options
  *   `inflate` is zlib's `inflateSync` or anything with its contract.
+ *   `wordGapEm`: inside a run, a gap wider than this many ems reads as a
+ *   space — for a file that draws no space glyphs (Firefox's print to PDF).
  * @returns {?{pages: Array<{runs: Array<{x: number, x1: number, y: number, size: number,
  *   text: string, clip: ?{x0: number, y0: number, x1: number, y1: number}}>}>}}
  *   Null for a file that is not a PDF or is encrypted.
  */
-export function extractPdfText(bytes, { inflate, maxPages = 40 } = {}) {
+export function extractPdfText(bytes, { inflate, maxPages = 40, wordGapEm = null } = {}) {
   if (!bytes || !bytes.length) return null;
   const src = binaryString(bytes);
   if (!src.startsWith('%PDF-')) return null;
@@ -728,7 +742,7 @@ export function extractPdfText(bytes, { inflate, maxPages = 40 } = {}) {
         ? decodeStream(entry.value, entry.stream, inflate) : null;
       if (data !== null) content += `${data}\n`;
     }
-    out.push({ runs: runContent(content, decoders) });
+    out.push({ runs: runContent(content, decoders, wordGapEm) });
   }
   return { pages: out };
 }

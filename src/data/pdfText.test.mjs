@@ -172,6 +172,27 @@ test('what is not a PDF, or is encrypted, reads as null', () => {
   assert.equal(extractPdfText(new Uint8Array(locked), { inflate }), null);
 });
 
+test('a simple font reads one byte a code, whatever codespace its ToUnicode map declares', () => {
+  // Acrobat PDFMaker for Word: a WinAnsi TrueType font whose map says
+  // `<0000> <FFFF>` and lists one-byte codes. Read two bytes at a time, the
+  // pair « Dé » became one CJK character.
+  const cmap = [
+    '/CIDInit /ProcSet findresource begin 12 dict begin begincmap',
+    '1 begincodespacerange <0000> <FFFF> endcodespacerange',
+    '3 beginbfchar <44> <0044> <E9> <00E9> <20> <0020> endbfchar',
+    'endcmap end end',
+  ].join('\n');
+  const found = runs(pdf([
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Contents 4 0 R >>',
+    stream('', 'BT /F1 10 Tf 1 0 0 1 50 700 Tm (D\xe9pos\xe9e le) Tj ET'),
+    '<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT /Encoding /WinAnsiEncoding /ToUnicode 6 0 R >>',
+    stream('', cmap),
+  ]));
+  assert.deepEqual(found.map((run) => run.text), ['Déposée le']);
+});
+
 test('a scanned page has no text, and says so with an empty page', () => {
   const document = extractPdfText(simplePage('q 595 0 0 842 0 0 cm /Im0 Do Q'), { inflate });
   assert.equal(document.pages.length, 1);
@@ -186,4 +207,14 @@ test('a ToUnicode range counts up, and an array range maps one by one', () => {
   ].join('\n'));
   assert.equal(bytes, 2);
   assert.deepEqual([0x10, 0x11, 0x12, 0x20, 0x21].map((code) => map.get(code)), ['a', 'b', 'c', 'fl', 'é']);
+});
+
+test('a file that draws no space glyph reads its word gaps as spaces, when asked to', () => {
+  // Firefox's print to PDF (cairo): every word placed by its own move, 0.34 em
+  // past the end of the one before, and no space glyph anywhere.
+  const content = 'BT /F1 10 Tf 1 0 0 1 50 700 Tm (DP) Tj 1 0 0 1 63.4 700 Tm (074) Tj 1 0 0 1 81.9 700 Tm (010) Tj ET';
+  const file = simplePage(content);
+  assert.deepEqual(runs(file).map((run) => run.text), ['DP074010']);
+  const spaced = extractPdfText(file, { inflate, wordGapEm: 0.15 }).pages[0].runs;
+  assert.deepEqual(spaced.map((run) => run.text), ['DP 074 010']);
 });

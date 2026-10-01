@@ -40,6 +40,59 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   them on their cadastral parcel. Tours publishes every dossier it receives
   and Brest métropole every permit it grants, with decisions three days old;
   a Tours dossier Sitadel also holds is drawn once, not twice.
+- **Marseille and Nîmes now show their permits days after the fact**, 1.04
+  million more inhabitants, read from the lists both cities publish as PDF
+  files: Marseille's 1 874 dossiers under review on 2026-09-28 and its 825
+  authorisations granted between 16 July and 29 September, and Nîmes's 348
+  dossiers under review and 321 decisions, 86 of them refusals. The
+  déclarations préalables for a fence, a pool or solar panels are included. A
+  dossier reads « En cours d'instruction » (“Under review”) while the city's
+  latest list says so; a person's name never appears.
+- **Lyon and Béziers now show their permits days after the fact**, 0.6
+  million more inhabitants, read from the weekly lists both cities publish
+  as acts on their Webdelib+ platform: at Lyon every filing and every grant,
+  948 dossiers in the two months to 2026-10-01, and at Béziers every filing
+  still open and every week's decisions, refusals included, 587 dossiers. The
+  server reads a year of them once and the new ones every day.
+- **Aix-en-Provence and Argenteuil now show their permits days after the
+  fact**, 0.26 million more inhabitants. Aix's page lists every dossier filed
+  in the last two months and still undecided and every decision of those two
+  months, refusals included — 476 dossiers on 2026-10-01, 457 of them drawn
+  on their cadastral parcel. Argenteuil posts one sheet per dossier, about
+  1 400 a year, filings and decisions: 62 of its 476 decisions of 2026 are
+  refusals.
+- **Mulhouse, Annecy and Clermont-Ferrand now show their permits days after
+  the fact**, 0.39 million more inhabitants. Mulhouse's 73 lists since 2023,
+  each covering the weeks since the one before, 2 899 dossiers; Annecy's
+  dossiers under review and grants of the last seven weeks, 541, 518 of them
+  on their cadastral parcel; Clermont-Ferrand's decisions of the last two
+  months, 313, refusals included — its list of filings answered « not found »
+  on 2026-10-01 and is read when it is back.
+- **Versailles now shows its permits days after the fact**, from the
+  fortnightly registers of filed and decided dossiers it posts in a public
+  Google Drive folder: 1 764 dossiers in 2026, 2 748 rows on their cadastral
+  parcel, 186 refusals.
+- **La Rochelle now shows its permits days after the fact**: its weekly lists
+  of filed dossiers since May, 889 rows, and the arrêté it posts for every
+  decision, read for its verdict — 785 dossiers on 2026-10-01, 32 of them
+  refused.
+- **Limoges now shows its permits days after the fact**: every decision it
+  posts as an act on its « Arcade » portal, 642 since 15 June 2026, read off
+  the act's title and days without opening the scanned arrêté, and its lists
+  of the dossiers filed in July, August and September, 399 rows with their
+  address. A decision whose filing is on a list is drawn at its address (281
+  on 2026-10-01). The verdict is not read: the shelf says « délivrés », but 5
+  of 27 arrêtés read by OCR were a refusal, an opposition or a withdrawal, so
+  the card says « Décision signée » until Sitadel says more.
+- **Montpellier and 27 communes of its métropole now show the permits they
+  granted**, from the files the métropole exports every night: every
+  favourable decision since 2006, on its cadastral parcel, the ones that
+  create no floor area included. The file gives the filing year and no date,
+  so the server now keeps every nightly edition it reads: a permit that
+  appears after the first one is « Permis accordé : au plus tard le
+  2 oct. 2026 » (“Permit granted: by Oct 2, 2026”), the night it appeared,
+  while the permits the first edition already held carry no date. A permit Sitadel already holds on
+  the same parcel is not drawn twice.
 - **« Urbanisme » now shows the permits of 2 239 more communes days after the
   fact: 5.3 million more inhabitants, 17.5 % of the population instead of
   9.7 %.** They were found by asking the posting platforms which communes they

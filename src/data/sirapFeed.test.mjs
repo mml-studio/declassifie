@@ -22,6 +22,8 @@ import {
 import { CARTDS_INSTANCES, foldCartdsDossiers } from './cartdsFeed.js';
 import { SIRAP_SCANNED_INSTANCES } from './sirapScanned.js';
 import { PUBLICATION_ACTES_COMMUNES } from './publicationActesFeed.js';
+import { PERMIT_LISTS } from './permitListsFeed.js';
+import { MMM_COMMUNES } from './mmmPermitsFeed.js';
 import { LOCAL_ADS_PORTALS, SITADEL_FILES, mergeRegisters, normaliseSitadelRow } from './adsFeed.js';
 import { COMMUNE_CODE_PATTERN } from './communeCode.js';
 import { readCartdsArchive, recordCartdsBoards, emptyCartdsArchive } from './cartdsArchive.js';
@@ -86,10 +88,13 @@ test('no commune is read from two of the posted and published registers', () => 
   for (const instance of SIRAP_INSTANCES) instance.communes.forEach((code) => claim(code, `sirap ${instance.key}`));
   for (const instance of CARTDS_INSTANCES) instance.communes.forEach((code) => claim(code, `cartds ${instance.key}`));
   for (const commune of PUBLICATION_ACTES_COMMUNES) claim(commune.insee, 'publication-actes');
+  for (const city of PERMIT_LISTS) claim(city.insee, `permit-list ${city.key}`);
+  for (const commune of MMM_COMMUNES) claim(commune.insee, `mmm ${commune.file}`);
   // And none duplicates a métropole portal, which the layer merges as a twin.
   for (const portal of LOCAL_ADS_PORTALS) {
     for (const code of portal.communes) {
       assert.ok(!SIRAP_INSTANCES.some((instance) => instance.communes.includes(code)), `${code} on ${portal.key}`);
+      assert.ok(!PERMIT_LISTS.some((city) => city.insee === code), `${code} on ${portal.key}`);
     }
   }
 });

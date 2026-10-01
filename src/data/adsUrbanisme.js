@@ -85,9 +85,11 @@ import { gpuClassificationTypeForScene } from './urbanismeGpu.js';
  * development of LAND and never a building.
  *
  * MEASURED, AND THE REASON THE THIRD BUCKET IS PAINTED AT ALL: this layer
- * merges TWELVE sources — the four `SITADEL_FILES`, the five
- * `LOCAL_ADS_PORTALS`, the communes' Cart@DS and Sirap boards and the acts on
- * publication-actes.fr — and exactly TWO of them ask for a nature column.
+ * merges FOURTEEN sources — the four `SITADEL_FILES`, the five
+ * `LOCAL_ADS_PORTALS`, the communes' Cart@DS and Sirap boards, the acts on
+ * publication-actes.fr, the PDF lists cities publish and Montpellier
+ * Méditerranée Métropole's open data — and exactly TWO of them ask for a
+ * nature column.
  * `NATURE_PROJET_DECLAREE` is in the `columns` of `logements` and `locaux` and
  * in neither `amenager` nor `demolir` (both of which the FAMILY rule above
  * settles anyway). The métropole portals ask for none: `normaliseLocalRow`
@@ -320,6 +322,9 @@ export function adsDateLine(permit) {
     return permit.depositedOn ? m.filed(adsDate(permit.depositedOn)) : null;
   }
   if (permit.decidedOn) return m.decided(adsDate(permit.decidedOn));
+  // Granted, the day unknown, but published on a day the decision cannot be
+  // later than (Montpellier's export: Trap 5 of `mmmPermitsFeed.js`).
+  if (permit.state === 'accorde' && permit.postedOn) return m.decidedBy(adsDate(permit.postedOn));
   return permit.depositedOn ? m.filed(adsDate(permit.depositedOn)) : null;
 }
 
@@ -984,6 +989,7 @@ export function adsPermitPanel(permit, { others = 0 } = {}) {
     dates: {
       filed: permit.depositedOn,
       granted: permit.decidedOn,
+      grantedBy: permit.state === 'accorde' ? permit.postedOn : null,
       started: permit.startedOn,
       completed: permit.completedOn,
     },

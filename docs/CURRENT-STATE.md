@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4759,6 +4759,202 @@ on two departmental agencies and Pamiers — the INSEE code without its
 leading zero (`codes: 'unpadded'`). Measured on 2026-10-01 against geo.api.gouv.fr's
 populations: 17.5 % of the population is now seen within days, from 9.7 %;
 176 of the 1 000 most populous communes, from 79.
+
+**Since 2026-10-01, Marseille and Nîmes answer with the lists they publish
+as PDF** (`src/data/permitListsFeed.js`, `scripts/lib/permitLists.mjs`).
+Marseille links two files from its urbanism page: every dossier still under
+review, whatever its year (1 874 on 2026-09-28), and every authorisation
+granted over the last two months (825 from 16 July to 29 September; the city
+publishes no refusal). Nîmes links one: its register of dossiers under review
+(348) followed by its register of decisions (321, of them 86 refusals and 15
+withdrawals). The proxy finds each file by the words of its link and reads it
+as a table out of the PDF's positioned text (`pdfText.js`): the register the
+Cart@DS software prints, a record per « Déposé le » line, and Marseille's
+spreadsheet export, a row per dossier number, on which every centred cell of
+the row is centred. Every dossier number the three files print came out as a
+row. Marseille writes an original dossier with a `P0` suffix Sitadel does not
+(`PC 013055 26 00230P0`, `0130552600230`); it is dropped so the two registers
+meet, 117 dossiers on the first scan. A dossier on the city's latest list of
+dossiers under review is drawn *En cours d'instruction* (“Under review”), the
+city's own statement; once a later list drops it with no decision listed, it
+falls back to *Déposé*. The lists name no parcel, so every address is
+geocoded once and the BAN's answer kept per city, misses included
+(`.gev-cache/permit-lists/geocode1-<insee>.json`): 2 556 of Marseille's 2 624
+dossiers placed, 642 of Nîmes's 669. A file is parsed once per edition, its
+rows kept under its address with its `ETag` (Marseille's 199-page register
+reads in half a second); a city is read at most every six hours, a cold
+Marseille scan taking 48 s with Sitadel; the rows are archived like a board's
+in `.gev-cache/archive/permit-lists/` and swept on the same daily clock. The
+applicant's own address is never read, and a person's name is dropped.
+
+**Lyon and Béziers publish theirs as acts**, on Digitech's Webdelib+
+platform, which lists a month of acts per page (`…jsp?role=usager&date=MM-YYYY`)
+and serves each file through `openfile.jsp`, whose page moves on to
+`showFile.jsp` with a script — no cookie, no challenge. Lyon's « Arrêtés »
+tab holds a weekly *Droit des sols* file and, since September 2026, a weekly
+list of filed déclarations préalables: Word files of records, not tables — a
+number, `déposée le …` or `Décision du … à <beneficiary>`, then `Projet`,
+`Terrain`, `Demandeur`, `Mandataire`, `Auteur` — under weekly section
+headings that say the family and whether the dossiers were filed or issued.
+They are read in drawing order (`readLyonList`), a number wrapped over two
+or three lines joined back; the mandatary and the architect are never kept.
+Béziers's « Affichage légal » tab holds, every week and for each family, a
+list of the dossiers still open and a list of those decided, refusals
+included: Aspose tables read by `readGridTable`, whose columns are the
+clusters of cell starts under each header. Every dossier number of the 14
+files checked on 2026-10-01 came out as a row. Lyon's platform answers
+`robots.txt` with `Disallow: /` and is read by the project's decision
+(`robots: 'overridden'`). A scan reads the last two months of acts; the
+daily sweep reads twelve, a month that is over and an act already read
+coming from disk. Lyon: 948 dossiers in the two months to 2026-10-01, 938
+placed by address, 27 merged with Sitadel; Béziers: 587, 554 placed. One of
+Lyon's files, written by Acrobat PDFMaker, declares a two-byte codespace for
+one-byte fonts; `pdfText.js` now reads a simple font one byte a code, as the
+PDF standard says, whatever its ToUnicode map declares.
+
+**Aix-en-Provence and Argenteuil publish theirs in two more ways.** Aix's
+ArcOpole application answers one page with two HTML tables, found by their
+legends — the dossiers filed in the last two months and still undecided, and
+the decisions of the same two months, refusals included (52 of 312 on
+2026-10-01). The numbers leave the commune out (`PC2600200`, `PC24J0209
+M01`), so `013001` is put back; a `P01` after a number is a prorogation. Each
+row names its parcels (`AC 0080, AB 0123`), and 457 of the 476 dossiers stand
+on one; `AT` rows (works permits for public buildings) are not drawn.
+Argenteuil posts one PDF per dossier on Digilor Datahall, whose open JSON
+index (a POST of `{"controller":"DocumentController","action":"getAll",…}`,
+10 MB, every document since 2022) is filtered on the urbanism shelves' ids;
+the sheets are the same grid as Béziers's (`readGridTable`), and the numbers
+(`DP 95018 26 o0413`) key as Sitadel's `09501826O0413`. A scan fetches at most
+60 files it has not read, the sweep 400, so a year's backlog is read over a
+few days; a scanned sheet is kept as empty and not fetched again. The
+dossiers of both cities go through the cadastre first, the BAN for the rest.
+
+**Mulhouse, Annecy and Clermont-Ferrand.** Mulhouse's page links 73 lists
+since 2023, each holding only the dossiers since the one before, so every
+link is read (`all`) and an edition already read is never asked for again;
+they are Operis exports in the same grid as Béziers's. The grid reader now
+carries a row that runs on to the top of the next page, takes the
+applicant's organisation from a later line when the first names the person
+who signs for it, joins a counter wrapped as `S` / `0089`, and drops a
+section title only when it starts in the first column. Annecy's page is a
+JavaScript shell; its content is the same path under `/api/`, whose download
+blocks give both files. Printed from Firefox, they draw no space between
+words: `extractPdfText` now takes `wordGapEm` and reads a gap wider than
+0.15 em as a space, for these files only — Word and Excel justify with gaps
+that size inside words. Their rows, and Clermont-Ferrand's, are centred on
+their middle (`readBandTable`): a row ends at a wide gap (Annecy, Clermont's
+decisions) or each line goes to the nearest number (Clermont's filings,
+whose four-line applicant leaves a gap as tall as the one between rows).
+Annecy's parcels carry the old number of a commune it absorbed (`(268 AL
+300)`, Seynod), and 518 of its 541 dossiers stand on one. Clermont-Ferrand's
+host sends its certificate without the Sectigo OV R36 intermediate, which
+the server supplies as it does for the `pemb.fr` boards; its list of filings
+answered 404 on 2026-10-01 and is optional, so its decisions are read
+without it. `Octroi` and `Octroi tacite` now read as grants.
+
+**Versailles** posts a register of filed and one of decided dossiers every
+fortnight, in a public Google Drive folder its urbanism page links (a folder
+per year, in each a folder per board, names typed by hand). The folders are
+listed through `embeddedfolderview` — plain HTML, no key — and each file read
+once, by its Drive id, through `drive.usercontent.google.com`; Drive's
+`robots.txt` disallows both, and the folder is read by the project's decision
+(`robots: 'overridden'`). Word draws every cell of these registers under its
+own clip rectangle, so `readVersaillesList` takes a row as the runs that
+share a clip's top and bottom and a column as the header clip a run's starts
+at: all 2 912 numbers of the 34 files of 2026 come out (120 of them `AP`
+signs and `PP` pre-projects, not drawn). The parcels (`AX0288`) place 2 748
+rows on their plot; `par`, `Représentant` and `Propriétaire` name people, and
+only an organisation's `par` is kept.
+
+**La Rochelle** keeps two Liferay document spaces, listed as JSON through the
+space's `load-espace-children` resource (5 000 items asked: the page's 250
+cut the decisions off in August) — the instance its files' links use, not the
+hyphenated one the page embeds, which the file proxy refuses with HTTP 400.
+The weekly lists of filings are Excel sheets whose rows sit on their bottom
+line (`readLaRochelleFilings`: a line belongs to the nearest number at or
+below it, the columns where the rows' baselines start, a date and a number
+drawn as one run split); all 889 rows of the 21 lists since May come out. A
+decision is one arrêté per file, a third of them scans with an OCR layer: its
+verdict is read from the title block or the first article
+(`laRochelleVerdict`, 36 of 40 sampled; scans without text are left out), its
+number and day from the file's title — the posting day, kept as such, a day
+after the signature in the median — and the title, which names the
+applicant, is never stored. A four-digit counter is padded to Sitadel's five
+(`DP 17300 26 1032` → `0173002601032`). The file proxy is disallowed by
+`robots.txt` and read by the project's decision (`robots: 'overridden'`).
+
+**Limoges** posts every act on DigiContent's « Arcade Portail »
+(`actesreglementaires.limoges.fr`), whose public JSON search
+(`/public/api/entities/search/findBySpecification`, filter `entityType.code =
+ACTE,parameters.ACTE_TYPE = Urbanisme`, 200 a page, newest first) answers
+without a key: 647 urbanism acts from 15 June to 1 October 2026. A decision is
+one act whose arrêté is a 600-dpi scan with no text, so it is read off the
+act alone (`limogesDecisionRow`): the title is the number
+(`PC2600135_DECISION_SIGNEE`, `DP_ARRÊTÉ_2600984 ÉTAT`; three titles without
+their year are left out), `ACTE_DATE_ACT` the signature and
+`ACTE_CRAP_DATE_PUB` the posting — 47 of September's acts carry no signature
+day and keep the posting only. The verdict is not published: the shelves say
+« délivrés », but 5 of 27 arrêtés read by OCR on 2026-10-01 were a refused
+permit, three oppositions and a withdrawal, so the row says « Décision
+signée », off the ladder (state `depose`), and a Sitadel twin's grant wins
+the merge. The lists of filings are two more acts (`LISTE DU 01.09.26 AU
+25.09.26`, `AFFICHAGE JUILLET-AOUT 26`), one PDF each, fetched through the
+act's files (`parent.id`) and `/arcade/api/entities/content/<id>`, read once
+and kept under the act's address. They are Excel sheets whose cells are
+centred on their row: `readLimogesList` gives each column's lines to the rows
+by `centredRows`, a partition into consecutive runs each centred on its
+number — the nearest number fails on a description of fourteen lines — and
+joins the July-August file, printed two pages wide, half to half by height.
+All 399 numbers come out, 396 with their address (the three others print
+none). The decision and its filing fold on the number, the filing giving the
+address, the works and the day it was filed: 760 dossiers over the twelve
+months, 396 placeable; a decision on a dossier filed before July has no
+address yet and is not drawn. A scan reads one search page and the lists not
+yet read (three requests on 2026-10-01); the daily sweep reads four pages.
+No `robots.txt` (the portal answers 404).
+
+**Montpellier and 27 communes of its métropole** publish no list a reader
+could follow, but the métropole exports every favourable decision since 2006
+as one CSV per commune, every night (`src/data/mmmPermitsFeed.js`, ODbL —
+read per scan, never bundled). It is anonymised: one row per parcel, the
+form, the filing year and nothing finer, no number, no address. The rows of
+one dossier are folded back by consecutive ids and equal attributes (24 432
+dossiers for Montpellier), placed on their parcel — 21 215 — or on the
+file's own Lambert-93 point, and drawn as granted. A dossier
+Sitadel already holds is recognised by a parcel in common, the same family
+and Sitadel's filing year the file's or the one before (a modification is
+filed in its own year here), and is not drawn twice: 317 within two years of
+a scan of Montpellier's centre. The file has carried almost no déclaration
+préalable since 2025, upstream; a quiet block there says nothing.
+
+**What the file cannot date, its editions do.** The export is rewritten every
+night (`Last-Modified` 05:00 UTC), so every edition the server reads is folded
+into an archive, `.gev-cache/archive/mmm/<insee>.json`, by the store the
+Cart@DS boards use (`scripts/lib/mmmPermits.mjs`): each row with the first and
+last edition that held it, dated by the edition's `Last-Modified`, not by the
+reading. A dossier whose rows all appeared after the archive's first edition
+carries that day as `postedOn`: the card's timeline prints « Au plus tard le
+<day> » (“By <day>”) under « Permis accordé », the date line « accordé au plus
+tard le <day> ». The decision was recorded by then, and no finer date exists.
+The first edition's rows are the stock and carry nothing;
+so are an edition's rows when it adds more than 2 % of the rows already kept
+(at least 100) — a year adds about 5.5 %, so such a night is a rebuilt or
+reworded export, not four months of decisions (`mmmPostedOn`). A row is known
+by what it says, never by its `objectid`: every row filed since 2024 sits in
+one interleaved range of ids, and the point and `annee_parcelle` come from a
+cadastre join the métropole re-runs; identical rows (1 421 of 41 742) are told
+apart by their rank. Montpellier's archive is 41 644 rows and 11.6 MB, written
+in about 80 ms. Under `vite preview` the files are swept once a French day
+after 08:00, when the day's export is out, 10 s apart as `robots.txt` asks
+(28 files, about five minutes), on the boards' clock and `CARTDS_ARCHIVE`
+switch; a sweep that archived new rows drops the communes' built answers so
+the next scan sees them. Each portal reports `edition`, `archive` (`since`,
+`through`, `days`, `dated`, `offExport` — rows a later edition no longer
+holds — and `rebased`) and `publishedLag`: for the dated dossiers Sitadel
+also holds, the days from Sitadel's decision to the export, the measure of
+how close « au plus tard » is. The archive starts on the first day a server
+reads the file; what was added before is stock. These communes do not count
+as covered by a fresh source until that lag is measured.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

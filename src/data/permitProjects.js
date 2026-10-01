@@ -342,7 +342,11 @@ export function permitProjectCard({
     steps.push({ label, value: value || m.steps.missing, done: Boolean(value), color: value ? color : null });
   };
   if (classId === 'filed') step(m.steps.filed, dates.filed);
-  else step(m.steps.granted, dates.granted);
+  else if (!dates.granted && permitDate(dates.grantedBy)) {
+    // A register that publishes no decision day but the day it made the
+    // decision public: the grant is at the latest that day, and says so.
+    steps.push({ label: m.steps.granted, value: m.steps.grantedBy(permitDate(dates.grantedBy)), done: true, color });
+  } else step(m.steps.granted, dates.granted);
   // A demolition's file publishes no work dates (its progress field says
   // nothing for 94–98 % of them), so « non renseignée » would be every answer.
   if (classId !== 'cancelled' && classId !== 'filed' && classId !== 'demolition') {
