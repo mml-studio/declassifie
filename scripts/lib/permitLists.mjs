@@ -34,6 +34,9 @@ import {
   arcadeFilesUrl,
   arcadeIsList,
   arcadeSearchUrl,
+  bulletinChallenge,
+  bulletinLinks,
+  BULLETIN_READERS,
   digilorDocuments,
   digilorIndexBody,
   digilorIndexUrl,
@@ -93,6 +96,17 @@ export const PERMIT_LISTS_SCAN_FILES = 60;
 export const PERMIT_LISTS_SWEEP_FILES = 400;
 /** Marseille's register runs to 199 pages; a list ten times as long is not a list. */
 const PDF_MAX_PAGES = 2000;
+
+/**
+ * Bulletins read by OCR in one sweep (Lille, Trap 9 of `permitListsFeed.js`):
+ * at most this many new ones, and no new one once this many pages have been
+ * read. See `readBulletinCity` for the numbers.
+ */
+export const PERMIT_LISTS_SWEEP_BULLETINS = 40;
+export const PERMIT_LISTS_SWEEP_PAGES = 1500;
+
+/** Bumped whenever a bulletin reader changes, so every bulletin is read again. */
+export const PERMIT_LISTS_BULLETIN_SCHEMA = 1;
 
 /**
  * What this host's `robots.txt` lets a robot read (RFC 9309), as a test on a
@@ -430,6 +444,133 @@ async function readArcadeCity(city, http, { dir, allows, months, day, maxFiles }
   };
 }
 
+/** The ledger of a city's bulletins: one file, every bulletin read, by address. */
+function bulletinLedgerFile(dir, city) {
+  return path.join(dir, `bulletin${PERMIT_LISTS_BULLETIN_SCHEMA}-${city.key}.json`);
+}
+
+async function readBulletinLedger(dir, city) {
+  if (!dir) return { bulletins: {} };
+  try {
+    const kept = JSON.parse(await fsp.readFile(bulletinLedgerFile(dir, city), 'utf8'));
+    return kept && typeof kept.bulletins === 'object' && kept.bulletins ? kept : { bulletins: {} };
+  } catch {
+    return { bulletins: {} };
+  }
+}
+
+async function writeBulletinLedger(dir, city, ledger) {
+  if (!dir) return;
+  const file = bulletinLedgerFile(dir, city);
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(temp, JSON.stringify(ledger));
+    await fsp.rename(temp, file);
+  } catch { /* the next sweep reads the bulletin again */ }
+}
+
+/** Every row the ledger holds, by board. */
+function ledgerBoards(ledger) {
+  const boards = {};
+  for (const bulletin of Object.values(ledger.bulletins)) {
+    for (const row of bulletin.rows ?? []) (boards[row.board] ??= []).push(row.cells);
+  }
+  return boards;
+}
+
+/** Whether bytes are a PDF's, not a page a shield served in its place. */
+function isPdf(bytes) {
+  return bytes?.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
+
+/**
+ * A city that posts its decisions as scans in a daily bulletin (Lille, Trap 9
+ * of `permitListsFeed.js`).
+ *
+ * READ BY OCR, IN THE DAILY SWEEP ONLY. A scan — a visitor waiting — is given
+ * `ocr: null` and draws what the sweep has read, out of the ledger, without a
+ * request. The sweep reads the city's page, then every bulletin of the
+ * reading's months the ledger does not hold, OLDEST FIRST, so that a day the
+ * server missed is read at the next sweep in its turn; at most `maxFiles` new
+ * bulletins and no new one past `maxPages` pages, the rest left for the next
+ * sweep and said (`skipped`). Each bulletin goes into the ledger as soon as it
+ * is read, rows only — never its text, which names the applicants — so that a
+ * sweep cut short keeps what it read.
+ *
+ * FAIL CLOSED. An answer that is a shield's challenge rather than the page or
+ * the PDF (`bulletinChallenge`, or bytes that are no PDF), or a refusal
+ * (403, 429), ends the reading there: what was read is kept, and nothing is
+ * asked again before the next sweep.
+ *
+ * Measured on 2026-10-01: Lille's page links 181 bulletins since 2 January;
+ * 14 sampled were 703 pages, 2 to 148 each, 290 of them pages of 95 urbanism
+ * arrêtés in 7 of the 14. On a Mac (M5, one thread) a page set aside by its
+ * band costs 0.17 s and a page read whole about 1.4 s.
+ */
+async function readBulletinCity(city, http, {
+  dir, allows, months, day, ocr, maxFiles, maxPages = PERMIT_LISTS_SWEEP_PAGES, log = console,
+}) {
+  const ledger = await readBulletinLedger(dir, city);
+  const read = Object.keys(ledger.bulletins).length;
+  if (!ocr) {
+    if (!read) return null;
+    return { boards: ledgerBoards(ledger), lists: [{ url: city.page, bulletins: read, fetched: 0 }], failed: 0, skipped: 0, incomplete: false };
+  }
+  const reader = BULLETIN_READERS[city.lists?.[0]?.layout];
+  if (!reader || !allows(new URL(city.page).pathname)) return null;
+  const response = await http.fetch(city.page, { headers: { Accept: 'text/html' } });
+  const html = response?.ok ? await http.text(response, PAGE_MAX_BYTES) : null;
+  if (html !== null && bulletinChallenge(html)) {
+    log.warn?.(`[permit-lists] ${city.key}: the page answered a challenge, not read`);
+    return null;
+  }
+  const links = html ? bulletinLinks(city, html) : [];
+  if (!links.length) return null;
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const unread = links.filter((link) => link.day >= since && !ledger.bulletins[link.url]);
+  let fetched = 0;
+  let pages = 0;
+  let failed = 0;
+  let skipped = 0;
+  let stopped = null;
+  for (const link of unread) {
+    if (stopped || fetched >= maxFiles || pages >= maxPages) { skipped += 1; continue; }
+    fetched += 1;
+    if (!allows(new URL(link.url).pathname)) { failed += 1; continue; }
+    const file = await http.fetch(link.url);
+    if (file && [403, 429].includes(file.status)) { stopped = `HTTP ${file.status}`; failed += 1; continue; }
+    const bytes = file?.ok ? await http.bytes(file, PDF_MAX_BYTES) : null;
+    if (bytes && !isPdf(bytes)) { stopped = 'an answer that is no PDF'; failed += 1; continue; }
+    const scanned = bytes ? await ocr(bytes, { screen: reader.screen }) : null;
+    if (!scanned) { failed += 1; continue; }
+    pages += scanned.pages.length;
+    const answer = reader.read(scanned.pages, { day: link.day, insee: city.insee });
+    ledger.bulletins[link.url] = {
+      day: link.day,
+      readOn: day,
+      pages: scanned.pages.length,
+      readWhole: scanned.read,
+      ms: scanned.ms,
+      acts: answer.acts,
+      dropped: answer.dropped,
+      rows: keptRows(answer.rows, 'decisions'),
+    };
+    await writeBulletinLedger(dir, city, ledger);
+  }
+  if (stopped) log.warn?.(`[permit-lists] ${city.key}: ${stopped}, the reading stops here until the next sweep`);
+  return {
+    boards: ledgerBoards(ledger),
+    lists: [{
+      url: city.page, bulletins: links.length, unread: unread.length, fetched, pages, read: Object.keys(ledger.bulletins).length, skipped,
+    }],
+    failed,
+    skipped,
+    incomplete: failed > 0 || skipped > 0,
+  };
+}
+
 /**
  * Aix's page, both tables read at once (`readAixTables`). The window is the
  * page's, two months recomputed at each request; the archive keeps the rest.
@@ -564,14 +705,19 @@ async function readWebdelibCity(city, http, { dir, allows, months, day }) {
  * @param {object} city One of `PERMIT_LISTS`.
  * @param {{fetch: Function, text: Function, bytes: Function}} http
  * @param {{dir?: string, allows?: (pathname: string) => boolean, months?: number,
- *   day?: string}} [options] `allows`: the host's `robots.txt`, as
- *   `permitListsRobots` reads it. `months`: how far back a Webdelib+ city is
- *   read — two by default, a scan's; the daily sweep reads further.
+ *   day?: string, ocr?: ?Function, log?: object}} [options] `allows`: the
+ *   host's `robots.txt`, as `permitListsRobots` reads it. `months`: how far
+ *   back a Webdelib+ city is read — two by default, a scan's; the daily sweep
+ *   reads further. `ocr`: the function a scanned bulletin is read with
+ *   (`createPdfOcr`), handed in by the sweep alone; without it a bulletin
+ *   city is drawn from what the sweep has read.
  * @returns {Promise<?{boards: Record<string, Array<Array<?string>>>, lists: Array<object>}>}
  */
 export async function readPermitCity(city, http, {
   dir, allows = () => true, months = 2, day = cartdsDay(), maxFiles = PERMIT_LISTS_SCAN_FILES,
+  ocr = null, maxPages, log,
 } = {}) {
+  if (city.source?.kind === 'bulletin') return readBulletinCity(city, http, { dir, allows, months, day, ocr, maxFiles, maxPages, log });
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
@@ -640,20 +786,27 @@ async function readLinkedLists(links, http, { dir, allows, maxFiles }) {
  * @param {string} [options.dir] Where editions are kept.
  * @param {number} [options.months] How far back a Webdelib+ city is read.
  * @param {string} [options.day]
- * @param {number} [options.pauseMs]
+ * @param {number} [options.pauseMs] Between two requests; a city's own
+ *   `crawlDelayMs` (Lille's `Crawl-delay: 10`) when it asks for more.
  * @param {(ms: number) => Promise<void>} [options.sleep]
+ * @param {?Function} [options.ocr] What a scanned bulletin is read with
+ *   (`createPdfOcr` of `pdfOcr.mjs`), or null where poppler and Tesseract are
+ *   missing: a city that needs it is then left out, with one line in the log.
  * @param {{log?: Function, warn?: Function}} [options.log]
  * @returns {Promise<object>}
  */
 export async function sweepPermitLists({
   cities, store, http, robots = (city) => permitListsRobots(city, http), dir, months = PERMIT_LISTS_SWEEP_MONTHS,
   day = cartdsDay(), pauseMs = 1000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  log = console,
+  ocr = null, log = console,
 }) {
-  const paced = {
-    text: http.text,
-    bytes: http.bytes,
-    fetch: async (url, init) => { if (pauseMs > 0) await sleep(pauseMs); return http.fetch(url, init); },
+  const pacedFor = (city) => {
+    const pause = Math.max(pauseMs, city.crawlDelayMs ?? 0);
+    return {
+      text: http.text,
+      bytes: http.bytes,
+      fetch: async (url, init) => { if (pause > 0) await sleep(pause); return http.fetch(url, init); },
+    };
   };
   const summary = {
     day,
@@ -668,13 +821,21 @@ export async function sweepPermitLists({
     unsaved: [],
   };
   for (const city of cities) {
+    const bulletin = city.source?.kind === 'bulletin';
+    if (bulletin && !ocr) {
+      log.log?.(`[permit-lists] ${city.key}: no OCR here (pdftoppm, tesseract with French), its bulletins are not read`);
+      (summary.withoutOcr ??= []).push(city.key);
+      continue;
+    }
     const verdict = await robots(city);
     if (!verdict.allows(new URL(city.page).pathname)) {
       (verdict.final === false ? summary.failed : summary.refused).push(city.key);
       continue;
     }
-    const answer = await readPermitCity(city, paced, {
-      dir, allows: verdict.allows, months, day, maxFiles: PERMIT_LISTS_SWEEP_FILES,
+    const answer = await readPermitCity(city, pacedFor(city), {
+      dir, allows: verdict.allows, months, day, log,
+      maxFiles: bulletin ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
+      ...(bulletin ? { ocr } : {}),
     });
     if (!answer) { summary.failed.push(city.key); continue; }
     if (answer.failed) summary.failed.push(`${city.key}:${answer.failed}`);

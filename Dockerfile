@@ -12,6 +12,12 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Lille posts its permit decisions as scans: the daily sweep reads them by OCR
+# (scripts/lib/pdfOcr.mjs) with poppler's renderer and Tesseract's French.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-fra \
+ && rm -rf /var/lib/apt/lists/*
+
 # Deps first: this layer only rebuilds when the lockfile moves.
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev

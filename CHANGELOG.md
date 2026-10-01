@@ -84,6 +84,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   on 2026-10-01). The verdict is not read: the shelf says « délivrés », but 5
   of 27 arrêtés read by OCR were a refusal, an opposition or a withdrawal, so
   the card says « Décision signée » until Sitadel says more.
+- **Lille now shows its permit decisions a day after they are published**,
+  Hellemmes and Lomme included: every arrêté of its daily « Bulletin officiel »,
+  a scan read by OCR on the server once a day, refusals, oppositions and withdrawals
+  included, each with its site, its works and the day it was filed. 14
+  bulletins sampled on 2026-10-01 gave 92 decisions — 53 non-oppositions, 16
+  grants, 15 oppositions, 2 refusals, 5 withdrawals — where Sitadel's four
+  files hold 145 for all of 2026, grants only, the latest of 27 August. A
+  visitor's scan never waits for the OCR: it draws what the daily sweep has
+  read.
 - **Montpellier and 27 communes of its métropole now show the permits they
   granted**, from the files the métropole exports every night: every
   favourable decision since 2006, on its cadastral parcel, the ones that

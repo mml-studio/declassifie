@@ -60,6 +60,18 @@ import {
   limogesDecisionRow,
   limogesDossier,
   readLimogesList,
+  BULLETIN_READERS,
+  bulletinChallenge,
+  bulletinDossier,
+  bulletinLinks,
+  bulletinPageHead,
+  bulletinPageWorthReading,
+  bulletinPurpose,
+  bulletinSignedOn,
+  bulletinSite,
+  bulletinVerdict,
+  majorityReading,
+  readLilleBulletin,
 } from './permitListsFeed.js';
 import { SITADEL_FILES, mergeRegisters, normaliseSitadelRow } from './adsFeed.js';
 import { COMMUNE_CODE_PATTERN } from './communeCode.js';
@@ -276,7 +288,9 @@ test('the list of decisions reads one row per number, its centred cells whole', 
 test('each layout a list names has its reader', () => {
   for (const city of PERMIT_LISTS) {
     for (const list of city.lists) {
-      assert.equal(typeof PERMIT_LIST_READERS[list.layout], 'function', `${city.key} ${list.layout}`);
+      // A bulletin read by OCR has a reader of page texts, not of a PDF's runs.
+      const reader = city.source?.kind === 'bulletin' ? BULLETIN_READERS[list.layout]?.read : PERMIT_LIST_READERS[list.layout];
+      assert.equal(typeof reader, 'function', `${city.key} ${list.layout}`);
       // A list without a board is one whose reader says, row by row (Lyon's sections).
       assert.ok(list.board === undefined || Object.hasOwn(PERMIT_LIST_BOARDS, list.board));
     }
@@ -1112,4 +1126,269 @@ test('a Limoges list printed two pages wide joins each half to its numbers by he
     ['DP 087085 26 00771', 'PLACE DU MODÈLE', 'Mobilier urbain', '2026-07-02'],
     ['DP 087085 26 00772', '3 RUE EXEMPLE', 'Piscine', '2026-07-03'],
   ]);
+});
+
+// --- Lille: arrêtés scanned into a daily bulletin, read by OCR (Trap 9) ------
+// The pages below are OCR text in the shapes Tesseract gave on 2026-10-01 —
+// the stray bullets (`e`, `.`), the misread digits (`00149`, `659350`), the
+// stamps with a space in the day — with every name and address invented.
+
+const LILLE = PERMIT_LISTS.find((city) => city.key === 'lille');
+
+const TRAFFIC_PAGE = `Arrêté Municipal
+N° 270
+ARRETE DE MISE EN SECURITE EN URGENCE
+Article 1 : Le stationnement est interdit rue de l'Exemple.`;
+
+const PC_FIRST = `DOSSIER N° PC 059350 26 00149
+
+Demande de Permis de construire comprenant ou non
+des démolitions
+ARRETE DU MAIRE AU NOM DE LA COMMUNE
+
+Arrêté Municipal
+
+N° 1648
+
+Le Maire de Lille,
+
+Vu la demande, présentée le 18 mars 2026 par SCI EXEMPLE, Jean DUPONT, 1 rue du
+Demandeur, 59000 LILLE,
+
+Vu l'objet de la demande :
+
+e Travaux sur construction existante : création d'un bureau et modification de la
+façade côté rue
+
+. Sur un terrain situé 138 avenue de l'Exemple (Lille)
+e Pour une surface de plancher créée : 60 m2
+e Destination : autres activités des secteurs secondaire ou tertiaire - bureau
+
+Vu les pièces fournies,
+Vu l'avis favorable de ENEDIS en date du 27 avril 2026,`;
+
+const PC_SECOND = `DOSSIER N° PC 059350 26 00140 - PAGE 2/3
+
+Considérant que le projet est situé dans un site patrimonial remarquable,
+
+ARRETE
+
+Article 1 - Le permis de construire est REFUSE.
+
+Article 2 - La Directrice Générale des Services de la Ville de Lille est chargée de l'exécution
+
+Est Certifié le caractère exécutoire du Hôtel de Ville, le 2 9 SEP. 2026
+présent arrêté,
+
+Transmis au Préfet du Nord le Pour le Maire
+
+Publié 2 9 SEP, 2026`;
+
+const PC_THIRD = `DOSSIER N° PC 659350 26 00140 PAGE 3/3
+
+INFORMATIONS - A LIRE ATTENTIVEMENT
+
+DELAIS ET VOIES DE RECOURS : Le demandeur peut contester la légalité de la décision dans les deux mois`;
+
+const DP_FIRST = `DOSSIER N° DP 059350 26 01570
+
+Demande de Déclaration préalable - Constructions et
+travaux non soumis à permis de construire
+
+Vu la demande, présentée le 02 septembre 2026 par DUPONT Jean, 28 rue du Demandeur,
+59260 HELLEMMES - LILLE
+
+Vu l'objet de la demande :
+
+. Travaux sur construction existante : installation d'un groupe extérieur de
+climatisation sur le pignon de la maison
+
+. Sur un terrain situé 28 rue de l'Exemple - HELLEMMES
+Vu les pièces fournies,`;
+
+const DP_SECOND = `DOSSIER N° DP 059350 26 01570 PAGE 2/3
+
+Considérant donc qu'il y a lieu de s'opposer à la présente demande,
+
+ARRETE
+Atticle 1 - I! est fait OPPOSITION aux travaux décrits dans la présente demande.
+Article 2 - La Directrice Générale des Services de la Ville de Lille est chargée de l'exécution
+
+Est Certifié le caractère exécutoire du Hôtel de Ville, le
+présent arrêté,
+3 SEP, 2026
+Publié le 2 9 SEP. 2026`;
+
+const NOTICES = `DOSSIER N° «DOSSIERNOM» PAGE 3/3
+
+INFORMATIONS - A LIRE ATTENTIVEMENT`;
+
+const OLD_FIRST = `N° DP 059350 19 O0080 M01
+DECLARATION PREALABLE MODIFICATIVE
+DELIVREE PAR LE MAIRE AU NOM DE LA COMMUNE
+
+Vu l'objet des modifications :
+
+e Modifications: ajout d'une menuiserie en façade arrière
+° Sur un terrain situé au 33 rue Modèle`;
+
+const OLD_SECOND = `DOSSIER N° DP 059350 19 00080 M01 PAGE2/3
+Article 1 - Il n'est pas fait opposition à la déclaration préalable modificative n°1 pour les
+travaux décrits dans la présente demande.`;
+
+const OLD_THIRD = 'DOSSIER N° DP 059356 19 O0080 MO1 PAGE 3/3\n\nINFORMATIONS - A LIRE ATTENTIVEMENT';
+
+test('Lille is read from its bulletin, honouring its crawl delay', () => {
+  assert.equal(LILLE.insee, '59350');
+  assert.equal(LILLE.source.kind, 'bulletin');
+  assert.equal(LILLE.robots, 'overridden');
+  assert.equal(LILLE.crawlDelayMs, 10_000);
+  assert.equal(permitListFor('59350'), LILLE);
+  assert.ok(BULLETIN_READERS[LILLE.lists[0].layout], 'its layout has a bulletin reader');
+});
+
+test('a bulletin\'s links give its day, the « 1er », the tomes, the odd spaces', () => {
+  const html = [
+    '<li><a href="/content/download/415030/4068092/file/BO+VDL+du+1er+juillet+2026.pdf"><span>BO VDL du 1er juillet 2026 (.pdf)</span></a></li>',
+    '<li><a href="/content/download/391235/3927610/file/BO+VDL+du+19++janvier+2026.pdf"><span>BO VDL du 19  janvier 2026 (.pdf)</span></a></li>',
+    '<li><a href="/content/download/401161/3988001/file/BO+VDL+du+27+mars+2026+T2.pdf"><span>BO VDL du 27 mars 2026 Tome 2 (.pdf)</span></a></li>',
+    '<li><a href="/content/download/417136/4078248/file/BO+VDL+du+03+ao%C3%BBt+2026.pdf"><span>BO VDL du 03 août 2026 (.pdf)</span></a></li>',
+    '<li><a href="/content/download/308619/3433248/file/D%C3%A9lib%C3%A9rations+avril+2023.pdf"><span>Délibérations réglementaires CM avril 2023 (.pdf)</span></a></li>',
+    '<li><a href="/Votre-Mairie/BO+VDL"><span>BO VDL du 2 janvier 2026</span></a></li>',
+  ].join('\n');
+  const links = bulletinLinks(LILLE, html);
+  assert.deepEqual(links.map((link) => [link.day, new URL(link.url).pathname.split('/').pop()]), [
+    ['2026-01-19', 'BO+VDL+du+19++janvier+2026.pdf'],
+    ['2026-03-27', 'BO+VDL+du+27+mars+2026+T2.pdf'],
+    ['2026-07-01', 'BO+VDL+du+1er+juillet+2026.pdf'],
+    ['2026-08-03', 'BO+VDL+du+03+ao%C3%BBt+2026.pdf'],
+  ]);
+  assert.equal(links[0].url, 'https://www.lille.fr/content/download/391235/3927610/file/BO+VDL+du+19++janvier+2026.pdf');
+});
+
+test('a shield\'s challenge is told from the page', () => {
+  assert.equal(bulletinChallenge('<html><script src="/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e"></script></html>'), true);
+  assert.equal(bulletinChallenge('<p>Request unsuccessful. Incapsula incident ID: 1234</p>'), true);
+  assert.equal(bulletinChallenge('<a href="/x.pdf"><span>BO VDL du 29 septembre 2026</span></a>'), false);
+});
+
+test('a page\'s head says its number and whether it opens an arrêté', () => {
+  assert.deepEqual(bulletinPageHead(PC_FIRST), {
+    reading: { kind: 'PC', commune: '059350', year: '26', counter: '00149', step: '' }, first: true,
+  });
+  assert.equal(bulletinPageHead(PC_SECOND).first, false);
+  assert.equal(bulletinPageHead(PC_THIRD).reading.commune, '659350');
+  assert.deepEqual(bulletinPageHead(NOTICES), { reading: null, first: false });
+  assert.deepEqual(bulletinPageHead(OLD_THIRD).reading, { kind: 'DP', commune: '059356', year: '19', counter: 'O0080', step: 'M01' });
+  assert.equal(bulletinPageHead(OLD_FIRST).first, true, 'a modification\'s first page prints « N° » alone');
+  assert.equal(bulletinPageHead(TRAFFIC_PAGE), null, 'an arrêté\'s own number is no dossier');
+});
+
+test('the number is voted over the pages, strict on the commune and the year', () => {
+  assert.equal(majorityReading(['00149', '00140', '60140']), '00140');
+  assert.equal(majorityReading(['01111', '01117']), null, 'two readings that differ are no answer');
+  const head = (value) => bulletinPageHead(`DOSSIER N° ${value}`).reading;
+  const context = { insee: '59350', day: '2026-09-29' };
+  assert.equal(bulletinDossier([head('PC 059350 26 00149'), head('PC 059350 26 00140'), head('PC 659350 26 60140')], context),
+    'PC 059350 26 00140');
+  // Lille's counters before 2025 are a letter and four digits, as Sitadel writes them.
+  assert.equal(bulletinDossier([head('DP 059350 19 00080 M01'), head('DP 059356 19 O0080 MO1')], context), 'DP 059350 19 O0080 M01');
+  assert.equal(bulletinDossier([head('PC 059350 24 00174 M01'), head('PC 059350 24 00174 M01'), head('PC 059350 24 00174')], context),
+    'PC 059350 24 O0174 M01', 'a step most pages print');
+  assert.equal(bulletinDossier([head('PC 059298 26 00012')], context), null, 'another commune\'s code');
+  assert.equal(bulletinDossier([head('PC 059350 27 00012')], context), null, 'a year after the bulletin\'s');
+  assert.equal(bulletinDossier([head('DP 059350 26 01111'), head('DP 059350 26 01117')], context), null);
+  assert.equal(bulletinDossier([head('PC 6059350 25 00237'), head('PC 059350 25 00237')], context), 'PC 059350 25 00237');
+});
+
+test('the verdict is the first article\'s, however OCR spells it', () => {
+  assert.equal(bulletinVerdict(PC_SECOND), 'Refus');
+  assert.equal(bulletinVerdict(DP_SECOND), 'Opposition');
+  assert.equal(bulletinVerdict('Articte 1 - Il n\'est pas fait opposition aux travaux décrits dans la demande susvisée.'), 'Non-opposition');
+  assert.equal(bulletinVerdict('Article 1 - I n\'est pas fait opposition aux travaux.\nArticle 2 - Il est fait OPPOSITION'), 'Non-opposition');
+  assert.equal(bulletinVerdict('Article 1 — La décision de non-opposition à déclaration préalable est RETIREE.'), 'Retrait');
+  assert.equal(bulletinVerdict('Article 1 - L\'autorisation d\'urbanisme accordée le 03 juin 2026 à Madame Exemple\nest retirée.'), 'Retrait');
+  assert.equal(bulletinVerdict('Article 1 - Le permis de construire modificatif valant division N° PC 059350 25 00136 MO1\nest ACCORDE sous réserves'), 'Accord');
+  assert.equal(bulletinVerdict('Article 1 - Le permis de démolir est ACCORDE.'), 'Accord');
+  assert.equal(bulletinVerdict('les projets mentionnés à l\'article L. 632-2-1 du code du patrimoine'), null, 'a recital\'s article');
+  for (const verdict of ['Refus', 'Opposition', 'Non-opposition', 'Retrait', 'Accord', 'Accord (transfert)']) {
+    assert.ok(permitListVerdictState(verdict), `${verdict} is on the ladder`);
+  }
+});
+
+test('the signing day is the stamps\', two digits a day, one stamp only for the bulletin\'s own day', () => {
+  assert.equal(bulletinSignedOn(PC_SECOND, '2026-09-29'), '2026-09-29');
+  // « 3 SEP » is « 2 9 SEP » or « 1 3 SEP » with a digit lost: never a stamp.
+  assert.equal(bulletinSignedOn(DP_SECOND, '2026-09-29'), '2026-09-29');
+  assert.equal(bulletinSignedOn('Publié 23 SEP. 2026', '2026-09-29'), null, 'one stamp, another day than the bulletin\'s');
+  assert.equal(bulletinSignedOn('Hôtel de Ville, le 23 SEP. 2026\nPublié le 2 3 SEP. 2026', '2026-09-29'), '2026-09-23');
+  assert.equal(bulletinSignedOn('Hôtel de Ville, le 1 O SEP. 2026\nPublié 1 0 SEP, 2026', '2026-09-10'), '2026-09-10');
+  assert.equal(bulletinSignedOn('Hôtel de Ville, le 3 0 SEP. 2026\nPublié 3 O SEP. 2026', '2026-09-28'), '2026-09-30',
+    'a bulletin may hold acts stamped days after its date');
+  assert.equal(bulletinSignedOn('Hôtel de Ville, le 2 8 SEP. 2076\nPublié 2 8 SEP. 2076', '2026-09-28'), null);
+  assert.equal(bulletinSignedOn('Fait à Lille, le 3 mars 2026', '2026-03-03'), '2026-03-03', 'a typed day');
+  assert.equal(bulletinSignedOn('Vu l\'avis de ENEDIS en date du 27 avril 2026,', '2026-04-28'), null, 'a recital\'s date');
+});
+
+test('the site is the first page\'s, with Hellemmes or Lomme when it says so', () => {
+  const lines = (value) => value.split('\n').map((line) => line.trim()).filter(Boolean);
+  assert.deepEqual(bulletinSite(lines(PC_FIRST)), { address: '138 avenue de l\'Exemple', locality: 'Lille', postcode: null });
+  assert.deepEqual(bulletinSite(lines(DP_FIRST)), { address: '28 rue de l\'Exemple', locality: 'Hellemmes', postcode: '59260' });
+  assert.deepEqual(bulletinSite(lines(OLD_FIRST)), { address: '33 rue Modèle', locality: null, postcode: null });
+  assert.deepEqual(bulletinSite(['e. Sur un terrain situé : AVENUE EXEMPLE, ILOT 0 —', 'LOMME,']),
+    { address: 'AVENUE EXEMPLE, ILOT 0', locality: 'Lomme', postcode: '59160' });
+  // Tesseract 5.3 read the next item's bullet as « Q ».
+  assert.deepEqual(bulletinSite(['. Sur un terrain situé 22 Rue Exemple', 'Q Référence cadastrale : 355 C2844']),
+    { address: '22 Rue Exemple', locality: null, postcode: null });
+  assert.equal(bulletinSite(lines('Vu la demande, présentée le 06 août 2026 par DUPONT Jean, 2\nrue du Demandeur, 59000 Lille,')), null,
+    'the applicant\'s address is never the site');
+});
+
+test('the works are the items before the site, without the generic words', () => {
+  const lines = (value) => value.split('\n').map((line) => line.trim()).filter(Boolean);
+  assert.equal(bulletinPurpose(lines(PC_FIRST)), 'création d\'un bureau et modification de la façade côté rue');
+  assert.equal(bulletinPurpose(lines(OLD_FIRST)), 'ajout d\'une menuiserie en façade arrière');
+  assert.equal(bulletinPurpose(['Vu l\'objet de la demande :', '. Travaux sur construction existante : réparations de la véranda',
+    'e Pour une surface de plancher créée : 21,64 m°,', 'Vu les pièces fournies,']), 'réparations de la véranda');
+  assert.equal(bulletinPurpose(['Vu l\'objet de la demande :', 'e Transfert au profit de Monsieur Exemple', 'e Sur un terrain situé 1 rue Modèle']), null,
+    'a civility is a name to come');
+});
+
+test('a bulletin\'s arrêtés become rows: the number voted, never the applicant', () => {
+  const pages = [TRAFFIC_PAGE, PC_FIRST, PC_SECOND, PC_THIRD, DP_FIRST, DP_SECOND, NOTICES, TRAFFIC_PAGE,
+    OLD_FIRST, OLD_SECOND, OLD_THIRD, NOTICES,
+    'DOSSIER N° DP 059350 26 01111\nDemande de Déclaration préalable', 'DOSSIER N° DP 059350 26 01117 PAGE 2/2\nArticle 1 - Il n\'est pas fait opposition'];
+  const answer = readLilleBulletin(pages, { day: '2026-09-29', insee: '59350' });
+  assert.deepEqual([answer.acts, answer.dropped], [4, 1]);
+  assert.deepEqual(answer.rows.map((row) => [row.dossier, row.verdict, row.decidedOn, row.postedOn, row.filedOn, row.address, row.postcode]), [
+    ['PC 059350 26 00140', 'Refus', '2026-09-29', '2026-09-29', '2026-03-18', '138 avenue de l\'Exemple', null],
+    ['DP 059350 26 01570', 'Opposition', '2026-09-29', '2026-09-29', '2026-09-02', '28 rue de l\'Exemple', '59260'],
+    ['DP 059350 19 O0080 M01', 'Non-opposition', null, '2026-09-29', null, '33 rue Modèle', null],
+  ]);
+  assert.equal(answer.rows[0].floorArea, '60');
+  assert.equal(answer.rows[0].purpose, 'création d\'un bureau et modification de la façade côté rue');
+  assert.ok(!JSON.stringify(answer.rows).includes('DUPONT'), 'the applicant is never read');
+  assert.ok(!JSON.stringify(answer.rows).includes('Demandeur'), 'nor their own address');
+  // Kept and drawn as every list's rows are.
+  const cells = PERMIT_LIST_ROWS.scrub(answer.rows[0]);
+  const permit = normalisePermitListRow(LILLE, 'decisions', cells);
+  assert.deepEqual([permit.state, permit.key, permit.communeCode, permit.decidedOn, permit.depositedOn],
+    ['refuse', 'DAU|0593502600140', '59350', '2026-09-29', '2026-03-18']);
+  assert.equal(permitListDossier(answer.rows[2].dossier).digits, '05935019O0080M01', 'Sitadel\'s spelling, step kept');
+});
+
+test('a repeated number on the next pages is one decision, the ladder\'s verdict kept', () => {
+  const reprint = 'DOSSIER N° DP 059350 24 O0471\nDemande de Déclaration préalable\nArticle 1 - Il n\'est pas fait opposition';
+  const withdrawal = 'DOSSIER N° DP 059350 24 O0471\nArrêté de retrait\nArticle 1 - La décision de non-opposition est RETIREE';
+  const answer = readLilleBulletin([withdrawal, reprint], { day: '2026-08-19', insee: '59350' });
+  assert.equal(answer.rows.length, 1);
+  assert.equal(answer.rows[0].verdict, 'Retrait');
+});
+
+test('a page is read whole only when its top shows a decision\'s number, notices aside', () => {
+  assert.equal(bulletinPageWorthReading('DOSSIER N° DP 059350 26 01570 PAGE 2/3'), true);
+  assert.equal(bulletinPageWorthReading('N° PC 059350 25 00136 M01\nPERMIS DE CONSTRUIRE'), true);
+  assert.equal(bulletinPageWorthReading('DOSSIER N° «DOSSIERNOM» PAGE 3/3\nINFORMATIONS - A LIRE ATTENTIVEMENT'), false);
+  assert.equal(bulletinPageWorthReading('DOSSIER N° PC 059350 24 O0174 M01 PAGE 3 / 3\nINFORMATIONS - A LIRE ATTENTIVEMENT'), false);
+  assert.equal(bulletinPageWorthReading('Arrêté Municipal\nN° 270'), false);
 });

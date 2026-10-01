@@ -380,6 +380,7 @@ import {
   PERMIT_LISTS_ARCHIVE_DIR,
   PERMIT_LISTS_EDITION_DIR,
 } from './scripts/lib/permitLists.mjs';
+import { createPdfOcr, pdfOcrAvailable } from './scripts/lib/pdfOcr.mjs';
 import {
   mmmSweepDue,
   readMmmEdition,
@@ -28317,7 +28318,9 @@ function adsFranceProxy() {
    * from a page at Marseille and Nîmes, published as acts on a Webdelib+
    * platform at Lyon and Béziers. Same six hours and the same archive; bounded
    * by `PERMIT_LISTS`, so the map needs no eviction. A scan reads a Webdelib+
-   * city's last two months; the daily sweep reads a year, each act once.
+   * city's last two months; the daily sweep reads a year, each act once. A
+   * city whose decisions are scans in a bulletin (Lille) is read by OCR in
+   * the sweep alone: a scan draws what the sweep read, without a request.
    *
    * GEOCODED ONCE PER ADDRESS, not once per build. These lists are addresses
    * with no parcel, and the archive only grows: Marseille's first reading was
@@ -28496,6 +28499,19 @@ function adsFranceProxy() {
     };
   }
 
+  /**
+   * What a scanned bulletin is read with (Lille, Trap 9 of
+   * `permitListsFeed.js`): poppler and Tesseract, installed by the Dockerfile,
+   * asked once per process. Null on a machine without them — the sweep then
+   * leaves Lille out with one line in the log. Handed to the sweep only, so a
+   * visitor's scan never waits for an OCR.
+   */
+  let permitListsOcr = null;
+  function permitListsOcrRunner() {
+    permitListsOcr ??= pdfOcrAvailable().then((available) => (available ? createPdfOcr() : null), () => null);
+    return permitListsOcr;
+  }
+
   /** The daily sweep of every city's lists, beside the boards'. */
   let permitListsSweeping = null;
   async function sweepPermitListsIfDue() {
@@ -28510,6 +28526,7 @@ function adsFranceProxy() {
         robots: permitListRobotsVerdict,
         dir: permitListsEditionDir,
         day,
+        ocr: await permitListsOcrRunner(),
       });
       await writeCartdsSweepStamp(permitListArchive.dir, summary);
       return summary;
