@@ -66,6 +66,7 @@ import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, formatDossier, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 import { CARTDS_LICENCE, cartdsKind, cartdsVerdictState } from './cartdsFeed.js';
+import { SIRAP_SCANNED_INSTANCES } from './sirapScanned.js';
 
 /** Trim a value to a non-empty string, or null. */
 function text(value) {
@@ -94,7 +95,7 @@ export const SIRAP_LICENCE = CARTDS_LICENCE;
  * `associated` names, for a commune, the boards it reads beyond its own: the
  * communes it absorbed, which the PU still posts apart (Trap 4).
  */
-export const SIRAP_INSTANCES = Object.freeze([
+const SIRAP_DOCUMENTED_INSTANCES = Object.freeze([
   Object.freeze({
     key: 'rennesmetropole',
     base: 'https://demarchesurbanisme-rennesmetropole.pu.sirap.com',
@@ -131,6 +132,13 @@ export const SIRAP_INSTANCES = Object.freeze([
     communes: Object.freeze(['92004']),
   }),
 ]);
+
+/**
+ * Every PU board read: the documented ones above, then the ones
+ * `npm run permits:scan` found (`sirapScanned.js`) — Sirap's shared portal,
+ * which posts for communes all over France, and four intercommunal hosts.
+ */
+export const SIRAP_INSTANCES = Object.freeze([...SIRAP_DOCUMENTED_INSTANCES, ...SIRAP_SCANNED_INSTANCES]);
 
 /**
  * The instance posting for this commune, or null.

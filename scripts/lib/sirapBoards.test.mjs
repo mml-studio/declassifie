@@ -118,6 +118,15 @@ test('the sweep reads every open board into the archive and names what failed', 
 
     const file = JSON.parse(await fsp.readFile(path.join(dir, '59183.json'), 'utf8'));
     assert.equal(file.rows.length, 3);
+
+    // Two instances on one host ask its robots.txt once per sweep.
+    const SHARED = [1, 2].map((n) => Object.freeze({ ...SHUT, key: `pu${n}`, communes: Object.freeze([`0600${n}`]) }));
+    const shared = fakeHttp({ robots: { 'shut.example': 'User-agent: *\nDisallow: /' } });
+    const refused = await sweepSirapArchive({
+      instances: SHARED, store, http: shared, day: '2026-10-01', pauseMs: 0, log: {},
+    });
+    assert.deepEqual(refused.refused, ['pu1', 'pu2']);
+    assert.equal(shared.calls.filter((call) => call.endsWith('/robots.txt')).length, 1);
     const text = JSON.stringify(file);
     assert.ok(!text.includes('DUPONT'), 'a person never reaches the disk');
     assert.ok(!text.includes('MARTIN'), 'nor an architect');

@@ -20,6 +20,7 @@ import {
   sirapVerdictState,
 } from './sirapFeed.js';
 import { CARTDS_INSTANCES, foldCartdsDossiers } from './cartdsFeed.js';
+import { SIRAP_SCANNED_INSTANCES } from './sirapScanned.js';
 import { PUBLICATION_ACTES_COMMUNES } from './publicationActesFeed.js';
 import { LOCAL_ADS_PORTALS, SITADEL_FILES, mergeRegisters, normaliseSitadelRow } from './adsFeed.js';
 import { COMMUNE_CODE_PATTERN } from './communeCode.js';
@@ -63,8 +64,9 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
       for (const board of boards) assert.ok(!seen.has(board), `${board} is a commune of its own`);
     }
   }
-  // Rennes Métropole 40, Dunkerque 14, Antibes, Asnières.
-  assert.equal(seen.size, 56);
+  // Written by hand: Rennes Métropole 40, Dunkerque 14, Antibes, Asnières. The
+  // scan's communes are on top, and the loop above refused any it shares.
+  assert.equal(seen.size - SIRAP_SCANNED_INSTANCES.reduce((sum, i) => sum + i.communes.length, 0), 56);
   assert.equal(sirapInstanceFor('35238'), RENNES);
   assert.equal(sirapInstanceFor('59183'), CUD);
   assert.equal(sirapInstanceFor('59248'), null, 'Fort-Mardyck is read as Dunkerque');

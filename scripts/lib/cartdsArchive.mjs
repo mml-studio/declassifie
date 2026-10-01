@@ -162,7 +162,8 @@ export async function cartdsRobotsVerdict(instance, http) {
   if (response.status >= 400) return { allowed: true, final: true };
   const body = await http.text(response, ROBOTS_MAX_BYTES);
   if (body === null) return { allowed: false, final: false };
-  const base = new URL(instance.base).pathname;
+  // A board at the root of its host has `/` for a path, not a prefix.
+  const base = new URL(instance.base).pathname.replace(/\/$/, '');
   return {
     allowed: robotsAllows(body, `${base}${CARTDS_PAGE_PATH}`) && robotsAllows(body, `${base}${CARTDS_DATA_PATH}`),
     final: true,

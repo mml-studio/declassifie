@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4691,8 +4691,8 @@ drawn with its decision. Two decisions kept for one dossier — a grant and its
 later withdrawal — resolve to the later one. When a board does not answer,
 the archive is served alone, marked `live: false` and not cached. Under
 `vite preview`, the hosted server, every board is swept once per French
-calendar day whether or not anybody looks (about 410 requests one second
-apart, some ten minutes; `sweep.json` in the same directory says what the
+calendar day whether or not anybody looks (about 3 200 requests one second
+apart, about an hour since the scan below; `sweep.json` in the same directory says what the
 last sweep read); under `vite dev` it is off. `CARTDS_ARCHIVE=daily|off`
 overrides either, and `npm run cartds:archive` runs the same sweep from a
 shell (`--join <dir>` folds in an archive swept elsewhere). The archive starts
@@ -4715,9 +4715,43 @@ hours, one request per board, placed on its parcel first — 773 of Rennes's
 scan takes 33 s with Sitadel, a warm one is served from
 `.gev-cache/address/sirap1-<insee>.json`. The rows are kept exactly like a
 Cart@DS board's, by the same archive code, in `.gev-cache/archive/sirap/`, and
-swept on the same daily clock (58 requests, about a minute). The applicant is
-filtered and the architect never stored. Every PU host answers `robots.txt`
-with its own app page, which is no file; a host that publishes one is obeyed.
+swept on the same daily clock (about 1 100 requests, some 20 minutes since
+the scan below). The applicant is filtered and the architect never stored.
+Every PU host answers `robots.txt` with its own app page, which is no file; a
+host that publishes one is obeyed.
+
+**Since 2026-10-01, a scan of the platforms adds 2 239 communes.** Reading the
+sites of the 1 000 most populous communes found boards one by one; asking the
+platforms which communes they serve finds them all at once
+(`scripts/permit-boards-scan.mjs`, `npm run permits:scan`). Cart@DS: the
+Wayback Machine lists some 320 tenants of the `geosphere.fr` hosting family,
+the DNS confirms 68 more whose names were guessed from commune and
+intercommunality names (the family has no wildcard, so a guess costs its
+servers nothing; demonstration and training tenants are left out), and
+nineteen boards on hosts of their own were found on the
+communes' sites; each host is asked for its board page, its commune menu and
+five rows of each board of each commune. Sirap: its shared portal
+(`portail-usager.sirap.com`) lists the 2 692 communes it posts for and four
+intercommunal PU hosts list theirs, and every board is asked once. A commune
+is kept when its board posted within three months (`LIVE_WITHIN_DAYS`, 92
+days) and no other register reads it; the result is written to two generated
+modules, `src/data/cartdsScanned.js` (168 instances, 1 230 communes) and
+`src/data/sirapScanned.js` (1 009 communes, one instance each, so that the
+card names the commune as the publisher), which `cartdsFeed.js` and
+`sirapFeed.js` append to their documented instances. 129 Cart@DS boards
+answered with an empty commune menu — the software is there, the posting is
+not switched on — and are left out. Ninety-two of the 168 instances answer
+`robots.txt` with `Disallow: /`, the hosting family's default rather than a
+commune's choice (173 of the 283 `geosphere.fr` boards say the same), and are
+read by the decision of 2026-09-30 that already covered five, confirmed for
+them on 2026-10-01, each marked `robots: 'overridden'`; they hold 690
+communes and 1.56 million inhabitants (`--respect-robots` writes the registry
+without them). The scan asks two hosts at a time, half a second apart.
+Menus send a commune three ways, the INSEE code, its last three digits, or —
+on two departmental agencies and Pamiers — the INSEE code without its
+leading zero (`codes: 'unpadded'`). Measured on 2026-10-01 against geo.api.gouv.fr's
+populations: 17.5 % of the population is now seen within days, from 9.7 %;
+176 of the 1 000 most populous communes, from 79.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on
