@@ -425,7 +425,13 @@ function fakeBatch(colors) {
   const attributes = new Map();
   const entries = colors.map((alpha, index) => {
     const id = { id: `epci:${index}` };
-    attributes.set(id, { color: new Uint8Array([0, 0, 0, Math.round(alpha * 255)]) });
+    // Like Cesium's attribute handles, the setter COPIES what it is given:
+    // `fadeInstances` writes every instance from one scratch array.
+    let color = new Uint8Array([0, 0, 0, Math.round(alpha * 255)]);
+    attributes.set(id, {
+      get color() { return new Uint8Array(color); },
+      set color(value) { color = new Uint8Array(value); },
+    });
     return [id, { red: 0, green: 0, blue: 0, alpha }];
   });
   const primitive = {
