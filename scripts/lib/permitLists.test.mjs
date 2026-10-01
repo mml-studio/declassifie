@@ -403,3 +403,38 @@ test('a page\'s editions are read once each; an optional list that fails leaves 
   // The two editions came from disk; only the page and the failing list were asked for.
   assert.deepEqual(again.calls.map((call) => new URL(call.url).pathname), ['/permis/', '/decisions.pdf']);
 });
+
+test('a Drive city lists its year and board folders, then reads each new file once', async () => {
+  const dir = await tempDir();
+  const city = Object.freeze({
+    key: 'v', insee: '78646', label: 'V — registres', page: 'https://drive.google.com/embeddedfolderview?id=ROOT00000000',
+    robots: 'overridden', source: Object.freeze({ kind: 'drive', root: 'ROOT00000000' }),
+    lists: Object.freeze([Object.freeze({ board: 'filings', layout: 'register', folder: /d[ée]pos/i })]),
+  });
+  const entry = (id, title, folder) => `<div class="flip-entry" id="entry-${id}"><a href="https://drive.google.com/${folder ? 'drive/folders' : 'file/d'}/${id}"><div class="flip-entry-title">${title}</div></a></div>`;
+  const folders = {
+    ROOT00000000: entry('YEAR20250000', '2025', true) + entry('YEAR20260000', '2026', true),
+    YEAR20260000: entry('DEPOS0000000', ' dossiers déposés', true) + entry('DECID0000000', 'Dossiers décidés', true),
+    DEPOS0000000: entry('FILE00000001', '1er_tableau_2026.pdf', false) + entry('FILE00000002', 'note.docx', false),
+  };
+  const calls = [];
+  const http = {
+    async fetch(url) {
+      const { pathname, searchParams } = new URL(url);
+      const id = searchParams.get('id');
+      calls.push(`${pathname}?${id}`);
+      const ok = (payload, type) => ({ ok: true, status: 200, payload, body: { cancel: async () => {} }, headers: { get: () => type } });
+      if (pathname === '/embeddedfolderview') return folders[id] ? ok(folders[id], 'text/html') : { ok: false, status: 404 };
+      if (pathname === '/download' && id === 'FILE00000001') return ok(registerPdf('DP 030189 26 01093', 'SCI A'), 'application/octet-stream');
+      return { ok: false, status: 404 };
+    },
+    text: async (r) => r.payload,
+    bytes: async (r) => r.payload,
+  };
+  const first = await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
+  assert.deepEqual(first.boards.filings.map((cells) => cells[0]), ['DP 030189 26 01093']);
+  assert.ok(!calls.some((call) => call.includes('YEAR20250000')), 'a year before the window is not listed');
+  calls.length = 0;
+  await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
+  assert.ok(!calls.some((call) => call.startsWith('/download')), 'a file read once is not downloaded again');
+});

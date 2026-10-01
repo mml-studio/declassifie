@@ -24,6 +24,11 @@ import {
   scrubPermitListRow,
   PERMIT_LIST_TEXT,
   aixDossier,
+  driveFileUrl,
+  driveFolderUrl,
+  parseDriveFolder,
+  readVersaillesList,
+  versaillesParcels,
   gridApplicant,
   joinDossier,
   typo3ListLinks,
@@ -847,4 +852,65 @@ test('a headless TYPO3 page gives its files by the heading of their block', () =
   ]);
   assert.equal(typo3ListLinks(annecy, { content: { colPos0: [] } }), null);
   assert.deepEqual(PERMIT_LIST_TEXT['annecy-decisions'], { wordGapEm: 0.15 });
+});
+
+// --- Versailles: every cell its own clip --------------------------------------
+
+test('Versailles\'s rows are the runs that share a cell\'s clip, wherever their text sits', () => {
+  const page = { x0: 0, y0: 0, x1: 841.9, y1: 595.3 };
+  const cell = (x0, x1, y0, y1) => ({ x0, y0, x1, y1 });
+  const r = (t, x, y, clip, size = 7) => ({ x, x1: x + t.length * 3, y, size, text: t, clip });
+  const head = (y) => [
+    r('Dossier', 37.2, y, cell(36.7, 228.4, y - 2.5, y + 11.3), 12), r('Terrain', 229.5, y, cell(229, 420.7, y - 2.5, y + 11.3), 12),
+    r('Description', 421.8, y, cell(421.3, 612.9, y - 2.5, y + 11.3), 12), r('Décision', 614, y, cell(613.7, 805.3, y - 2.5, y + 11.3), 12),
+  ];
+  const row = (y0, y1, n, verdict) => {
+    const [a, b, c, d] = [cell(36.7, 228.4, y0, y1), cell(229, 420.7, y0, y1), cell(421.3, 612.9, y0, y1), cell(613.7, 805.3, y0, y1)];
+    return [
+      r(`DP 78646 26 V12${n}`, 37.2, y1 - 12, a, 10), r('Dépôt le 03/08/2026', 37.2, y1 - 20, a), r('par SCI EXEMPLE', 37.2, y1 - 28, a),
+      r('Représentant : Monsieur DUPONT', 37.2, y1 - 36, a),
+      // Centred: a two-line site starts above the number.
+      r('Terrain : AX0288 B0229', 229.5, y1 - 8, b), r('sis 9 Rue Exemple', 229.5, y1 - 16, b), r('Surface : 438m²', 229.5, y1 - 24, b),
+      r('Propriétaire : Madame MARTIN', 229.5, y1 - 32, b),
+      r('Projet : Remplacement des', 421.8, y1 - 14, c), r('menuiseries', 421.8, y1 - 22, c),
+      r('Surface de plancher créée : 25,1m²', 421.8, y1 - 30, c),
+      r('Signée le : 10/09/2026', 614, y1 - 14, d), r(`Nature de la décision : ${verdict}`, 614, y1 - 22, d),
+    ];
+  };
+  const doc = { pages: [
+    { runs: [
+      r('REGISTRE DES AUTORISATIONS D\'URBANISME DECIDEES - Mairie de Versailles du 01/09/2026 au 15/09/2026', 100, 525, page, 12),
+      r('Liste des DP : Déclaration Préalable de Construction de Versailles', 36, 497, page, 12),
+      ...head(470.1), ...row(420, 464.6, 28, 'Octroi'),
+    ] },
+    // The header is not repeated: the columns carry over.
+    { runs: [...row(500, 550, 29, 'Refus')] },
+  ] };
+  const rows = readVersaillesList(doc);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], {
+    board: 'decisions', dossier: 'DP 78646 26 V1228', label: null, purpose: 'Remplacement des menuiseries',
+    applicant: 'SCI EXEMPLE', address: '9 Rue Exemple', postcode: null, locality: null, filedOn: '2026-08-03',
+    verdict: 'Octroi', decidedOn: '2026-09-10', postedOn: null, landArea: '438', housing: null, lots: null,
+    floorArea: '25.1', parcels: 'AX 0288, B 0229',
+  });
+  assert.ok(!JSON.stringify(rows).includes('DUPONT') && !JSON.stringify(rows).includes('MARTIN'));
+  const versailles = PERMIT_LISTS.find((city) => city.key === 'versailles');
+  const granted = normalisePermitListRow(versailles, 'decisions', rows[0]);
+  assert.deepEqual([granted.state, granted.key, granted.parcelIdus.map((ref) => ref.idu)],
+    ['accorde', 'DAU|07864626V1228', ['78646000AX0288', '786460000B0229']]);
+  assert.equal(normalisePermitListRow(versailles, 'decisions', rows[1]).state, 'refuse');
+  assert.equal(versaillesParcels('AH0084 AH0109 A10301'), 'AH 0084, AH 0109');
+});
+
+test('a public Drive folder lists its folders and files by id', () => {
+  const html = `
+    <div class="flip-entry" id="entry-1BU0Xze_7wMzKt4hbOUalhJgFIODrMTaB" tabindex="0"><a href="https://drive.google.com/drive/folders/1BU0Xze_7wMzKt4hbOUalhJgFIODrMTaB" target="_blank"><div class="flip-entry-info"><div class="flip-entry-title">2026</div></div></a></div>
+    <div class="flip-entry" id="entry-1uOj7yM-C09gvaYZ1UzgK8pVZIMEhYEJi" tabindex="0"><a href="https://drive.google.com/file/d/1uOj7yM-C09gvaYZ1UzgK8pVZIMEhYEJi/view?usp=drive_web" target="_blank"><div class="flip-entry-title">17eme_tableau_2026.pdf</div><div class="flip-entry-last-modified"><div>Sep 16</div></div></a></div>`;
+  assert.deepEqual(parseDriveFolder(html), [
+    { id: '1BU0Xze_7wMzKt4hbOUalhJgFIODrMTaB', folder: true, title: '2026' },
+    { id: '1uOj7yM-C09gvaYZ1UzgK8pVZIMEhYEJi', folder: false, title: '17eme_tableau_2026.pdf' },
+  ]);
+  assert.equal(driveFolderUrl('abc'), 'https://drive.google.com/embeddedfolderview?id=abc');
+  assert.equal(driveFileUrl('abc'), 'https://drive.usercontent.google.com/download?id=abc&export=download');
 });

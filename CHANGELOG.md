@@ -64,6 +64,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   on their cadastral parcel; Clermont-Ferrand's decisions of the last two
   months, 313, refusals included — its list of filings answered « not found »
   on 2026-10-01 and is read when it is back.
+- **Versailles now shows its permits days after the fact**, from the
+  fortnightly registers of filed and decided dossiers it posts in a public
+  Google Drive folder: 1 764 dossiers in 2026, 2 748 rows on their cadastral
+  parcel, 186 refusals.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

@@ -32,6 +32,9 @@ import {
   digilorIndexUrl,
   parseWebdelibActs,
   readAixTables,
+  driveFileUrl,
+  driveFolderUrl,
+  parseDriveFolder,
   typo3ListLinks,
   PERMIT_LIST_TEXT,
   permitListLinks,
@@ -231,6 +234,69 @@ async function keepFile(dir, list, bytes) {
 }
 
 /**
+ * A city whose lists are files in a public Google Drive folder (Versailles):
+ * a folder per year, in each a folder per board, in each one file per
+ * fortnight. The years the reading's months reach are listed, every file of
+ * their boards read once — a file is kept by its Drive id and never asked for
+ * again — at most `maxFiles` new ones at a time. Every listing must answer:
+ * a year missing would read as a year without permits.
+ */
+async function readDriveCity(city, http, { dir, allows, months, day, maxFiles }) {
+  const list = async (id) => {
+    const url = driveFolderUrl(id);
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { headers: { Accept: 'text/html' } });
+    if (!response?.ok) return null;
+    const html = await http.text(response, PAGE_MAX_BYTES);
+    return html ? parseDriveFolder(html) : null;
+  };
+  const root = await list(city.source.root);
+  if (!root) return null;
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const years = root.filter((entry) => entry.folder && /^\d{4}$/.test(entry.title) && Number(entry.title) >= first.year);
+  const files = [];
+  for (const year of years) {
+    const boards = await list(year.id);
+    if (!boards) return null;
+    for (const shelf of city.lists) {
+      const folder = boards.find((entry) => entry.folder && shelf.folder.test(entry.title));
+      if (!folder) continue;
+      const entries = await list(folder.id);
+      if (!entries) return null;
+      for (const entry of entries) {
+        if (entry.folder || !/\.pdf$/i.test(entry.title)) continue;
+        files.push({ board: shelf.board, layout: shelf.layout, url: driveFileUrl(entry.id), title: entry.title });
+      }
+    }
+  }
+  const boards = {};
+  let fetched = 0;
+  let failed = 0;
+  let skipped = 0;
+  let reused = 0;
+  for (const file of files) {
+    const kept = await readEdition(dir, file.url);
+    let answer = kept ? { rows: kept.rows, reused: true } : null;
+    if (kept) reused += 1;
+    else if (fetched >= maxFiles) { skipped += 1; continue; } else {
+      fetched += 1;
+      const response = allows(new URL(file.url).pathname) ? await http.fetch(file.url) : null;
+      const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
+      answer = bytes ? await keepFile(dir, file, bytes) : null;
+    }
+    if (!answer) { failed += 1; continue; }
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+  }
+  return {
+    boards,
+    lists: [{ url: driveFolderUrl(city.source.root), files: files.length, fetched, reused, skipped }],
+    failed,
+    skipped,
+    incomplete: failed > 0 || skipped > 0,
+  };
+}
+
+/**
  * Aix's page, both tables read at once (`readAixTables`). The window is the
  * page's, two months recomputed at each request; the archive keeps the rest.
  */
@@ -375,6 +441,7 @@ export async function readPermitCity(city, http, {
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
+  if (city.source?.kind === 'drive') return readDriveCity(city, http, { dir, allows, months, day, maxFiles });
   const pageUrl = city.source?.kind === 'typo3' ? city.source.api : city.page;
   if (!allows(new URL(pageUrl).pathname)) return null;
   const response = await http.fetch(pageUrl, {

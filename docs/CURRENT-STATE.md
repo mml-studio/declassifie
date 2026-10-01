@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy and Clermont-Ferrand publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand and Versailles publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4809,6 +4809,20 @@ host sends its certificate without the Sectigo OV R36 intermediate, which
 the server supplies as it does for the `pemb.fr` boards; its list of filings
 answered 404 on 2026-10-01 and is optional, so its decisions are read
 without it. `Octroi` and `Octroi tacite` now read as grants.
+
+**Versailles** posts a register of filed and one of decided dossiers every
+fortnight, in a public Google Drive folder its urbanism page links (a folder
+per year, in each a folder per board, names typed by hand). The folders are
+listed through `embeddedfolderview` — plain HTML, no key — and each file read
+once, by its Drive id, through `drive.usercontent.google.com`; Drive's
+`robots.txt` disallows both, and the folder is read by the project's decision
+(`robots: 'overridden'`). Word draws every cell of these registers under its
+own clip rectangle, so `readVersaillesList` takes a row as the runs that
+share a clip's top and bottom and a column as the header clip a run's starts
+at: all 2 912 numbers of the 34 files of 2026 come out (120 of them `AP`
+signs and `PP` pre-projects, not drawn). The parcels (`AX0288`) place 2 748
+rows on their plot; `par`, `Représentant` and `Propriétaire` name people, and
+only an organisation's `par` is kept.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

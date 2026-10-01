@@ -275,6 +275,26 @@ export const PERMIT_LISTS = Object.freeze([
       // i18n-ignore-end
     ]),
   }),
+  Object.freeze({
+    key: 'versailles',
+    insee: '78646',
+    label: 'Ville de Versailles — registres des autorisations d’urbanisme déposées et décidées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://drive.google.com/embeddedfolderview?id=0B2R5I00QUlOKUTlya2RCUGpQWFE',
+    // Drive's robots.txt disallows a folder's listing and a file's download;
+    // read by the project's decision, as Lyon's platform is: the folder is the
+    // one the city's urbanism page links, « Tous les dossiers déposés et
+    // acceptés par année ».
+    robots: 'overridden',
+    // A folder per year, in each a folder per board — their names typed by
+    // hand: `Dossiers déposés`, ` dossiers déposés`, `Dossiers acceptés`.
+    source: Object.freeze({ kind: 'drive', root: '0B2R5I00QUlOKUTlya2RCUGpQWFE' }),
+    lists: Object.freeze([
+      // i18n-ignore-start — the city's own folder names, matched on
+      Object.freeze({ board: 'filings', layout: 'versailles', folder: /d[ée]pos/i }),
+      Object.freeze({ board: 'decisions', layout: 'versailles', folder: /d[ée]cid|accept/i }),
+      // i18n-ignore-end
+    ]),
+  }),
 ]);
 
 /**
@@ -1728,6 +1748,162 @@ const CLERMONT_FILINGS = Object.freeze({
   },
 });
 
+// --- Versailles: a register whose every cell is its own clip ---------------
+
+/** The labels Versailles's register writes at the head of a cell's lines. */
+// i18n-ignore-next-line — the register's own labels, matched on
+const VERSAILLES_LABEL_RE = /^(d[ée]p[ôo]t le|complet le|par|repr[ée]sentant\s*:|auteur\s*:|terrain\s*:|sis|surface\s*:|propri[ée]taire\s*:|projet\s*:|surface de plancher [^\s:]+\s*:|nb logements cr[ée]{2}s\s*:|destination\s*:|hauteur\s*:|sign[ée]e le\s*:|notifi[ée] le\s*:|nature de la d[ée]cision\s*:)\s*(.*)$/i;
+
+/**
+ * A cell's lines as labelled values: each labelled line opens a value, the
+ * lines after it continue it — `Projet : Remplacement des` / `menuiseries`.
+ * @param {Array<string>} cellLines
+ * @returns {Map<string, string>} Folded label → value.
+ */
+function labelled(cellLines) {
+  const out = new Map();
+  let label = null;
+  for (const line of cellLines) {
+    const match = VERSAILLES_LABEL_RE.exec(line);
+    if (match) {
+      label = fold(match[1]).replace(/\s*:$/, '');
+      if (!out.has(label)) out.set(label, text(match[2]) ?? '');
+      continue;
+    }
+    if (label) out.set(label, text(`${out.get(label)} ${line}`));
+  }
+  return out;
+}
+
+/**
+ * `AX0288 AH0109` — Versailles's parcels, a section of one or two characters
+ * and a number on four digits, spaces between — as the list cells write them
+ * everywhere else: `AX 0288, AH 0109`.
+ * @param {?string} value
+ * @returns {?string}
+ */
+export function versaillesParcels(value) {
+  const out = [];
+  for (const token of String(value ?? '').toUpperCase().split(/[\s,;]+/)) {
+    const match = /^([A-Z0-9]{0,1}[A-Z])(\d{4})$/.exec(token);
+    if (match) out.push(`${match[1]} ${match[2]}`);
+  }
+  return out.length ? out.join(', ') : null;
+}
+
+/**
+ * Versailles's « Registre des autorisations d'urbanisme déposées / décidées »,
+ * fortnightly, one row per dossier.
+ *
+ * EVERY CELL IS ITS OWN CLIP. Word draws each cell of the table under a clip
+ * rectangle, so a row is the runs that share a clip's top and bottom, and a
+ * column the header whose clip starts where the run's does — no geometry to
+ * infer, where the text itself is centred in each cell and a two-line site
+ * starts above the dossier's number. The header (`Dossier`, `Terrain`,
+ * `Description`, `Décision`) is printed under each section's title only, so
+ * its columns are carried from page to page; a run under the page's own clip
+ * — the title, the section headings — is no cell. A row never splits across
+ * pages (none of 2 912 in the 34 files of 2026).
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw, each with its board.
+ */
+export function readVersaillesList(document) {
+  const rows = [];
+  let board = null;
+  let columns = null;
+  // i18n-ignore-start — the register's own title and headers, matched on
+  const HEADS = Object.freeze({ DOSSIER: 'dossier', TERRAIN: 'site', DESCRIPTION: 'project', DECISION: 'decision' });
+  for (const page of document?.pages ?? []) {
+    const cells = new Map();
+    for (const run of page.runs ?? []) {
+      const words = text(run.text);
+      if (!words) continue;
+      const full = !run.clip || (run.clip.x0 <= 0.5 && run.clip.y0 <= 0.5);
+      if (full) {
+        const title = /D'URBANISME\s+(DEPOSEES|DECIDEES)/.exec(fold(words));
+        if (title) board = title[1] === 'DEPOSEES' ? PERMIT_LIST_BOARDS.filings : PERMIT_LIST_BOARDS.decisions;
+        continue;
+      }
+      const head = HEADS[fold(words)];
+      if (head && run.size >= 11) { (columns ??= {})[head] = run.clip; continue; }
+      const key = `${run.clip.y0.toFixed(1)}|${run.clip.y1.toFixed(1)}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(run);
+    }
+    // i18n-ignore-end
+    if (!columns) continue;
+    for (const group of cells.values()) {
+      const byField = {};
+      for (const run of group) {
+        const field = Object.keys(columns).find((name) => Math.abs(columns[name].x0 - run.clip.x0) < 1.5);
+        if (field) (byField[field] ??= []).push(run);
+      }
+      const dossierLines = lines(byField.dossier ?? []);
+      const { dossier } = joinDossier(dossierLines);
+      if (!dossier || !DOSSIER_RE.test(dossier)) continue;
+      const who = labelled(dossierLines);
+      const site = labelled(lines(byField.site ?? []));
+      const project = labelled(lines(byField.project ?? []));
+      const decision = labelled(lines(byField.decision ?? []));
+      const decided = Boolean(columns.decision) && board === PERMIT_LIST_BOARDS.decisions;
+      rows.push({
+        board: decided ? PERMIT_LIST_BOARDS.decisions : (board ?? PERMIT_LIST_BOARDS.filings),
+        dossier,
+        label: null,
+        purpose: project.get('PROJET') ?? null,
+        applicant: who.get('PAR') ?? null,
+        address: site.get('SIS') ?? null,
+        postcode: null,
+        locality: null,
+        filedOn: listDay(who.get('DEPOT LE')),
+        verdict: decided ? decision.get('NATURE DE LA DECISION') ?? null : null,
+        decidedOn: decided ? listDay(decision.get('SIGNEE LE')) : null,
+        postedOn: null,
+        landArea: area(site.get('SURFACE')),
+        housing: number(project.get('NB LOGEMENTS CREES')) ? project.get('NB LOGEMENTS CREES') : null,
+        lots: null,
+        floorArea: area(project.get('SURFACE DE PLANCHER CREEE')),
+        parcels: versaillesParcels(site.get('TERRAIN')),
+      });
+    }
+  }
+  return rows;
+}
+
+// --- Google Drive: a public folder, listed without a key -------------------
+
+/** A public folder's listing, plain HTML, no key, no script. */
+export function driveFolderUrl(id) {
+  return `https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(id)}`;
+}
+
+/** A public file's bytes. */
+export function driveFileUrl(id) {
+  return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download`;
+}
+
+/**
+ * The entries of a folder's listing: each `flip-entry` block holds an id, a
+ * link that says whether it is a folder or a file, and a title. The dates the
+ * listing prints are the viewer's locale and a re-upload's day: not read.
+ * @param {string} html
+ * @returns {Array<{id: string, folder: boolean, title: string}>}
+ */
+export function parseDriveFolder(html) {
+  const out = [];
+  for (const block of String(html ?? '').split('<div class="flip-entry" id="entry-').slice(1)) {
+    const id = block.slice(0, block.indexOf('"'));
+    const href = decodeEntities(/<a href="([^"]+)"/.exec(block)?.[1] ?? '');
+    const title = text(decodeEntities(/<div class="flip-entry-title">([^<]*)<\/div>/.exec(block)?.[1] ?? ''));
+    if (!/^[\w-]{10,}$/.test(id) || !title) continue;
+    const folder = href.includes('/drive/folders/');
+    if (!folder && !href.includes('/file/d/')) continue;
+    out.push({ id, folder, title });
+  }
+  return out;
+}
+
 /**
  * How a layout's files are turned into text, where it differs from the
  * default (`extractPdfText`'s options): Annecy's, printed from Firefox, draw
@@ -1748,6 +1924,7 @@ export const PERMIT_LIST_READERS = Object.freeze({
   grid: (document) => [...readGridTable(document, GRID_FILINGS), ...readGridTable(document, GRID_DECISIONS)],
   'annecy-filings': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.filings)),
   'annecy-decisions': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.decisions)),
+  versailles: readVersaillesList,
   // The page's header says which of its two reports it is.
   clermont: (document) => [
     ...readBandTable(document, CLERMONT_DECISIONS),
