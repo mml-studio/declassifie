@@ -45,7 +45,10 @@ import anfrFranceLayer, {
   anfrPlainText,
   anfrMastHeightM,
   anfrMastLegend,
-  anfrMastRegime,
+  ANFR_SHAFT_BAND,
+  ANFR_SUPPORTS_BAND,
+  anfrLevelAlphas,
+  planAnfrLevels,
   anfrSectorRays,
   anfrEditionLabel,
   anfrFrenchDate,
@@ -73,6 +76,7 @@ import anfrFranceLayer, {
   _clearAnfrSelectionForTest,
   _expireAnfrSupportCellsForTest,
   _loadAnfrViewportForTest,
+  _anfrFadeFrameForTest,
   _selectAnfrForTest,
   _setAnfrStateForTest,
 } from './anfrFrance.js';
@@ -991,10 +995,14 @@ test('init builds the three real collections, and the draw path fills them', asy
     },
   };
   anfrFranceLayer.init(viewer);
-  assert.equal(added.length, 3);
+  assert.equal(added.length, 5);
   assert.equal(added[0].constructor, Cesium.BillboardCollection);
   assert.equal(added[1].constructor, Cesium.PrimitiveCollection, 'the shafts, one collection per look');
   assert.equal(added[2].constructor, Cesium.PolylineCollection, 'the azimuth rays');
+  // The two other classes of marks the fade on zoom draws: the maillage's
+  // dots, and the supports the maillage also draws.
+  assert.equal(added[3].constructor, Cesium.BillboardCollection);
+  assert.equal(added[4].constructor, Cesium.BillboardCollection);
 
   const http = async (url) => ({
     ok: true,
@@ -1142,17 +1150,27 @@ test('the dot rides the top of its shaft, and stays on the ground without one', 
   _clearAnfrSelectionForTest();
 });
 
-test('the shaft sub-regime has hysteresis and is nested inside the exact one', () => {
-  // Entering is stricter than leaving, so a camera resting on the boundary
-  // cannot flicker the whole shaft field on and off.
-  assert.ok(ANFR_MAST_ENTER_SPAN_DEG < ANFR_MAST_EXIT_SPAN_DEG);
-  assert.ok(ANFR_MAST_EXIT_SPAN_DEG < ANFR_MAX_BOX_DEG, 'and both sit inside the exact regime');
-  assert.equal(anfrMastRegime(0.05, false), true);
-  assert.equal(anfrMastRegime(0.07, false), false, 'above the entry, not entered');
-  assert.equal(anfrMastRegime(0.07, true), true, 'above the entry, not yet left');
-  assert.equal(anfrMastRegime(0.1, true), false);
-  assert.equal(anfrMastRegime(Infinity, true), false);
-  assert.equal(anfrMastRegime(NaN, true), false);
+test('the shafts fade in across their own band, nested inside the exact regime', () => {
+  // The old enter / exit pair is now the band's two ends: nothing left to
+  // flicker, since inside it the field is drawn at a weight, not switched.
+  assert.deepEqual({ ...ANFR_SHAFT_BAND }, { fine: ANFR_MAST_ENTER_SPAN_DEG, coarse: ANFR_MAST_EXIT_SPAN_DEG });
+  assert.equal(ANFR_SHAFT_BAND.coarse / ANFR_SHAFT_BAND.fine, 1.5);
+  assert.ok(ANFR_MAST_EXIT_SPAN_DEG < ANFR_SUPPORTS_BAND.fine, 'and the whole band sits under the supports at full strength');
+  assert.equal(planAnfrLevels(0.05).shafts, true);
+  assert.equal(planAnfrLevels(0.085).shafts, true, 'inside the band the field is built, faint');
+  assert.equal(planAnfrLevels(0.1).shafts, false);
+  assert.equal(planAnfrLevels(Infinity).shafts, false);
+  assert.equal(planAnfrLevels(NaN).shafts, false);
+  // Full strength from 0.09 × (2/3)^0.3 = 0.080°, so every view that drew
+  // shafts before still draws them whole.
+  const close = { supportsReady: true, shaftsReady: true };
+  assert.equal(anfrLevelAlphas(0.079, close).shafts, 1);
+  assert.equal(anfrLevelAlphas(0.06, close).shafts, 1);
+  assert.ok(anfrLevelAlphas(0.085, close).shafts > 0 && anfrLevelAlphas(0.085, close).shafts < 1);
+  assert.equal(anfrLevelAlphas(0.1, close).shafts, 0);
+  // A field built where there was none ramps in, and none stands on nothing.
+  assert.equal(anfrLevelAlphas(0.05, { ...close, shaftsArrival: 0.5 }).shafts, 0.5);
+  assert.equal(anfrLevelAlphas(0.05, { shaftsReady: true }).shafts, 0);
 
   // The maillage tuple has no height in it, so the shafts cannot follow the
   // camera down there even if the span would allow it.
@@ -1503,17 +1521,21 @@ function countingViewer(box) {
     },
   };
   anfrFranceLayer.init(viewer);
-  const [points, masts] = added;
-  const addBillboard = points.add.bind(points);
-  points.add = (options) => {
-    counts.billboards += 1;
-    return addBillboard(options);
-  };
-  const removeBillboard = points.remove.bind(points);
-  points.remove = (billboard) => {
-    counts.removed += 1;
-    return removeBillboard(billboard);
-  };
+  // The supports, the shafts, the rays, then the maillage's dots and the
+  // supports the maillage also draws: every billboard class is counted.
+  const [points, masts, , meshPoints, sharedPoints] = added;
+  for (const collection of [points, meshPoints, sharedPoints]) {
+    const addBillboard = collection.add.bind(collection);
+    collection.add = (options) => {
+      counts.billboards += 1;
+      return addBillboard(options);
+    };
+    const removeBillboard = collection.remove.bind(collection);
+    collection.remove = (billboard) => {
+      counts.removed += 1;
+      return removeBillboard(billboard);
+    };
+  }
   const addBand = masts.add.bind(masts);
   masts.add = (band, index) => {
     const addShaft = band.add.bind(band);
@@ -1523,7 +1545,7 @@ function countingViewer(box) {
     };
     return addBand(band, index);
   };
-  return { viewer, points, masts, counts };
+  return { viewer, points, meshPoints, sharedPoints, masts, counts };
 }
 
 test('a rest on the same masts creates no primitive, and a pan creates only its newcomers', async () => {
@@ -1601,7 +1623,7 @@ test('a rest on the same masts creates no primitive, and a pan creates only its 
 
 test('the maillage keeps its dots across a pan and draws only the ones that come back', async () => {
   const box = { west: -5, south: 41, east: 10, north: 51.5 };
-  const { viewer, points, counts } = countingViewer(box);
+  const { viewer, meshPoints: points, counts } = countingViewer(box);
   const http = async () => ({ ok: true, json: async () => MESH_PAYLOAD });
   _setAnfrStateForTest({ viewer, overlayHost: makeHost(), http, regime: 'maillage' });
   const all = await _loadAnfrViewportForTest(viewer);
@@ -1639,4 +1661,153 @@ test('the maillage keeps its dots across a pan and draws only the ones that come
   assert.equal(points.length, drawn);
 
   anfrFranceLayer.destroy(viewer);
+});
+
+// --- Fade on zoom: maillage → supports ---------------------------------------
+
+test('the supports band ends at the box ceiling, one zoom level and a half wide', () => {
+  assert.deepEqual({ ...ANFR_SUPPORTS_BAND }, { fine: 0.21, coarse: ANFR_MAX_BOX_DEG });
+  const ratio = ANFR_SUPPORTS_BAND.coarse / ANFR_SUPPORTS_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+  // `/supports` is asked about the camera box unpadded: a view at the coarse
+  // end is a box the proxy answers, and its fullest case is still under the
+  // render cap.
+  const edge = fakeViewer(2.2, 48.7, 2.549, 49.049);
+  assert.ok(cameraAnfrBox(edge));
+  assert.equal(planAnfrLevels(0.349).supports, true, 'and the supports are asked for there');
+});
+
+test('a settled view inside the band loads the maillage and the supports, and a view outside drops the other', () => {
+  const inBand = planAnfrLevels(0.33);
+  assert.deepEqual([inBand.mesh, inBand.supports, inBand.shafts, inBand.dominant], [true, true, false, 'maillage']);
+  // The supports own the key from 0.314°, where the two weights cross.
+  assert.equal(planAnfrLevels(0.31).dominant, 'supports');
+  assert.equal(planAnfrLevels(0.32).dominant, 'maillage');
+  // The maillage's own dots are gone by 0.35 × 0.6^0.7 = 0.245°.
+  assert.deepEqual([planAnfrLevels(0.24).mesh, planAnfrLevels(0.24).supports], [false, true]);
+  assert.equal(planAnfrLevels(0.25).mesh, true);
+  // Above the ceiling, the maillage alone; with no box to ask about, too.
+  assert.deepEqual([planAnfrLevels(0.5).mesh, planAnfrLevels(0.5).supports], [true, false]);
+  assert.deepEqual([planAnfrLevels(0.3, { supportsBox: false }).supports, planAnfrLevels(0.3, { supportsBox: false }).dominant],
+    [false, 'maillage']);
+});
+
+test('across the band a support the maillage also draws stays at full strength, and only the others fade', () => {
+  const both = { meshReady: true, supportsReady: true };
+  let previous = { mesh: 2, supports: -1 };
+  for (let span = 0.37; span >= 0.2; span -= 0.005) {
+    const alphas = anfrLevelAlphas(span, both);
+    assert.equal(alphas.shared, 1, `shared dipped at ${span}`);
+    assert.ok(alphas.mesh <= previous.mesh && alphas.supports >= previous.supports);
+    assert.ok(alphas.mesh + alphas.supports >= 1 - 1e-12, `dipped at ${span}`);
+    // A shared support (alpha 1, about 0.8 from its own distance fade) over
+    // its fading maillage dot: the mark goes from the dot's 1.0 to the
+    // support's 0.8 without ever going under it.
+    const composite = 1 - (1 - 0.8 * alphas.shared) * (1 - alphas.mesh);
+    assert.ok(composite >= 0.8 - 1e-12 && composite <= 1 + 1e-12);
+    previous = alphas;
+  }
+  // The supports landing over a drawn maillage ramp in; the maillage holds for them until then.
+  assert.equal(anfrLevelAlphas(0.15, { meshReady: true }).mesh, 1);
+  const ramp = anfrLevelAlphas(0.15, { ...both, supportsArrival: 0.5 });
+  assert.ok(Math.abs(ramp.supports - 0.5) < 1e-12 && Math.abs(ramp.mesh - 0.5) < 1e-12 && ramp.shared === 1);
+});
+
+test('inside the band a support the maillage draws is shared, one the maillage thinned away comes in, and the edge goes out', async () => {
+  const added = [];
+  // 0.3° of view: inside the band, both levels loaded.
+  const viewer = {
+    ...fakeViewer(2.20, 48.70, 2.50, 49.00),
+    scene: {
+      requestRender() {},
+      primitives: {
+        add(primitive) { added.push(primitive); return primitive; },
+        remove(primitive) { return added.splice(added.indexOf(primitive), 1).length > 0; },
+        contains() { return true; },
+        raiseToTop() {},
+      },
+    },
+  };
+  anfrFranceLayer.init(viewer);
+  const [supportsOnly, , , mesh, shared] = added;
+  // The maillage holds three of the city supports' coordinates and one dot
+  // outside the box the supports are asked about; the supports answer all fifteen.
+  const tuples = [
+    ...CITY_SUPPORTS.slice(0, 3).map((row) => [row.lat, row.lon, 2, 4]),
+    [48.98, 2.48, 1, 4],
+  ];
+  const http = async (url) => ({
+    ok: true,
+    json: async () => (url.startsWith('/api/anfr-fr/supports')
+      ? supportsAnswer(url)
+      : { ...MESH_PAYLOAD, mesh: tuples }),
+  });
+  _setAnfrStateForTest({ viewer, overlayHost: makeHost(), http, regime: 'maillage' });
+  const result = await _loadAnfrViewportForTest(viewer);
+  assert.equal(result.regime, 'supports', 'past 0.314° the supports own the key');
+  const idsOf = (collection) => Array.from({ length: collection.length }, (_, i) => collection.get(i).id);
+  const sharedIds = new Set(CITY_SUPPORTS.slice(0, 3).map((row) => anfrSupportId(row.id)));
+  assert.deepEqual(new Set(idsOf(shared)), sharedIds, 'the supports at a maillage coordinate are shared');
+  assert.equal(supportsOnly.length, CITY_SUPPORTS.filter((row) => row.lat >= 48.70 && row.lat <= 49.00
+    && row.lon >= 2.20 && row.lon <= 2.50).length - 3);
+  assert.equal(mesh.length, 4, 'every maillage dot, the shared ones fading under their supports');
+  // The count is the dominant level's: every support, shared or not.
+  assert.equal(result.count, supportsOnly.length + shared.length);
+  assert.equal(_anfrStatsForTest().regime, 'supports');
+
+  // One frame at 0.3°: each class at its own weight, the shared supports whole.
+  _anfrFadeFrameForTest(0.3);
+  const expected = anfrLevelAlphas(0.3, { meshReady: true, supportsReady: true });
+  const quantised = (value) => Math.round(value * 64) / 64;
+  assert.ok(expected.mesh > 0 && expected.mesh < 1);
+  assert.ok(Math.abs(mesh.get(0).color.alpha - quantised(expected.mesh)) < 1e-9);
+  assert.equal(shared.get(0).color.alpha, 1);
+  assert.deepEqual([mesh.show, supportsOnly.show, shared.show], [true, true, true]);
+
+  // The camera settles at 0.2°: the maillage is not wanted any more, and the
+  // frame that finds it at zero drops it. The shared supports stay put.
+  Object.assign(viewer.camera, { computeViewRectangle: () => Cesium.Rectangle.fromDegrees(2.25, 48.75, 2.45, 48.95) });
+  await _loadAnfrViewportForTest(viewer);
+  const frame = _anfrFadeFrameForTest(0.2);
+  assert.equal(frame.meshDrawn, false);
+  assert.equal(mesh.length, 0);
+  assert.ok(shared.length > 0, 'the shared supports were not rebuilt to change hands');
+  anfrFranceLayer.destroy(viewer);
+  _clearAnfrSelectionForTest();
+});
+
+test('the shaft field fades by its materials, hidden as a whole above its band', async () => {
+  const added = [];
+  const viewer = {
+    ...fakeViewer(2.325, 48.850, 2.340, 48.860),
+    scene: {
+      requestRender() {},
+      primitives: {
+        add(primitive) { added.push(primitive); return primitive; },
+        remove(primitive) { return added.splice(added.indexOf(primitive), 1).length > 0; },
+        contains() { return true; },
+        raiseToTop() {},
+      },
+    },
+  };
+  anfrFranceLayer.init(viewer);
+  const [, masts] = added;
+  const http = async (url) => ({ ok: true, json: async () => supportsAnswer(url) });
+  _setAnfrStateForTest({ viewer, overlayHost: makeHost(), http, regime: 'maillage' });
+  await _loadAnfrViewportForTest(viewer);
+  assert.ok(drawnShafts(masts).length > 0);
+  const alphas = () => new Set(drawnShafts(masts).map((line) => line.material.uniforms.color.alpha));
+  // Inside the band the whole field is at one weight: still five draw commands.
+  _anfrFadeFrameForTest(0.085);
+  const faint = [...alphas()];
+  assert.equal(faint.length, 1);
+  assert.ok(faint[0] > 0 && faint[0] < 0.7, `shaft alpha ${faint[0]}`);
+  // Below it, the shafts' own 0.7.
+  _anfrFadeFrameForTest(0.05);
+  assert.deepEqual([...alphas()], [0.7]);
+  assert.equal(masts.show, true);
+  // Above it, hidden as a collection rather than drawn transparent.
+  assert.equal(_anfrFadeFrameForTest(0.2).shaftsShown, false);
+  anfrFranceLayer.destroy(viewer);
+  _clearAnfrSelectionForTest();
 });
