@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles and La Rochelle publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles and La Rochelle publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4840,6 +4840,21 @@ after the signature in the median — and the title, which names the
 applicant, is never stored. A four-digit counter is padded to Sitadel's five
 (`DP 17300 26 1032` → `0173002601032`). The file proxy is disallowed by
 `robots.txt` and read by the project's decision (`robots: 'overridden'`).
+
+**Montpellier and 27 communes of its métropole** publish no list a reader
+could follow, but the métropole exports every favourable decision since 2006
+as one CSV per commune, every night (`src/data/mmmPermitsFeed.js`, ODbL —
+read per scan, never bundled). It is anonymised: one row per parcel, the
+form, the filing year and nothing finer, no number, no address. The rows of
+one dossier are folded back by consecutive ids and equal attributes (24 432
+dossiers for Montpellier), placed on their parcel — 21 215 — or on the
+file's own Lambert-93 point, and drawn as granted, without a date. A dossier
+Sitadel already holds is recognised by a parcel in common, the same family
+and Sitadel's filing year the file's or the one before (a modification is
+filed in its own year here), and is not drawn twice: 317 within two years of
+a scan of Montpellier's centre. The file has carried almost no déclaration
+préalable since 2025, upstream; a quiet block there says nothing. These
+communes do not count as covered by a fresh source: a year is not days.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

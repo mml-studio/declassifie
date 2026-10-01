@@ -72,6 +72,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of filed dossiers since May, 889 rows, and the arrêté it posts for every
   decision, read for its verdict — 785 dossiers on 2026-10-01, 32 of them
   refused.
+- **Montpellier and 27 communes of its métropole now show the permits they
+  granted**, from the files the métropole exports every night: every
+  favourable decision since 2006, on its cadastral parcel, the ones that
+  create no floor area included. The file gives the filing year and no date;
+  a permit Sitadel already holds on the same parcel is not drawn twice.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

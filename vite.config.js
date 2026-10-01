@@ -334,6 +334,15 @@ import {
   SIRAP_ROWS,
 } from './src/data/sirapFeed.js';
 import {
+  dropSitadelTwins,
+  foldMmmRows,
+  mmmCommuneFor,
+  mmmCsvUrl,
+  mmmLabel,
+  parseMmmCsv,
+  MMM_LICENCE,
+} from './src/data/mmmPermitsFeed.js';
+import {
   normalisePermitListRow,
   permitListFor,
   PERMIT_LISTS,
@@ -28528,6 +28537,86 @@ function adsFranceProxy() {
     };
   }
 
+  // --- Montpellier Méditerranée Métropole: favourable decisions, open data --
+  /**
+   * One commune's file (`mmmPermitsFeed.js`), folded into dossiers and placed:
+   * on the cadastre first, the file's own Lambert-93 point for the rest. The
+   * métropole exports it every night, so a commune is held 24 hours and asked
+   * again with its `ETag`. The file is ODbL: read per scan, cut to the circle,
+   * never bundled. Sitadel's twins are dropped per scan, against the
+   * commune's Sitadel rows (`dropSitadelTwins`).
+   */
+  const MMM_TTL_MS = 24 * 60 * 60 * 1000;
+  const MMM_SCHEMA = 1;
+  const MMM_MAX_BYTES = 64 * 1024 * 1024;
+  /** insee → {at, value}. */
+  const mmmCommunes = new Map();
+  /** insee → the build in progress. */
+  const mmmInFlight = new Map();
+
+  async function buildMmmCommune(commune) {
+    const report = { key: `mmm-${commune.insee}`, label: mmmLabel(commune), licence: MMM_LICENCE };
+    const response = await cartdsFetch(mmmCsvUrl(commune), { headers: { Accept: 'text/csv' } });
+    const csv = response?.ok ? await cartdsText(response, MMM_MAX_BYTES) : null;
+    if (!csv) return { permits: [], portal: { ...report, ok: false, count: 0 } };
+    const dossiers = foldMmmRows(parseMmmCsv(csv), commune);
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    let fromPoint = 0;
+    const permits = ground.permits.map((permit) => {
+      const { point, ...rest } = permit;
+      if (rest.lon !== null || !point) return rest;
+      const { lon, lat } = lambert93ToWgs84(point.x, point.y);
+      if (!isPlausibleFrenchPoint(lon, lat)) return rest;
+      fromPoint += 1;
+      return { ...rest, lon, lat, precision: 'published' };
+    }).filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits,
+      portal: {
+        ...report, ok: true, live: true, count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0, fromPoint, unplaced: dossiers.length - permits.length,
+      },
+    };
+  }
+
+  /** The commune's dossiers filed in the scan's years (Trap 3: a year is the only date). */
+  async function loadMmmPermits(communeCode, since) {
+    const commune = mmmCommuneFor(communeCode);
+    if (!commune) return { permits: [], portals: [] };
+    const { insee } = commune;
+    let entry = mmmCommunes.get(insee);
+    if (!entry || Date.now() - entry.at >= MMM_TTL_MS) {
+      if (!mmmInFlight.has(insee)) {
+        mmmInFlight.set(insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `mmm${MMM_SCHEMA}-${insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < MMM_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              mmmCommunes.set(insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildMmmCommune(commune);
+          const fresh = { at: Date.now(), value };
+          if (!value.portal.ok || pacingRefusal()) return fresh;
+          mmmCommunes.set(insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => mmmInFlight.delete(insee)));
+      }
+      entry = await mmmInFlight.get(insee);
+    }
+    const year = Number(String(since).slice(0, 4));
+    return {
+      permits: entry.value.permits.filter((permit) => permit.depositYear >= year),
+      portals: [entry.value.portal],
+    };
+  }
+
   function install(middlewares) {
     installAddressRoute(middlewares, '/api/ads-fr', (url) => {
       const point = addressPoint(url.searchParams);
@@ -28557,13 +28646,14 @@ function adsFranceProxy() {
           // commune is on two of a Cart@DS board, a PU board,
           // publication-actes.fr and a city's PDF lists
           // (`sirapFeed.test.mjs` holds the registries to that).
-          const [edition, placed, posted, postedPu, published, listed] = await Promise.all([
+          const [edition, placed, posted, postedPu, published, listed, opened] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
             loadCartds(commune.code, since),
             loadSirap(commune.code, since),
             loadPublicationActes(commune.code, since),
             loadPermitLists(commune.code, since),
+            loadMmmPermits(commune.code, since),
           ]);
           // TRAP 6: fold BEFORE merging. One operation filed once can appear
           // in three of the four Sitadel files, and three entities claiming
@@ -28571,6 +28661,9 @@ function adsFranceProxy() {
           const { permits: fromState, folded } = foldSitadelFamilies(
             edition.permits.filter((permit) => permit.source === 'sitadel'),
           );
+          // The métropole's file has no number to merge on: a dossier Sitadel
+          // already holds on the same parcel is dropped instead.
+          const metropole = dropSitadelTwins(opened.permits, fromState);
           const fromCounter = [
             ...edition.permits.filter((permit) => permit.source !== 'sitadel'),
             ...placed.permits,
@@ -28578,6 +28671,7 @@ function adsFranceProxy() {
             ...postedPu.permits,
             ...published.permits,
             ...listed.permits,
+            ...metropole.permits,
           ];
           const { permits, merged } = mergeRegisters(fromState, fromCounter);
           return projectAdsPermits({
@@ -28597,6 +28691,7 @@ function adsFranceProxy() {
               portals: [
                 ...(edition.portals || []), ...placed.portals, ...posted.portals, ...postedPu.portals,
                 ...published.portals, ...listed.portals,
+                ...opened.portals.map((portal) => ({ ...portal, sitadelTwins: metropole.twins })),
               ],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could

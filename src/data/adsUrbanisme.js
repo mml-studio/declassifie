@@ -85,10 +85,11 @@ import { gpuClassificationTypeForScene } from './urbanismeGpu.js';
  * development of LAND and never a building.
  *
  * MEASURED, AND THE REASON THE THIRD BUCKET IS PAINTED AT ALL: this layer
- * merges THIRTEEN sources — the four `SITADEL_FILES`, the five
+ * merges FOURTEEN sources — the four `SITADEL_FILES`, the five
  * `LOCAL_ADS_PORTALS`, the communes' Cart@DS and Sirap boards, the acts on
- * publication-actes.fr and the PDF lists cities publish — and exactly
- * TWO of them ask for a nature column.
+ * publication-actes.fr, the PDF lists cities publish and Montpellier
+ * Méditerranée Métropole's open data — and exactly TWO of them ask for a
+ * nature column.
  * `NATURE_PROJET_DECLAREE` is in the `columns` of `logements` and `locaux` and
  * in neither `amenager` nor `demolir` (both of which the FAMILY rule above
  * settles anyway). The métropole portals ask for none: `normaliseLocalRow`
