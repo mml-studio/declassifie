@@ -99,12 +99,13 @@ import {
 import { pickAt } from './pickAt.js';
 import { profileCountBudget } from '../perfProfile.js';
 import {
-  bandAlphas,
-  bandWeights,
+  bandPosition,
+  coverAlphas,
   fadeBand,
   fadeCollection,
   levelVisible,
   quantizeFade,
+  reveal,
   watchZoomFade,
 } from './zoomFade.js';
 import { cameraFocusPoint, cameraViewBox } from './viewGate.js';
@@ -278,7 +279,13 @@ const PIN_CEILING_M = 3_500;
  *
  * WHERE IT SITS. The coarse end is the old threshold, so the vehicles are asked
  * for exactly where they were — same box, same cap, same pins. The fine end is
- * 0.6 of it, 2,100 m: a ratio of 1.67, three quarters of one zoom step. There
+ * 0.6 of it, 2,100 m: a ratio of 1.67, three quarters of one zoom step. The
+ * band can only sit on that side of the threshold — above it the vehicles are
+ * not asked for — so it is shaped as a REVEAL (`zoomFade.reveal`), not a
+ * symmetric crossfade: the dots are at full strength 30 % of the way in
+ * (3,003 m) and the bubbles gone 70 % of the way (2,448 m), so the street view
+ * the reader knew under 3,500 m is still the dots' and only its top shows the
+ * bubbles fading. There
  * the group request asks the 0.002° grid (≈ 220 m cells on a 1,440 × 900
  * desktop: 1.7 m/px × 160 px) about the box the dots are asked about anyway,
  * and the proxy answers it from the clip it already holds for that box — one
@@ -2179,7 +2186,7 @@ function settleOwnership(rangeM) {
   const fine = fineAnswer();
   const coarse = coarseAnswer();
   if (fine && coarse) {
-    const weights = bandWeights(rangeM, SHARED_MOBILITY_GROUP_BAND);
+    const weights = sharedMobilityZoomWeights(rangeM);
     _dominant = weights.coarse > weights.fine ? 'groups' : 'vehicles';
   } else {
     _dominant = coarse ? 'groups' : 'vehicles';
@@ -2290,14 +2297,24 @@ function retireFadedLevels() {
 }
 
 /**
+ * The two levels' zoom weights at a view range: the band's reveal — see
+ * {@link SHARED_MOBILITY_GROUP_BAND}.
+ * @param {number} rangeM
+ * @returns {{fine: number, coarse: number}}
+ */
+export function sharedMobilityZoomWeights(rangeM) {
+  return reveal(bandPosition(rangeM, SHARED_MOBILITY_GROUP_BAND));
+}
+
+/**
  * The two levels' drawn alphas now: the zoom weights at this view range, held
  * by whichever level is on screen until its partner has arrived.
  * @param {number} rangeM
  * @param {number} nowMs
- * @returns {{fine: number, coarse: number, position: number}}
+ * @returns {{fine: number, coarse: number}}
  */
 function currentAlphas(rangeM, nowMs) {
-  return bandAlphas(rangeM, SHARED_MOBILITY_GROUP_BAND, {
+  return coverAlphas(sharedMobilityZoomWeights(rangeM), {
     fineReady: Boolean(fineAnswer()),
     coarseReady: _bubbles.size > 0 || _dotsLevel === 'groups',
     fineArrival: _fadeHandle?.arrival('vehicles', nowMs) ?? 1,

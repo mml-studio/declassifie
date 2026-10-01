@@ -42,6 +42,7 @@ import sharedMobilityFranceLayer, {
   fadeLabelCollection,
   planSharedMobilityAnswers,
   sharedMobilityLevelsAt,
+  sharedMobilityZoomWeights,
   SHARED_MOBILITY_GROUP_BAND,
   sharedMobilityBoxDegForAltitude,
   SHARED_MOBILITY_KIND_FILTERS,
@@ -60,7 +61,6 @@ import {
 } from './mobilityDockBridge.js';
 import { SHARED_MOBILITY_PIN_SPACING_PX } from './sharedMobilityPins.js';
 import { sharedMobilityClusterCell } from './sharedMobilityClusters.js';
-import { bandWeights } from './zoomFade.js';
 
 function viewerWithView(degrees) {
   return {
@@ -1104,15 +1104,28 @@ test('a settle inside the band draws the dots from the street answer and the bub
   assert.notEqual(next.groups, grid);
 });
 
+test('the band is a reveal: the street view under 3,500 m stays the dots\' once 30 % in', () => {
+  // The band can only sit under the old ceiling, so the dots come in first.
+  assert.deepEqual(sharedMobilityZoomWeights(3_500), { fine: 0, coarse: 1 });
+  const lead = sharedMobilityZoomWeights(3_003);
+  assert.ok(lead.fine > 0.99 && lead.coarse > 0.5, 'dots full, bubbles still fading');
+  assert.deepEqual(sharedMobilityZoomWeights(2_440), { fine: 1, coarse: 0 }, 'the bubbles are gone 70 % in');
+  for (let range = 3_500; range >= 2_100; range -= 50) {
+    const weights = sharedMobilityZoomWeights(range);
+    assert.ok(weights.fine + weights.coarse >= 1 - 1e-9, `the layer dipped at ${range} m`);
+  }
+});
+
 test('inside the band both levels are drawn at their zoom weights, the counts fading with their bubbles', () => {
-  const { dot, sprites, labels } = seedBand(2_711, { dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload() });
+  const { dot, sprites, labels } = seedBand(3_242, { dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload() });
   const { state, shown } = _runSharedMobilityFadeForTest();
-  const zoom = bandWeights(2_711, SHARED_MOBILITY_GROUP_BAND);
+  const zoom = sharedMobilityZoomWeights(3_242);
   assert.ok(Math.abs(state.levels.vehicles - zoom.fine) < 1 / 64);
   assert.ok(Math.abs(state.levels.groups - zoom.coarse) < 1 / 64);
-  assert.ok(state.levels.vehicles > 0.5 && state.levels.groups > 0.5, 'mid-band, neither level is faint');
+  assert.ok(state.levels.vehicles > 0.4 && state.levels.vehicles < 0.6, `dots coming in: ${state.levels.vehicles}`);
+  assert.ok(state.levels.groups > 0.7 && state.levels.groups < 0.9, `bubbles going: ${state.levels.groups}`);
   assert.deepEqual(state.bands['groups-vehicles'], { fine: 2_100, coarse: 3_500, unit: 'm' });
-  assert.equal(state.viewRangeM, 2_711);
+  assert.equal(state.viewRangeM, 3_242);
   assert.deepEqual(shown, { points: true, pins: true, sprites: true, labels: true });
   assert.ok(Math.abs(dot.color.alpha - state.levels.vehicles) < 1e-9, 'the dots carry the street level\'s weight');
   assert.ok(Math.abs(dot.outlineColor.alpha - 0.9 * state.levels.vehicles) < 1e-9, 'and so does their rim');
