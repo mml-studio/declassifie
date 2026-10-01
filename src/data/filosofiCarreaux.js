@@ -919,6 +919,21 @@ function gridShown(grid) {
   return Boolean(grid.primitive && grid.records.size);
 }
 
+/**
+ * Whether a grid's answer for the settled view is ON SCREEN — including an
+ * answer with no cell in it. "Drawn" cannot mean "has discs": an empty 200 m
+ * answer (the sea, a forest) would never count, and the 1 km grid it replaces
+ * would stand at full strength over it for good.
+ */
+function gridReady(grid) {
+  return gridShown(grid) || (Boolean(grid.payload) && !grid.pending && grid.records.size === 0);
+}
+
+/** The same for a territory level: answered and filled, discs or not. */
+function territoryReady(territory) {
+  return Boolean(territory.payload && territory.points);
+}
+
 function clearTerritory(territory) {
   territory.abort?.abort();
   territory.abort = null;
@@ -1101,7 +1116,9 @@ export function filosofiViewScale(box) {
  * The 200 m grid only where the band gives it weight AND its request is one
  * the layer was already allowed to make (`resolutionForBox` of the snapped
  * box); the 1 km grid wherever it has weight, or as the only answer when the
- * fine one is refused. The row belongs to the 200 m grid as soon as the
+ * fine one is refused. "Weight" is the weight the `reveal` DRAWS, not the
+ * band's extent: the 1 km grid is gone 70 % into the band, and fetching and
+ * building it below that would buy a drawing nobody sees. The row belongs to the 200 m grid as soon as the
  * `reveal` has it at half strength — the detail is what the reader zoomed in
  * for, and Paris from 9 km (0.107 on this measure, where the two grids cross
  * at 0.7 each) is a 200 m view in the harness as it was on the old switch —
@@ -1114,13 +1131,14 @@ export function filosofiViewScale(box) {
  */
 export function filosofiGridPlan(scale, metric, snappedResolution = 200) {
   const position = bandPosition(scale, FILOSOFI_GRID_BAND);
-  const fine = position > 0 && snappedResolution === 200;
-  const coarse = position < 1 || !fine;
+  const target = levelTargets(position, filosofiCountMetric(metric));
+  const fine = levelVisible(true, target.fine) && snappedResolution === 200;
+  const coarse = levelVisible(true, target.coarse) || !fine;
   const wanted = [];
   if (fine) wanted.push(200);
   if (coarse) wanted.push(1000);
   let dominant = fine ? 200 : 1000;
-  if (fine && coarse) dominant = levelTargets(position, filosofiCountMetric(metric)).fine >= 0.5 ? 200 : 1000;
+  if (fine && coarse) dominant = target.fine >= 0.5 ? 200 : 1000;
   return { position, wanted, dominant };
 }
 
@@ -1132,12 +1150,14 @@ export function filosofiGridPlan(scale, metric, snappedResolution = 200) {
  */
 export function filosofiTerritoryPlan(scale, metric) {
   const position = bandPosition(scale, FILOSOFI_TERRITORY_BAND);
+  const target = levelTargets(position, filosofiCountMetric(metric));
   const wanted = [];
-  if (position > 0) wanted.push('DEP');
-  if (position < 1) wanted.push('REG');
-  let dominant = position > 0 ? 'DEP' : 'REG';
-  // Same rule as the grids: the finer level owns the row from half strength.
-  if (wanted.length === 2) dominant = levelTargets(position, filosofiCountMetric(metric)).fine >= 0.5 ? 'DEP' : 'REG';
+  // The same rule as the grids: what the reveal draws, not the band's extent.
+  if (levelVisible(true, target.fine)) wanted.push('DEP');
+  if (levelVisible(true, target.coarse) || !wanted.length) wanted.push('REG');
+  let dominant = wanted.includes('DEP') ? 'DEP' : 'REG';
+  // And the finer level owns the row from half strength.
+  if (wanted.length === 2) dominant = target.fine >= 0.5 ? 'DEP' : 'REG';
   return { position, wanted, dominant };
 }
 
@@ -1164,11 +1184,18 @@ function levelTargets(position, cut) {
  * cover rule (`coverAlphas`) applies at every step, so nothing dims that is not
  * being replaced by something already drawn.
  *
+ * A level the settled view no longer WANTS aims for zero whatever the band
+ * says, as long as its partner is wanted: it is only the cover now. Without
+ * that, a pan at the top of the grid band — where the snapped box can refuse
+ * the 200 m request — left the previous box's 200 m discs on screen at their
+ * band weight, over the 1 km answer and under a 1 km key, for good.
+ *
  * @param {{
  *   regime: 'carreaux'|'territoires',
  *   gridPosition: number, territoryPosition: number,
  *   gridCut?: boolean, territoryCut?: boolean,
  *   ready: {200?: boolean, 1000?: boolean, DEP?: boolean, REG?: boolean},
+ *   wanted?: {200?: boolean, 1000?: boolean, DEP?: boolean, REG?: boolean},
  *   arrival?: (key: string) => number,
  * }} state
  * @returns {{200: number, 1000: number, DEP: number, REG: number}}
@@ -1187,8 +1214,9 @@ export function filosofiLevelAlphas(state) {
       coarseArrival: arrival('territories'),
     },
   );
+  const wanted = state.wanted;
   const grids = coverAlphas(
-    levelTargets(state.gridPosition, state.gridCut),
+    onlyWanted(levelTargets(state.gridPosition, state.gridCut), wanted?.[200], wanted?.[1000], wanted),
     {
       fineReady: Boolean(ready[200]),
       coarseReady: Boolean(ready[1000]),
@@ -1197,7 +1225,7 @@ export function filosofiLevelAlphas(state) {
     },
   );
   const territories = coverAlphas(
-    levelTargets(state.territoryPosition, state.territoryCut),
+    onlyWanted(levelTargets(state.territoryPosition, state.territoryCut), wanted?.DEP, wanted?.REG, wanted),
     {
       fineReady: Boolean(ready.DEP),
       coarseReady: Boolean(ready.REG),
@@ -1211,6 +1239,16 @@ export function filosofiLevelAlphas(state) {
     DEP: regimes.coarse * territories.fine,
     REG: regimes.coarse * territories.coarse,
   };
+}
+
+/**
+ * A pair's targets with an unwanted level sent to zero and its wanted partner
+ * to full strength. A pair with neither level wanted is the regime being left:
+ * the regime cut fades it, and it keeps its band targets until then.
+ */
+function onlyWanted(target, fineWanted, coarseWanted, wanted) {
+  if (!wanted || (!fineWanted && !coarseWanted) || (fineWanted && coarseWanted)) return target;
+  return fineWanted ? { fine: 1, coarse: 0 } : { fine: 0, coarse: 1 };
 }
 
 /**
@@ -1237,10 +1275,16 @@ function onFadeFrame(scale, now) {
     gridCut: filosofiCountMetric(currentMetric()),
     territoryCut: filosofiCountMetric(currentTerritoryMetric()),
     ready: {
-      200: gridShown(_grids[200]),
-      1000: gridShown(_grids[1000]),
-      DEP: territoryShown(_territories.DEP),
-      REG: territoryShown(_territories.REG),
+      200: gridReady(_grids[200]),
+      1000: gridReady(_grids[1000]),
+      DEP: territoryReady(_territories.DEP),
+      REG: territoryReady(_territories.REG),
+    },
+    wanted: {
+      200: _grids[200].wanted,
+      1000: _grids[1000].wanted,
+      DEP: _territories.DEP.wanted,
+      REG: _territories.REG.wanted,
     },
     arrival: (key) => _fade?.arrival(key, now) ?? 1,
   });
@@ -1260,10 +1304,10 @@ function onFadeFrame(scale, now) {
 
   if (!_fade?.arriving()) {
     for (const grid of gridList()) {
-      if (!grid.wanted && gridShown(grid) && quantizeFade(alphas[grid.resolution]) === 0) clearGrid(grid);
+      if (!grid.wanted && (grid.primitive || grid.payload) && quantizeFade(alphas[grid.resolution]) === 0) clearGrid(grid);
     }
     for (const territory of territoryList()) {
-      if (!territory.wanted && territoryShown(territory) && quantizeFade(alphas[territory.level]) === 0) {
+      if (!territory.wanted && (territory.points || territory.payload) && quantizeFade(alphas[territory.level]) === 0) {
         clearTerritory(territory);
       }
     }

@@ -17,6 +17,7 @@ import filosofiCarreauxLayer, {
 import { resolutionForBox, resolveMetric } from './filosofiFeed.js';
 import { levelForBox, resolveTerritoryMetric } from './filosofiTerritoiresFeed.js';
 import { snapBoxOutward } from './viewportBox.js';
+import { _resetZoomFadeForTest, getZoomFadeDiagnostics } from './zoomFade.js';
 
 const NIVEAU = resolveMetric('niveau');
 const POPULATION = resolveMetric('population');
@@ -80,7 +81,10 @@ test('only a count indicator is held to a hard cut', () => {
 
 test('a settled view loads the grids its band gives weight to', () => {
   assert.deepEqual(filosofiGridPlan(0.04, NIVEAU).wanted, [200]);
-  assert.deepEqual(filosofiGridPlan(0.08, NIVEAU).wanted, [200, 1000]);
+  assert.deepEqual(filosofiGridPlan(0.10, NIVEAU).wanted, [200, 1000]);
+  // 70 % into the band the reveal has drawn the 1 km grid out: it is not
+  // fetched, or built, for a drawing nobody would see.
+  assert.deepEqual(filosofiGridPlan(0.08, NIVEAU).wanted, [200]);
   assert.deepEqual(filosofiGridPlan(0.2, NIVEAU).wanted, [1000]);
   assert.deepEqual(filosofiGridPlan(Infinity, NIVEAU).wanted, [1000]);
   // A fine request the proxy rule refuses is never made, band or not.
@@ -178,6 +182,28 @@ test('the territories and the grid are a cut: the one leaving holds until the on
   assert.deepEqual(back, { 200: 0, 1000: 0, DEP: 1, REG: 0 });
 });
 
+test('a grid the settled view no longer wants goes, once the one it wants is drawn', () => {
+  // A pan at the top of the band: the snapped box refused the 200 m request,
+  // and the previous box's 200 m discs must not stay at their band weight.
+  const pan = filosofiLevelAlphas({
+    regime: 'carreaux', gridPosition: 0.2, territoryPosition: 1,
+    ready: { 200: true, 1000: true }, wanted: { 200: false, 1000: true },
+  });
+  assert.deepEqual([pan[200], pan[1000]], [0, 1]);
+  // Until the 1 km answer is drawn, the 200 m discs are still the cover.
+  const waiting = filosofiLevelAlphas({
+    regime: 'carreaux', gridPosition: 0.2, territoryPosition: 1,
+    ready: { 200: true }, wanted: { 200: false, 1000: true },
+  });
+  assert.equal(waiting[200], 1);
+  // A regime being left keeps its band targets: the regime cut fades it.
+  const leaving = filosofiLevelAlphas({
+    regime: 'territoires', gridPosition: 0.2, territoryPosition: 1,
+    ready: { 200: true, 1000: true }, wanted: { DEP: true },
+  });
+  assert.ok(leaving[200] > 0 && leaving[1000] > 0, 'no blank while the territories load');
+});
+
 test('the régions fade into the départements across their band', () => {
   const alphas = filosofiLevelAlphas({
     regime: 'territoires', gridPosition: 0, territoryPosition: 0.2, ready: { DEP: true, REG: true },
@@ -244,7 +270,7 @@ function lyonBox(scale) {
 
 test('inside the band the layer asks for both grids; outside it, for one', async () => {
   await withProxy(async (requests) => {
-    const viewer = createViewer(lyonBox(0.08));
+    const viewer = createViewer(lyonBox(0.10));
     filosofiCarreauxLayer.init(viewer);
     filosofiCarreauxLayer.enable(viewer);
     try {
@@ -293,4 +319,33 @@ test('nothing is removed from the globe before its replacement is ready', async 
       filosofiCarreauxLayer.destroy(viewer);
     }
   });
+});
+
+test('an empty 200 m answer still replaces the 1 km grid', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const resolution = Number(new URL(String(url), 'http://x').searchParams.get('resolution'));
+    const cells = resolution === 200 ? [] : [CELL];
+    return new Response(JSON.stringify({
+      resolution, cells, communes: {}, matched: cells.length, returned: cells.length, truncated: false,
+      summary: { cells: cells.length, people: 0 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const viewer = createViewer(lyonBox(0.3));
+  filosofiCarreauxLayer.init(viewer);
+  filosofiCarreauxLayer.enable(viewer);
+  try {
+    await filosofiCarreauxLayer.update();
+    viewer.state.added[0]._ready = true;
+    // Zoom in past the band: the sea, a forest — the 200 m grid has nothing.
+    viewer.state.box = lyonBox(0.04);
+    await filosofiCarreauxLayer.update();
+    const levels = getZoomFadeDiagnostics().owners.find((owner) => owner.ownerId === 'filosofi-fr')?.state?.levels;
+    assert.equal(levels[1000], 0, 'the 1 km grid does not stand over an answer that said "nobody"');
+    assert.ok(viewer.state.removed.includes(viewer.state.added[0]), 'and it is retired');
+  } finally {
+    filosofiCarreauxLayer.destroy(viewer);
+    _resetZoomFadeForTest();
+    globalThis.fetch = original;
+  }
 });
