@@ -89,14 +89,15 @@ export async function pdfOcrAvailable({ run = runProgram } = {}) {
  * @param {Function} [options.run] `(file, args, {timeoutMs}) => Promise<?string>`; tests inject one.
  * @param {string} [options.tmpdir]
  * @param {string} [options.lang]
- * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean}) =>
+ * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean, positioned?: boolean, rotate?: number}) =>
  *   Promise<?{pages: Array<string>, read: number, ms: number}>} Each page's
  *   text — the band's alone for a page the screen set aside — and how many
  *   were read whole; null when the file could not be rendered or read, a
- *   failure the caller keeps for next time.
+ *   failure the caller keeps for next time. `positioned` also returns a
+ *   `document` of word runs in PDF points for column-based list readers.
  */
 export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'fra' } = {}) {
-  return async function readScannedPdf(bytes, { screen = null } = {}) {
+  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0 } = {}) {
     const started = Date.now();
     let dir = null;
     try {
@@ -107,6 +108,7 @@ export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'f
       const count = Number(/^Pages:\s+(\d+)/m.exec(info ?? '')?.[1]);
       if (!Number.isInteger(count) || count < 1 || count > MAX_PAGES) return null;
       const pages = [];
+      const positionedPages = [];
       let read = 0;
       for (let page = 1; page <= count; page += 1) {
         const at = ['-r', String(PDF_OCR_DPI), '-gray', '-f', String(page), '-l', String(page), '-singlefile'];
@@ -122,17 +124,71 @@ export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'f
         }
         const image = path.join(dir, 'page');
         if (await run('pdftoppm', [...at, pdf, image]) === null) return null;
-        const text = await run('tesseract', [`${image}.pgm`, '-', '-l', lang, '--psm', '4']);
+        if (rotate) await fsp.writeFile(`${image}.pgm`, rotatePgm(await fsp.readFile(`${image}.pgm`), rotate));
+        const text = await run('tesseract', [`${image}.pgm`, '-', '-l', lang, '--psm', '4', ...(positioned ? ['tsv'] : [])]);
         await fsp.rm(`${image}.pgm`, { force: true });
         if (text === null) return null;
-        pages.push(text);
+        if (positioned) {
+          const pageText = ocrTsvPage(text);
+          if (!pageText) return null;
+          positionedPages.push(pageText);
+          pages.push(pageText.runs.map((word) => word.text).join(' '));
+        } else pages.push(text);
         read += 1;
       }
-      return { pages, read, ms: Date.now() - started };
+      return { pages, read, ms: Date.now() - started, ...(positioned ? { document: { pages: positionedPages } } : {}) };
     } catch {
       return null;
     } finally {
       if (dir) await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   };
+}
+
+/** Tesseract's words in PDF points, with the same upward y axis as pdfText.js. */
+export function ocrTsvPage(tsv) {
+  const rows = String(tsv ?? '').trim().split('\n').slice(1).map((line) => line.split('\t'));
+  const page = rows.find((row) => row[0] === '1');
+  const scale = 72 / PDF_OCR_DPI;
+  const height = Number(page?.[9]) * scale;
+  if (!height) return null;
+  const lineKey = (row) => row.slice(1, 5).join(':');
+  const words = rows.filter((row) => row[0] === '5' && row[11]?.trim());
+  const bottoms = new Map();
+  for (const word of words.filter((row) => /[\p{L}\d]/u.test(row[11]))) {
+    const key = lineKey(word);
+    if (!bottoms.has(key)) bottoms.set(key, []);
+    bottoms.get(key).push(Number(word[7]) + Number(word[9]));
+  }
+  // A table border sometimes becomes a tall word in the line box. The
+  // median of the actual words keeps it from moving a row's baseline.
+  const baselines = new Map([...bottoms].map(([key, values]) => [key, values.sort((a, b) => a - b)[Math.floor(values.length / 2)]]));
+  const runs = words.map((row) => ({
+    x: Number(row[6]) * scale,
+    x1: (Number(row[6]) + Number(row[8])) * scale,
+    y: height - (baselines.get(lineKey(row)) ?? Number(row[7]) + Number(row[9])) * scale,
+    size: Number(row[9]) * scale,
+    text: row.slice(11).join('\t').trim(),
+    clip: null,
+  }));
+  return { width: Number(page[8]) * scale, height, runs };
+}
+
+/** Rotate poppler's eight-bit grey PGM without another image binary. */
+export function rotatePgm(bytes, degrees) {
+  const head = /^P5\s+(?:#[^\n]*\n\s*)?(\d+)\s+(\d+)\s+255(?:\r\n|\n| )/.exec(bytes.subarray(0, 256).toString('ascii'));
+  if (!head || ![90, 270].includes(degrees)) throw new Error('Unsupported grey PGM rotation');
+  const width = Number(head[1]);
+  const height = Number(head[2]);
+  const pixels = bytes.subarray(head[0].length);
+  if (pixels.length !== width * height) throw new Error('Truncated grey PGM');
+  const rotated = Buffer.alloc(pixels.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const targetX = degrees === 270 ? y : height - 1 - y;
+      const targetY = degrees === 270 ? width - 1 - x : x;
+      rotated[targetY * height + targetX] = pixels[y * width + x];
+    }
+  }
+  return Buffer.concat([Buffer.from(`P5\n${height} ${width}\n255\n`), rotated]);
 }

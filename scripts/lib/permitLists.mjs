@@ -26,6 +26,7 @@ import zlib from 'node:zlib';
 import { extractPdfText } from '../../src/data/pdfText.js';
 import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
+import { dematdocFiles, municipalFiles, municipalNextPage, municipalTitleRow } from '../../src/data/municipalPermitsFeed.js';
 import {
   arcadeActs,
   arcadeActUrl,
@@ -705,18 +706,21 @@ async function readWebdelibCity(city, http, { dir, allows, months, day }) {
  * @param {object} city One of `PERMIT_LISTS`.
  * @param {{fetch: Function, text: Function, bytes: Function}} http
  * @param {{dir?: string, allows?: (pathname: string) => boolean, months?: number,
- *   day?: string, ocr?: ?Function, log?: object}} [options] `allows`: the
+ *   day?: string, ocr?: ?Function, log?: object, background?: boolean}} [options] `allows`: the
  *   host's `robots.txt`, as `permitListsRobots` reads it. `months`: how far
  *   back a Webdelib+ city is read — two by default, a scan's; the daily sweep
  *   reads further. `ocr`: the function a scanned bulletin is read with
  *   (`createPdfOcr`), handed in by the sweep alone; without it a bulletin
- *   city is drawn from what the sweep has read.
+ *   city is drawn from what the sweep has read. `background`: a daily sweep,
+ *   which also reads the slow municipal Drupal boards; visitors use their
+ *   scrubbed snapshots.
  * @returns {Promise<?{boards: Record<string, Array<Array<?string>>>, lists: Array<object>}>}
  */
 export async function readPermitCity(city, http, {
   dir, allows = () => true, months = 2, day = cartdsDay(), maxFiles = PERMIT_LISTS_SCAN_FILES,
-  ocr = null, maxPages, log,
+  ocr = null, maxPages, log, background = false,
 } = {}) {
+  if (city.source?.kind === 'municipal') return readMunicipalCity(city, http, { dir, allows, months, day, maxFiles, ocr, background });
   if (city.source?.kind === 'bulletin') return readBulletinCity(city, http, { dir, allows, months, day, ocr, maxFiles, maxPages, log });
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
@@ -737,6 +741,117 @@ export async function readPermitCity(city, http, {
   } else links = body ? permitListLinks(city, body) : null;
   if (!links) return null;
   return readLinkedLists(links, http, { dir, allows, maxFiles });
+}
+
+/**
+ * Municipal boards: JSON aggregate lists, paginated Drupal cards, or PDF
+ * links. Each published file is read once. Scans await positioned OCR in
+ * the daily sweep; visitors can use a title's site and explicit verdict.
+ * Only scrubbed rows are cached, never titles, applicant fields or OCR text.
+ * A failed page or file makes the result incomplete, preserving the archive.
+ */
+async function readMunicipalCity(city, http, { dir, allows, months, day, maxFiles, ocr, background }) {
+  const snapshot = dir ? path.join(dir, `municipal${PERMIT_LISTS_READER_SCHEMA}-${city.key}.json`) : null;
+  // Drupal boards ask for ten seconds between requests, and list dozens of
+  // pages. The sweep does that work; visitors draw its scrubbed snapshot.
+  if (city.crawlDelayMs && !background) {
+    if (!snapshot) return null;
+    try {
+      const kept = JSON.parse(await fsp.readFile(snapshot, 'utf8'));
+      return kept.city === city.key && kept.boards && Array.isArray(kept.lists) ? kept : null;
+    } catch { return null; }
+  }
+  const files = [];
+  let incomplete = false;
+  if (city.source.protocol === 'dematdoc') {
+    const url = new URL(city.source.api, city.page).href;
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ filters: [] }) });
+    if (!response?.ok) return null;
+    let listed;
+    try { listed = dematdocFiles(city, JSON.parse(await http.text(response, PAGE_MAX_BYTES))); } catch { return null; }
+    if (!listed?.length) return null;
+    files.push(...listed);
+  } else {
+    let url = city.page;
+    const seen = new Set();
+    const limit = city.source.maxPages ?? 1;
+    for (let page = 0; url && page < limit; page += 1) {
+      if (seen.has(url) || !allows(new URL(url).pathname)) { incomplete = true; break; }
+      seen.add(url);
+      const response = await http.fetch(url, { headers: { Accept: 'text/html' } });
+      const html = response?.ok ? await http.text(response, PAGE_MAX_BYTES) : null;
+      if (!html) { if (!files.length) return null; incomplete = true; break; }
+      files.push(...municipalFiles(city, html));
+      url = city.source.protocol === 'drupal' ? municipalNextPage(city, html, url) : null;
+      if (url && page === limit - 1) incomplete = true;
+    }
+    if (!files.length) return null;
+  }
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const fileDay = (file) => file.published ?? /\/(20\d{2})[/-](\d{2})\//.exec(file.url)?.slice(1).join('-') ?? /\/(20\d{2})\//.exec(file.url)?.[1] ?? '';
+  const selected = [...new Map(files.map((file) => [file.url, file])).values()]
+    .filter((file) => { const date = fileDay(file); return !date || date >= since.slice(0, date.length); })
+    .sort((a, b) => fileDay(b).localeCompare(fileDay(a)) || b.url.localeCompare(a.url));
+  const boards = {};
+  let fetched = 0;
+  let reused = 0;
+  let failed = 0;
+  let skipped = 0;
+  let pendingOcr = 0;
+  const lists = [];
+  for (const file of selected) {
+    const kept = await readEdition(dir, file.url);
+    let answer = kept;
+    const retry = kept?.pendingOcr && ocr;
+    if (!kept || retry) {
+      if (fetched >= maxFiles) {
+        skipped += 1;
+        if (!kept) continue;
+      } else {
+        fetched += 1;
+        const response = allows(new URL(file.url).pathname) ? await http.fetch(file.url) : null;
+        const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
+        if (bytes && Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-')) {
+          const context = { city, file };
+          let rows = rowsOfPdf(bytes, file.layout, file.board, context);
+          let awaitsOcr = false;
+          if (!rows && file.layout !== 'saint-priest-table') {
+            let scanned = ocr ? await ocr(bytes, { positioned: true }) : null;
+            rows = scanned?.document ? keptRows(PERMIT_LIST_READERS[file.layout](scanned.document, context), file.board) : null;
+            // Wattrelos scans a landscape table sideways on a portrait page.
+            if (!rows?.length && ocr && file.layout === 'wattrelos-table') {
+              scanned = await ocr(bytes, { positioned: true, rotate: 270 });
+              rows = scanned?.document ? keptRows(PERMIT_LIST_READERS[file.layout](scanned.document, context), file.board) : null;
+            }
+            if (!rows?.length) {
+              const fallback = file.layout === 'municipal-notice' ? municipalTitleRow(city, file) : null;
+              rows = fallback ? keptRows([fallback], file.board) : [];
+              awaitsOcr = true;
+            }
+          }
+          answer = { url: file.url, fields: PERMIT_LIST_FIELDS, rows: rows ?? [], pendingOcr: awaitsOcr };
+          await writeEdition(dir, answer);
+        } else { failed += 1; if (!kept) continue; }
+      }
+    } else reused += 1;
+    if (answer.pendingOcr) pendingOcr += 1;
+    if (!answer.rows.length) { failed += 1; continue; }
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+    lists.push({ url: file.url, board: file.board, rows: answer.rows.length, reused: answer === kept });
+  }
+  const answer = { city: city.key, boards, lists, fetched, reused, failed, skipped, pendingOcr,
+    incomplete: incomplete || failed > 0 || skipped > 0 || pendingOcr > 0 };
+  if (snapshot) {
+    const temp = `${snapshot}.${process.pid}.tmp`;
+    try {
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(temp, JSON.stringify(answer));
+      await fsp.rename(temp, snapshot);
+    } catch { /* the archive still keeps these rows */ }
+  }
+  return answer;
 }
 
 /**
@@ -833,13 +948,14 @@ export async function sweepPermitLists({
       continue;
     }
     const answer = await readPermitCity(city, pacedFor(city), {
-      dir, allows: verdict.allows, months, day, log,
-      maxFiles: bulletin ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
-      ...(bulletin ? { ocr } : {}),
+      dir, allows: verdict.allows, months, day, log, background: true,
+      maxFiles: bulletin || city.source?.kind === 'municipal' ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
+      ...(bulletin || city.source?.kind === 'municipal' ? { ocr } : {}),
     });
     if (!answer) { summary.failed.push(city.key); continue; }
     if (answer.failed) summary.failed.push(`${city.key}:${answer.failed}`);
     if (answer.skipped) (summary.backlog ??= []).push(`${city.key}:${answer.skipped}`);
+    if (answer.pendingOcr) (summary.pendingOcr ??= []).push(`${city.key}:${answer.pendingOcr}`);
     const { archive, added, saved } = await store.record(city, city.insee, answer.boards, day);
     if (!saved) summary.unsaved.push(city.key);
     summary.read += 1;
