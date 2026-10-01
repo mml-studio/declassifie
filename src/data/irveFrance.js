@@ -32,8 +32,15 @@
  *   one city              — **every site**, with its operators, connectors,
  *       (below ~45 km)      access conditions and freshness.
  *
- * The three never draw at once and each has its own legend, so a colour can
- * never be read against the wrong scale.
+ * Each has its own legend, so a colour can never be read against the wrong
+ * scale. The prisms and the marks never rest on screen together: their
+ * colours are two indicators, and the cut between them stays a cut (it only
+ * stopped going blank while the next level loads). The maillage and the sites
+ * DO share the screen inside one fade band, 0.35° → 0.21° of view — they are
+ * the same marks on the same five colours, the maillage a subset of the sites
+ * at the sites' own coordinates — and the one whose alpha is larger owns the
+ * key — the sites, from 0.314° down. See {@link IRVE_SITE_FADE_BAND} and
+ * `prismMeshSitesFade.js`.
  *
  * ── ONE GRAMMAR ACROSS THE THREE, SINCE 2026-09-10 ─────────────────────────
  *
@@ -249,6 +256,24 @@ import {
   MESH_PDC,
 } from './irveMesh.js';
 import { IRVE_MARK_PUNCH_MIN_PX, irveMarkGlyph } from './irveMarkIcons.js';
+import { ARRIVAL_MS, fadeBand, watchZoomFade } from './zoomFade.js';
+import {
+  ARRIVAL_NATIONAL,
+  ARRIVAL_MESH,
+  ARRIVAL_SITES,
+  ROLE_MESH,
+  ROLE_SHARED,
+  ROLE_SITES,
+  createRecordFader,
+  dominantPointLevel,
+  effectiveMarkCount,
+  familyAlphas,
+  pointArrivalKey,
+  pointRoles,
+  retiredPointLevel,
+  siteFadeScale,
+  wantedPointLevels,
+} from './prismMeshSitesFade.js';
 import { pickAt } from './pickAt.js';
 import { formatInteger, formatNumber } from '../i18n/format.js';
 import messages from './irveFrance.i18n.js';
@@ -280,14 +305,57 @@ const DEPARTEMENTS_URL = new URL(
 
 // --- Activation / load gating ----------------------------------------------
 /**
- * Altitude (m) below which the layer draws individual sites. A charge point is
- * a street-scale object, and the proxy refuses a box wider than 0.35° anyway —
- * above this the request would stop being a viewport query and every dot would
- * be a speck. Above it, the national choropleth answers instead.
+ * Altitude (m) at and above which the layer never draws individual sites. A
+ * charge point is a street-scale object, and the proxy refuses a box wider
+ * than 0.35° anyway — above this the request would stop being a viewport query
+ * and every dot would be a speck.
+ *
+ * It used to be an enter/exit pair (42 / 48 km) deciding the switch to the
+ * site regime. That switch is a fade band now ({@link IRVE_SITE_FADE_BAND}),
+ * measured on the span the proxy ceiling is written in, and in a plan view the
+ * span reaches the ceiling at ~25 km — long before this altitude. So the
+ * altitude is a GUARD, a single value with no hysteresis to keep: both levels
+ * are drawn inside the band, so nothing can flap on it.
  */
 const SITE_ALTITUDE_M = 45_000;
-const SITE_ENTER_ALTITUDE_M = SITE_ALTITUDE_M - 3_000;
-const SITE_EXIT_ALTITUDE_M = SITE_ALTITUDE_M + 3_000;
+/**
+ * THE MAILLAGE ↔ SITES BAND, in degrees of the view's LARGER span ('deg-max').
+ *
+ * The coarse end is {@link IRVE_MAX_BOX_DEG}, 0.35°, which is where the site
+ * level starts loading today and where it has to start: the proxy refuses any
+ * box wider than that, so a site query is answerable exactly when the larger
+ * span is under it, and every view inside the band is a view the proxy will
+ * answer. Its caps hold unchanged — the densest 0.35° box in France (central
+ * Paris) is 2 575 sites against the 4 000 this layer draws at most.
+ *
+ * The fine end is 0.21° — 0.6 × 0.35, a ratio of 1.67, i.e. a little under one
+ * zoom level (×0.5) of fade. On the app's 16:10 viewport the band runs from
+ * about 25 km of altitude down to about 15 km. Below 0.21° only the sites are
+ * drawn, as before.
+ *
+ * THE SHAPE IS A REVEAL, because the band can only sit below the old switch:
+ * every view in it used to show every site, so the sites must win it. They
+ * reach full strength 30 % of the way in (0.300°), the maillage is gone by 70 %
+ * (0.245°), and the sites own the key from 0.314° down — measured in log
+ * scale from the coarse end, `0.35 × 0.6^p`. A symmetric crossfade would have
+ * shown the maillage over most of the band. See `prismMeshSitesFade.js`.
+ *
+ * Keeping the maillage loaded for as long as it has a weight (down to 0.245°)
+ * costs nothing upstream: it is re-picked in the client from the national
+ * point set already held, 1 to 12 ms per settle (measured in `pickMeshLevel`'s
+ * comment), at the 2 200-mark budget of the finest tier.
+ *
+ * WHY THIS ONE FADES AND THE NATIONAL CUT DOES NOT — see
+ * `prismMeshSitesFade.js`. In short: a maillage mark is a real site of the
+ * same register at its own coordinate, with its own top power band on the same
+ * five colours, and its id is the site's key. The sites densify the maillage;
+ * they do not re-encode it.
+ */
+export const IRVE_SITE_FADE_BAND = fadeBand(0.21, IRVE_MAX_BOX_DEG);
+/** What the frame callback reports to the browser harness about the bands. */
+const IRVE_FADE_BANDS_REPORT = Object.freeze({
+  'mesh-sites': Object.freeze({ fine: IRVE_SITE_FADE_BAND.fine, coarse: IRVE_SITE_FADE_BAND.coarse, unit: 'deg-max' }),
+});
 /**
  * View LATITUDE span (degrees) at or above which the choropleth answers.
  *
@@ -307,9 +375,26 @@ const SITE_EXIT_ALTITUDE_M = SITE_ALTITUDE_M + 3_000;
  * The exit threshold is lower than the entry one on purpose: without the gap
  * a camera resting near the boundary would swap the entire map back and forth
  * on sub-pixel drift.
+ *
+ * THIS STAYS A HARD CUT, AND KEEPS ITS HYSTERESIS, on purpose. The prism's
+ * height is the same count the marks draw, but its colour is the DENSITY per
+ * 1 000 km² on the violet ramp below, and a mark's colour is the POWER BAND on
+ * the blue-to-yellow one — two indicators with two keys, chosen to share no
+ * colour precisely because the two regimes never draw at once. A crossfade
+ * would rest both ramps on screen under one key. What changed is that the cut
+ * no longer goes blank: the level going out holds until the level coming in is
+ * drawn (`coverAlphas` in `prismMeshSitesFade.js`), then the marks fade over
+ * one 260 ms ramp while the prisms are toggled at its far end.
  */
 const NATIONAL_ENTER_SPAN_DEG = 9.5;
 const NATIONAL_EXIT_SPAN_DEG = 8;
+/**
+ * The national cut, reported beside the band so a harness can tell a cut it
+ * should see as a swap from a band it should see as a fade.
+ */
+const IRVE_FADE_CUTS_REPORT = Object.freeze({
+  'national-mesh': Object.freeze({ enter: NATIONAL_ENTER_SPAN_DEG, exit: NATIONAL_EXIT_SPAN_DEG, unit: 'deg-lat' }),
+});
 /** Debounce (ms) on camera-driven viewport reloads. */
 const CAMERA_DEBOUNCE_MS = 450;
 /**
@@ -761,6 +846,45 @@ let _meshHidden = 0;
 /** Repaint-my-chips callback, installed by `manager.js` once the module loads. */
 let _rowControlsListener = null;
 
+// Fade on zoom. The two point levels are held SEPARATELY now, because inside
+// the maillage ↔ sites band both are drawn at once; `_records` is what the two
+// compose into (`rebuildPoints`), and every mark in it carries a `fadeRole`.
+/** The maillage as drawn: its pick and the box it was picked over. */
+let _meshLevel = null;
+/** The site level as drawn: the viewport payload's sites and their box. */
+let _siteLevel = null;
+/** Which point levels the current `_records` were built from. */
+let _drawn = { mesh: false, sites: false };
+/** The band scale of the last SETTLED view — what loading and dominance read. */
+let _settledScale = Infinity;
+/** Incremented on every settle, so a slow maillage fetch never draws over a newer view. */
+let _viewGeneration = 0;
+let _meshLoading = false;
+let _siteLoading = false;
+/** Plate count the current marks were sized for — see `effectiveMarkCount`. */
+let _drawnMarkCount = 0;
+/** Whether the département prisms are on screen right now. */
+let _depShown = false;
+/** The `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
+/** Drops the level an arrival replaced, once its ramp has finished. */
+let _retireTimer = null;
+let _fadeReportDirty = true;
+/** Reused per frame: the frame allocates nothing. */
+const _fadeAlphas = {
+  national: 0, nationalShown: false, shared: 1, sites: 1, mesh: 1, meshLevel: 0, sitesLevel: 0,
+};
+let _fadeNow = 0;
+const _fadeState = {
+  national: false,
+  nationalReady: false,
+  meshDrawn: false,
+  sitesDrawn: false,
+  scale: Infinity,
+  band: null,
+  arrival: (key) => (_fade ? _fade.arrival(key, _fadeNow) : 1),
+};
+
 // National regime.
 let _national = null;
 let _nationalPainted = false;
@@ -978,8 +1102,25 @@ export function viewSpanDeg(viewer) {
 }
 
 /**
- * Which regime the camera is in, with hysteresis at both boundaries so a
- * camera resting on one does not flip the whole map back and forth.
+ * The camera's scale for the maillage ↔ sites band: the larger span, or
+ * Infinity at and above {@link SITE_ALTITUDE_M}.
+ * @param {number} spanMaxDeg
+ * @param {number} altitudeM
+ * @returns {number}
+ */
+export function irveSiteFadeScale(spanMaxDeg, altitudeM) {
+  return siteFadeScale(spanMaxDeg, altitudeM, SITE_ALTITUDE_M);
+}
+
+/**
+ * Which regime the camera is in — the level that owns the key, the card, the
+ * row line and the analyst's records.
+ *
+ * The national cut keeps its hysteresis (see {@link NATIONAL_ENTER_SPAN_DEG}
+ * for why it stays a cut). Below it the regime is no longer a switch: both
+ * point levels can be on screen at once inside {@link IRVE_SITE_FADE_BAND},
+ * and the regime is whichever of them the settled view gives the larger
+ * alpha — see `dominantPointLevel`.
  *
  * A camera with no view rectangle is looking past the limb at the whole
  * globe, which is the most zoomed-out state there is — the choropleth, not a
@@ -990,7 +1131,6 @@ export function viewSpanDeg(viewer) {
  */
 function updateRegime(viewer) {
   const span = viewSpanDeg(viewer);
-  const altitude = cameraAltitudeM(viewer);
 
   if (_regime === 'national') {
     if (span.lat >= NATIONAL_EXIT_SPAN_DEG) return _regime;
@@ -999,19 +1139,18 @@ function updateRegime(viewer) {
     return _regime;
   }
 
-  // Below the national threshold the choice is between every site and a
-  // thinned sample, and it is the PROXY's box ceiling that decides — the
-  // exact regime exists only where a viewport query is answerable at all.
-  // That ceiling bites before the altitude gate does (0.35° of longitude is
-  // reached around 25 km, not 45 km), which is the correct order: a request
-  // the proxy would refuse must never be issued.
-  if (_regime === 'sites') {
-    if (altitude > SITE_EXIT_ALTITUDE_M || span.max > IRVE_MAX_BOX_DEG) _regime = 'mesh';
-  } else if (altitude < SITE_ENTER_ALTITUDE_M && span.max <= IRVE_MAX_BOX_DEG) {
-    _regime = 'sites';
-  } else {
-    _regime = 'mesh';
-  }
+  // Below the national threshold the site level exists only where the PROXY
+  // can answer — the band is written in the span its box ceiling is written
+  // in, and that ceiling bites before the altitude guard does (0.35° of
+  // longitude is reached around 25 km, not 45 km), which is the correct
+  // order: a request the proxy would refuse must never be issued.
+  _settledScale = irveSiteFadeScale(span.max, cameraAltitudeM(viewer));
+  _regime = dominantPointLevel({
+    meshDrawn: _drawn.mesh,
+    sitesDrawn: _drawn.sites,
+    scale: _settledScale,
+    band: IRVE_SITE_FADE_BAND,
+  });
   return _regime;
 }
 
@@ -1361,9 +1500,34 @@ function addMark(id, position, band, color, size) {
   });
 }
 
+/** A record's fade weight — 1 for a record no fade has touched. */
+function fadeWeightOf(record) {
+  return record?.fadeWeight ?? 1;
+}
+
+/**
+ * Whether a record is drawn as a MAILLAGE mark (uniform beam) rather than as a
+ * site (beam = its charge points). A mark the maillage shares with the site
+ * level is drawn once, as the site it is. A record built before roles existed
+ * — the test seeds — follows the regime, as every record used to.
+ */
+function meshStyled(record) {
+  return record?.fadeRole ? record.fadeRole === ROLE_MESH : _regime === 'mesh';
+}
+
+/**
+ * Whether a record belongs to the level that owns the key, the card and the
+ * analyst's records. A mark both levels draw belongs to whichever owns them.
+ */
+function inDominantLevel(record) {
+  const role = record?.fadeRole;
+  if (!role || role === ROLE_SHARED) return true;
+  return _regime === 'mesh' ? role === ROLE_MESH : role === ROLE_SITES;
+}
+
 function restoreRecordStyle(record) {
   if (!record?.point) return;
-  record.point.color = Cesium.Color.fromCssColorString(record.baseColor);
+  record.point.color = Cesium.Color.fromCssColorString(record.baseColor).withAlpha(fadeWeightOf(record));
   record.point.width = record.baseSize;
   record.point.height = record.baseSize;
   styleBeam(record, false);
@@ -1381,8 +1545,10 @@ function clearSelection() {
   const record = departement || !_selectedId ? null : _records.get(_selectedId);
   _selectedId = null;
   // Nothing to restore for a département: its fill is owned by the repaint,
-  // which is idempotent, so re-running it puts the bin colour back.
-  if (departement) repaintDepartements();
+  // which is idempotent, so re-running it puts the bin colour back. Not while
+  // the prisms are off screen, though: the repaint SHOWS what it paints, and
+  // only the national side of the cut may decide that (`applyNationalVisibility`).
+  if (departement && (_depShown || !_enabled)) repaintDepartements();
   else if (record) restoreRecordStyle(record);
   _overlayHost.clearSource(IRVE_FR_OVERLAY_SOURCE_ID);
 }
@@ -1398,7 +1564,7 @@ function selectSite(id) {
     // selected refusal keeps its hollow middle, because its raster is the
     // hollow one and tinting does not fill it: the one moment the map could
     // have drawn a value where it has none.
-    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(fadeWeightOf(record));
     record.point.width = record.baseSize + SELECTED_MARK_BONUS_PX;
     record.point.height = record.baseSize + SELECTED_MARK_BONUS_PX;
   }
@@ -1747,10 +1913,14 @@ function sweepBeams() {
   const fov = scene?.camera?.frustum?.fovy;
   if (!Number.isFinite(fov)) return;
   const metresPerPixelFactor = (2 * Math.tan(fov * 0.5)) / canvasHeight;
-  // One uniform length for the maillage, one length per site in the exact
-  // regime. Resolved once for the whole sweep in the first case, per record in
-  // the second — see {@link irveBeamPdcPx}.
-  const uniformPx = _regime === 'mesh' ? irveBeamTargetPx(_records.size) : 0;
+  // One uniform length for a maillage mark, one length per site for a site.
+  // Resolved once for the whole sweep in the first case, per record in the
+  // second — see {@link irveBeamPdcPx}. Inside the fade band both kinds are on
+  // screen at once, so the choice is per RECORD: a mark only the maillage draws
+  // keeps the maillage's beam, and a site — including one the maillage also
+  // stands on — carries its own count. The uniform length is budgeted on the
+  // marks the view was sized for, not on every record held.
+  const uniformPx = irveBeamTargetPx(_drawnMarkCount || _records.size);
   // A beam is vertical in the WORLD; what the reader measures is its
   // projection. Divided back out here, once, because the camera has one pitch.
   const pitchScale = irveBeamPitchScale(camera?.pitch);
@@ -1762,8 +1932,12 @@ function sweepBeams() {
     // asks for. Occlusion and the power filter are two different reasons a
     // mark is not on screen; if both wrote here they would fight, and a
     // filtered site would come back at the next camera move. The filter writes
-    // `filteredOut` and this line reads it.
-    const visible = occluder.isPointVisible(record.position) && record.filteredOut !== true;
+    // `filteredOut` and this line reads it. The fade is the third reason, and
+    // it writes `fadeWeight`: a mark faded to zero is HIDDEN, not drawn
+    // transparent, because an invisible billboard still answers a pick.
+    const visible = occluder.isPointVisible(record.position)
+      && record.filteredOut !== true
+      && fadeWeightOf(record) > 0;
     if (record.point) record.point.show = visible;
     const line = _beams.get(index);
     index += 1;
@@ -1775,7 +1949,7 @@ function sweepBeams() {
       line.show = false;
       continue;
     }
-    const wanted = uniformPx || irveBeamPdcPx(record.site?.pdcDistinct);
+    const wanted = meshStyled(record) ? uniformPx : irveBeamPdcPx(record.site?.pdcDistinct);
     if (!wanted) {
       // A1 — the beam is the COUNT, so a site that published none gets no
       // beam rather than the metres floor, which would be a height asserting a
@@ -1815,7 +1989,7 @@ function rebuildBeams() {
   if (!_beams) return;
   let index = 0;
   for (const record of _records.values()) {
-    const color = Cesium.Color.fromCssColorString(record.baseColor).withAlpha(BEAM_ALPHA);
+    const color = Cesium.Color.fromCssColorString(record.baseColor).withAlpha(BEAM_ALPHA * fadeWeightOf(record));
     let line = _beams.get(index);
     if (!line) {
       line = _beams.add({
@@ -1878,15 +2052,103 @@ function styleBeam(record, selected) {
   if (!_beams || !record || !Number.isFinite(record.beamIndex)) return;
   const line = _beams.get(record.beamIndex);
   if (!line) return;
+  const weight = fadeWeightOf(record);
   line.material.uniforms.color = selected
-    ? Cesium.Color.fromCssColorString(SELECTED_COLOR)
-    : Cesium.Color.fromCssColorString(record.baseColor).withAlpha(BEAM_ALPHA);
+    ? Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(weight)
+    : Cesium.Color.fromCssColorString(record.baseColor).withAlpha(BEAM_ALPHA * weight);
   line.width = selected ? SELECTED_BEAM_WIDTH_PX : BEAM_WIDTH_PX;
 }
+
+/** The selected-mark ink, parsed once for the per-frame writer. */
+const SELECTED_INK = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+/** Scratch for the per-frame writer: a billboard copies the colour it is given. */
+const _markFadeScratch = new Cesium.Color();
+
+/**
+ * Write one record's fade weight onto its plate and its beam.
+ *
+ * Called by the record fader, and only for records whose weight moved a step,
+ * so a still camera writes nothing. The plate's own ink is the band colour (or
+ * the selection cyan) at full alpha times the weight; the beam keeps its
+ * {@link BEAM_ALPHA} under the weight. `show` is NOT written here — the beam
+ * sweep is the single writer of `show`, and the frame callback asks it for a
+ * sweep whenever a weight crosses zero.
+ *
+ * @param {object} record
+ * @param {number} weight Quantised, 0..1.
+ */
+function writeMarkFade(record, weight) {
+  const selected = record.id === _selectedId;
+  if (record.point) {
+    if (!record.inkValue) record.inkValue = Cesium.Color.fromCssColorString(record.baseColor);
+    Cesium.Color.clone(selected ? SELECTED_INK : record.inkValue, _markFadeScratch);
+    _markFadeScratch.alpha = weight;
+    record.point.color = _markFadeScratch;
+  }
+  if (!_beams || !Number.isFinite(record.beamIndex)) return;
+  const color = _beams.get(record.beamIndex)?.material?.uniforms?.color;
+  // Every beam owns its colour object (`rebuildBeams` and `styleBeam` assign a
+  // fresh one), so the alpha is written in place: the material reads its
+  // uniform every frame and nothing is allocated here.
+  if (color) color.alpha = (selected ? 1 : BEAM_ALPHA) * weight;
+}
+
+const _markFader = createRecordFader(writeMarkFade);
 
 /** Ask for a sweep on the next frame. */
 function markBeamSweepDirty() {
   _beamSweepDirty = true;
+}
+
+/**
+ * The per-frame half of fade on zoom: weights, written through the adapters.
+ *
+ * Runs on `zoomFade.js`'s one shared `preRender` read of the camera, so a
+ * weight written here is on screen in the same frame, and a parked camera in
+ * request-render mode costs nothing. Nothing is fetched here and nothing is
+ * built: `loadViewport` decides which levels are drawn on the settle, and this
+ * only decides how strongly. A frame in which no role weight moved a step
+ * costs three comparisons (`createRecordFader`).
+ *
+ * @param {{latSpan: number, lonSpan: number, heightM: number}} scale
+ * @param {number} nowMs
+ */
+function onZoomFadeFrame(scale, nowMs) {
+  if (!_enabled) return;
+  _fadeNow = nowMs;
+  _fadeState.national = _regime === 'national';
+  _fadeState.nationalReady = _nationalPainted;
+  _fadeState.meshDrawn = _drawn.mesh;
+  _fadeState.sitesDrawn = _drawn.sites;
+  _fadeState.scale = irveSiteFadeScale(Math.max(scale.latSpan, scale.lonSpan), scale.heightM);
+  _fadeState.band = IRVE_SITE_FADE_BAND;
+  familyAlphas(_fadeState, _fadeAlphas);
+
+  const marks = _markFader.apply(_records, _fadeAlphas);
+  // A weight that crossed zero changes whether a mark is drawn at all, and
+  // the sweep is the one writer of `show`: run it now, in this frame, rather
+  // than leave a transparent mark answering picks until the camera moves.
+  if (marks.crossed) sweepBeams();
+  const national = applyNationalVisibility(_fadeAlphas.nationalShown);
+  if (marks.changed || national || _fadeReportDirty) reportFade();
+}
+
+/** Publish the drawn state for the browser harness — on change only. */
+function reportFade() {
+  _fadeReportDirty = false;
+  _fade?.report({
+    levels: {
+      // Toggled, never faded: drawn at its own alpha or not at all.
+      national: _depShown ? 1 : 0,
+      mesh: _fadeAlphas.meshLevel,
+      sites: _fadeAlphas.sitesLevel,
+    },
+    // The three roles a mark can have inside the band; `shared` is drawn once.
+    marks: { shared: _fadeAlphas.shared, sites: _fadeAlphas.sites, mesh: _fadeAlphas.mesh },
+    dominant: _regime,
+    bands: IRVE_FADE_BANDS_REPORT,
+    cuts: IRVE_FADE_CUTS_REPORT,
+  });
 }
 
 // --- National regime --------------------------------------------------------
@@ -2197,6 +2459,40 @@ function hideDepartements() {
     for (const entity of parts) entity.show = false;
   }
   _overlayHost.clearSource(IRVE_FR_LABEL_SOURCE_ID);
+  _depShown = false;
+}
+
+/**
+ * Put the prisms on screen or take them off — the national side of the cut.
+ *
+ * TOGGLED, NEVER FADED. A prism is drawn with four kinds of material — a
+ * class colour shared per bin, a stripe for a refused density, a flat fill, a
+ * grid — plus a separate silhouette colour, and only the first could follow a
+ * weight (`fadingColorMaterial`); a colour that does is re-read on every one
+ * of the ~100 entities every frame, for as long as it exists. Nothing is lost
+ * by not paying that, because this transition is a cut and not a band: the
+ * 260 ms hand-over is carried by the marks, which fade for one colour write
+ * each, and the prisms appear the moment they are painted (zooming out) or go
+ * on the ramp's last frame (zooming in). So the entities are written twice per
+ * hand-over, at its ends, and never in between.
+ *
+ * @param {boolean} show
+ * @returns {boolean} Whether anything changed.
+ */
+function applyNationalVisibility(show) {
+  if (show === _depShown) return false;
+  if (show) {
+    repaintDepartements();
+    _depShown = true;
+    publishDepartementOverlay();
+  } else {
+    hideDepartements();
+    // Off screen and no longer the target: the next visit repaints from the
+    // rollup, exactly as re-entering the regime always did.
+    if (_regime !== 'national') _nationalPainted = false;
+  }
+  governorRequestRender('irve-fr-national-cut');
+  return true;
 }
 
 /**
@@ -2206,19 +2502,24 @@ function hideDepartements() {
  * repaint anything: `_nationalPainted` makes every camera nudge after the
  * first a no-op. Only a new rollup, or re-entering the regime, repaints.
  *
+ * THE MARKS ARE NOT CLEARED ON THE WAY IN ANY MORE. They used to be, before
+ * the polygons and the rollup were even asked for, so a first zoom out showed
+ * an empty globe for as long as those two took. They now stay at full strength
+ * until the prisms are painted, step down over one arrival ramp, and are
+ * dropped when it ends (`retirePoints`).
+ *
  * @param {{force?: boolean}} [options] `force` re-asks the proxy, which
  *   normally answers from its own 24-hour cache — that is how a session open
  *   across midnight picks up the next day's consolidation.
  */
 async function loadNational({ force = false } = {}) {
   _error = null;
-  clearSites();
-  if (force) {
-    _national = null;
-    _nationalPainted = false;
-  }
+  // A forced refresh re-asks for the rollup but leaves the prisms painted:
+  // they stay on screen until the new answer repaints them, rather than the
+  // map emptying for the length of a national sweep.
+  if (force) _national = null;
   _loading = !_national;
-  const generation = _requestGeneration;
+  const generation = _viewGeneration;
   try {
     await ensureDepartementShapes();
   } catch (error) {
@@ -2229,7 +2530,7 @@ async function loadNational({ force = false } = {}) {
     return;
   }
   await ensureNational();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'national') return;
+  if (generation !== _viewGeneration || !_enabled || _regime !== 'national') return;
   _loading = false;
   if (!_national) {
     _error = _nationalError || 'national rollup unavailable';
@@ -2239,10 +2540,22 @@ async function loadNational({ force = false } = {}) {
   _count = _national.painted || 0;
   _lastUpdate = Number(_national.fetchedAt) || Date.now();
   _status = _count > 0 ? 'ready' : 'empty';
-  if (_nationalPainted) return;
+  if (_nationalPainted && !force) {
+    // Already on screen; a settle here can still owe the marks their exit.
+    retirePoints();
+    return;
+  }
   _nationalPainted = true;
   repaintDepartements();
+  _depShown = true;
   publishDepartementOverlay();
+  // The marks still on screen step down over the prisms' arrival, and go
+  // when it ends.
+  if (_drawn.mesh || _drawn.sites) {
+    _fade?.arrive(ARRIVAL_NATIONAL);
+    scheduleRetire();
+  }
+  _fadeReportDirty = true;
   governorRequestRender('irve-fr-national');
   publishRowControls();
 }
@@ -2279,13 +2592,15 @@ async function ensureMesh() {
 }
 
 /**
- * Draw a thinned selection of real site positions for the current view.
+ * Pick the maillage for one view and hold it as the drawn maillage level.
  *
  * Re-picked on every camera settle rather than cached: the pick is a function
  * of the box, and re-running it over 39 579 tuples costs a few milliseconds
- * against a round trip that would cost a few hundred.
+ * against a round trip that would cost a few hundred. Drawing is
+ * {@link rebuildPoints}'s job, because inside the fade band the maillage is
+ * drawn together with the sites.
  */
-function reconcileMesh(box) {
+function pickMeshLevel(box) {
   const floorIndex = irveFloorBandIndex(_floorId);
   // THE FLOOR IS APPLIED BEFORE THE PICK, and that ordering is the whole
   // correctness of the maillage filter. Applied AFTER, a « > 150 kW » floor
@@ -2314,56 +2629,13 @@ function reconcileMesh(box) {
     budget: profileCountBudget(irveMeshBudget(box.north - box.south)),
   });
   _meshPick = pick;
+  _meshLevel = { pick, box };
   _lastMeshLat = (box.north + box.south) / 2;
   // What the floor took out of THIS view, counted before it was removed, so
   // the row's line can say it rather than let the map look complete.
   _meshHidden = floorIndex >= 0
     ? countMeshInBox(source, box) - pick.inBox
     : 0;
-
-  clearSelection();
-  _marks.removeAll();
-  _records.clear();
-
-  // Resolved ONCE for the rebuild, from what this view is about to hold, so
-  // every plate in one view is the same size and no mark changes size while
-  // the reader is only looking at it.
-  const size = irveMarkSizePx(Math.min(pick.picked.length, MAX_RENDERED_SITES), canvasAreaPx2());
-  pick.picked.forEach((site, order) => {
-    if (_records.size >= MAX_RENDERED_SITES) return;
-    const lat = site[MESH_LAT];
-    const lon = site[MESH_LON];
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const id = meshSiteId(site);
-    if (_records.has(id)) return;
-    const band = IRVE_BAND_KEYS[site[MESH_BAND]] || UNKNOWN_BAND;
-    const color = irveBandColor(band);
-    // The COMPLETE contents of the lattice cell this mark stands for — not an
-    // estimate and not a sample: every site in the cell was summed. It is what
-    // the card prints and what the analyst reads.
-    const cell = pick.aggregates?.[order] || null;
-    // No ground warm-up here: at these altitudes a metre of vertical error is
-    // invisible, and 2 200 terrain lookups per pan would not be.
-    const position = Cesium.Cartesian3.fromDegrees(lon, lat, POINT_LIFT_M);
-    const point = addMark(id, position, band, color, size);
-    _records.set(id, {
-      id,
-      // A mesh record carries only what the national sweep knows. The flag is
-      // what lets the card say so instead of implying the rest is absent.
-      mesh: true,
-      site: { id, lat, lon, pdcDistinct: site[MESH_PDC], pdcPublished: site[MESH_PDC], topBand: band },
-      cell: cell ? { pdc: cell.total, sites: cell.rows, stepDeg: pick.stepDeg } : null,
-      point,
-      position,
-      carto: Cesium.Cartographic.fromCartesian(position),
-      baseColor: color,
-      baseSize: size,
-    });
-  });
-  _count = _records.size;
-  rebuildBeams();
-  governorRequestRender('irve-fr-mesh');
-  publishRowControls();
 }
 
 /** Sites of the unfiltered national set inside a box — the filter's denominator. */
@@ -2377,47 +2649,116 @@ function countMeshInBox(sites, box) {
   return total;
 }
 
-/** Enter (or refresh) the mesh regime. */
-async function loadMesh(box) {
-  hideDepartements();
-  _nationalPainted = false;
-  dropDepartementSelection();
-  _summary = null;
-  _error = null;
-  _loading = !_mesh;
-  const generation = ++_requestGeneration;
+/**
+ * Pick and draw the maillage once the national point set is in hand — the
+ * slow path, for the first settle of a session; every later settle picks
+ * synchronously in {@link loadViewport}.
+ *
+ * @param {{south:number, west:number, north:number, east:number}} box
+ * @param {number} viewGeneration The settle this belongs to.
+ */
+async function loadMeshLevel(box, viewGeneration) {
+  _meshLoading = true;
+  syncLoading();
   await ensureMesh();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'mesh') return;
-  _loading = false;
+  _meshLoading = false;
+  syncLoading();
+  if (viewGeneration !== _viewGeneration || !_enabled || _regime === 'national') return;
   if (!_mesh) {
     _error = _meshError || 'national mesh unavailable';
     _status = 'error';
     return;
   }
-  reconcileMesh(box);
+  _error = null;
+  pickMeshLevel(box);
   _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
-  _status = _count > 0 ? 'ready' : 'empty';
+  rebuildPoints();
 }
 
-// --- Site regime ------------------------------------------------------------
+// --- The two point levels, composed ---------------------------------------
 
-/** Replace the rendered set with a viewport answer. */
-function reconcile(payload) {
-  const sites = Array.isArray(payload?.sites) ? payload.sites : [];
-
+/**
+ * Compose the marks from the point levels that are drawn, and draw them.
+ *
+ * ONE COLLECTION, THREE ROLES. Outside the fade band one level is drawn and
+ * this is what each reconcile path always did: clear, then one plate (and one
+ * beam) per mark. Inside the band both are, and each mark takes the role
+ * `prismMeshSitesFade.js` argues for:
+ *
+ *   - a site the maillage also stands on is drawn ONCE, as the site it is,
+ *     and stays at full strength through the band — the two levels agree on
+ *     where it is and what band it is, so neither one fading changes it;
+ *   - a site the maillage thinned away is drawn at the site level's alpha;
+ *   - a maillage mark the site query did not return (the padding outside the
+ *     view, or a capped answer) is drawn at the maillage's alpha, as the
+ *     maillage mark it is: uniform beam, cell card.
+ *
+ * A shared mark wears the CELL card while the maillage owns the view and the
+ * SITE card once the sites do; both are true of it, and the dominant level is
+ * the one that speaks.
+ *
+ * @param {{keepSelection?: boolean}} [options] Re-select the selected mark if
+ *   it survives — for a rebuild that only retires a level, which the reader
+ *   did not ask for. A settle rebuild clears the selection, as it always did.
+ */
+function rebuildPoints({ keepSelection = false } = {}) {
+  if (!_marks) return;
+  const reselect = keepSelection && _selectedId && !_selectedId.startsWith('dep:') ? _selectedId : null;
   clearSelection();
   _marks.removeAll();
   _records.clear();
 
+  const before = _drawn;
+  const pick = _meshLevel?.pick || null;
+  const sites = Array.isArray(_siteLevel?.sites) ? _siteLevel.sites : [];
+  _drawn = { mesh: Boolean(pick), sites: Boolean(_siteLevel) };
+  if (_regime !== 'national') {
+    _regime = dominantPointLevel({
+      meshDrawn: _drawn.mesh,
+      sitesDrawn: _drawn.sites,
+      scale: _settledScale,
+      band: IRVE_SITE_FADE_BAND,
+    });
+    syncLoading();
+  }
+
+  // The maillage by the site key its marks stand on — the key the site level
+  // uses for the same coordinate (`meshSiteId`).
+  const meshById = new Map();
+  if (pick) {
+    pick.picked.forEach((tuple, order) => {
+      if (!Number.isFinite(tuple[MESH_LAT]) || !Number.isFinite(tuple[MESH_LON])) return;
+      const id = meshSiteId(tuple);
+      if (!meshById.has(id)) meshById.set(id, { tuple, aggregate: pick.aggregates?.[order] || null });
+    });
+  }
+  const siteIds = [];
+  for (const site of sites) {
+    if (site?.id && Number.isFinite(site.lat) && Number.isFinite(site.lon)) siteIds.push(site.id);
+  }
+  const roles = pointRoles(meshById.keys(), siteIds, { meshDrawn: _drawn.mesh, sitesDrawn: _drawn.sites });
+  const counts = { [ROLE_SHARED]: 0, [ROLE_SITES]: 0, [ROLE_MESH]: 0 };
+  for (const role of roles.values()) counts[role] += 1;
+  // Same rule as before, one size for the whole rebuild from what this view
+  // is about to hold — now counted at the alpha each mark will settle at, so
+  // a site the band still has at 0.1 does not shrink every plate on screen.
+  _drawnMarkCount = Math.min(
+    effectiveMarkCount(counts, _settledScale, IRVE_SITE_FADE_BAND, { meshDrawn: _drawn.mesh, sitesDrawn: _drawn.sites }),
+    MAX_RENDERED_SITES,
+  );
+  const size = irveMarkSizePx(_drawnMarkCount, canvasAreaPx2());
+  const meshCard = _regime === 'mesh';
+  const cellOf = (aggregate) => (aggregate
+    ? { pdc: aggregate.total, sites: aggregate.rows, stepDeg: pick.stepDeg }
+    : null);
+
   const warm = [];
-  // Same rule as the maillage: one size for the whole rebuild, from what this
-  // view is about to hold.
-  const size = irveMarkSizePx(Math.min(sites.length, MAX_RENDERED_SITES), canvasAreaPx2());
   for (const site of sites) {
     if (_records.size >= MAX_RENDERED_SITES) break;
     const id = site?.id;
-    if (!id || _records.has(id)) continue;
-    if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) continue;
+    if (!id || _records.has(id) || !roles.has(id)) continue;
+    const role = roles.get(id);
+    const shared = role === ROLE_SHARED ? meshById.get(id) : null;
     const position = sitePosition(site);
     const color = irveBandColor(site.topBand);
     const point = addMark(id, position, site.topBand, color, size);
@@ -2430,16 +2771,68 @@ function reconcile(payload) {
       carto: Cesium.Cartographic.fromCartesian(position),
       baseColor: color,
       baseSize: size,
+      fadeRole: role,
+      // The cell this site represents in the maillage, kept so the card can
+      // be the cell's while the maillage owns the view.
+      mesh: Boolean(shared) && meshCard,
+      cell: shared ? cellOf(shared.aggregate) : null,
     });
     warm.push(site);
   }
+  for (const [id, { tuple, aggregate }] of meshById) {
+    if (_records.size >= MAX_RENDERED_SITES) break;
+    if (_records.has(id)) continue;
+    const lat = tuple[MESH_LAT];
+    const lon = tuple[MESH_LON];
+    const band = IRVE_BAND_KEYS[tuple[MESH_BAND]] || UNKNOWN_BAND;
+    const color = irveBandColor(band);
+    // No ground warm-up here: at these altitudes a metre of vertical error is
+    // invisible, and 2 200 terrain lookups per pan would not be.
+    const position = Cesium.Cartesian3.fromDegrees(lon, lat, POINT_LIFT_M);
+    const point = addMark(id, position, band, color, size);
+    _records.set(id, {
+      id,
+      // A mesh record carries only what the national sweep knows. The flag is
+      // what lets the card say so instead of implying the rest is absent.
+      mesh: true,
+      site: { id, lat, lon, pdcDistinct: tuple[MESH_PDC], pdcPublished: tuple[MESH_PDC], topBand: band },
+      // The COMPLETE contents of the lattice cell this mark stands for — not an
+      // estimate and not a sample: every site in the cell was summed. It is
+      // what the card prints and what the analyst reads.
+      cell: cellOf(aggregate),
+      point,
+      position,
+      carto: Cesium.Cartographic.fromCartesian(position),
+      baseColor: color,
+      baseSize: size,
+      fadeRole: ROLE_MESH,
+    });
+  }
 
-  _count = _records.size;
+  _count = dominantRecordCount();
   applySiteFloor();
   rebuildBeams();
   warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
-  governorRequestRender('irve-fr-reconcile');
+  // Every new record is drawn at full strength until the next frame writes
+  // its role's weight — which it does before that frame is drawn.
+  _markFader.invalidate();
+  _fadeReportDirty = true;
+  const arrival = pointArrivalKey(before, _drawn);
+  if (arrival && _fade) {
+    _fade.arrive(arrival);
+    scheduleRetire();
+  }
+  if (!_error) _status = _count > 0 ? 'ready' : 'empty';
+  if (reselect && _records.has(reselect)) selectSite(reselect);
+  governorRequestRender('irve-fr-points');
   publishRowControls();
+}
+
+/** Marks in the level that owns the view — what the row and the stats count. */
+function dominantRecordCount() {
+  let count = 0;
+  for (const record of _records.values()) if (inDominantLevel(record)) count += 1;
+  return count;
 }
 
 /**
@@ -2452,8 +2845,8 @@ function reconcile(payload) {
  * primitive: it writes one boolean per record and asks for a sweep, and
  * {@link sweepBeams} — the single writer of `show` — puts it on screen.
  *
- * Exact regime only. The maillage re-picks instead, and `reconcileMesh` says
- * why.
+ * The sites only. The maillage re-picks instead, and `pickMeshLevel` says
+ * why; a maillage mark always clears the floor it was picked under.
  */
 function applySiteFloor() {
   const floorIndex = irveFloorBandIndex(_floorId);
@@ -2466,6 +2859,7 @@ function applySiteFloor() {
   _siteHidden = hidden;
 }
 
+/** Forget both point levels and every mark — the national regime, or disable. */
 function clearSites() {
   if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
   if (_marks) _marks.removeAll();
@@ -2473,13 +2867,91 @@ function clearSites() {
   // dark. Hidden rather than removed: the collection is a pool.
   if (_beams) for (let i = 0; i < _beams.length; i += 1) _beams.get(i).show = false;
   _records.clear();
-  _count = 0;
+  // The national regime counts the départements it paints, not marks.
+  _count = _regime === 'national' ? (_national?.painted || 0) : 0;
   _summary = null;
   _meshPick = null;
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _drawnMarkCount = 0;
   // The floor's tallies belong to a record set that no longer exists; left
   // behind, the next regime's row line would print the last one's count.
   _siteHidden = 0;
   _meshHidden = 0;
+  _fadeReportDirty = true;
+}
+
+/**
+ * Let go of a level the view no longer wants, once the level replacing it is
+ * drawn and has finished arriving — see `retiredPointLevel`. Returns whether a
+ * point level was dropped; the caller rebuilds.
+ */
+function retireLevel() {
+  const level = retiredPointLevel({
+    scale: _settledScale,
+    band: IRVE_SITE_FADE_BAND,
+    meshDrawn: _drawn.mesh,
+    sitesDrawn: _drawn.sites,
+    meshArrival: _fade ? _fade.arrival(ARRIVAL_MESH) : 1,
+    sitesArrival: _fade ? _fade.arrival(ARRIVAL_SITES) : 1,
+  });
+  if (level === 'sites') {
+    _siteLevel = null;
+    _summary = null;
+    cancelSiteLevel();
+    return true;
+  }
+  if (level === 'mesh') {
+    _meshLevel = null;
+    _meshPick = null;
+    _meshHidden = 0;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Drop whatever the settled view has finished replacing: the marks once the
+ * prisms have arrived over them, or one point level once the other has.
+ */
+function retirePoints() {
+  if (!_enabled) return;
+  if (_regime === 'national') {
+    const arriving = _fade ? _fade.arrival(ARRIVAL_NATIONAL) < 1 : false;
+    if (_nationalPainted && !arriving && (_drawn.mesh || _drawn.sites)) {
+      clearSites();
+      governorRequestRender('irve-fr-retire');
+    }
+    return;
+  }
+  if (retireLevel()) rebuildPoints({ keepSelection: true });
+}
+
+/** Run {@link retirePoints} once the arrival just started has finished. */
+function scheduleRetire() {
+  clearTimeout(_retireTimer);
+  _retireTimer = setTimeout(() => {
+    _retireTimer = null;
+    retirePoints();
+  }, ARRIVAL_MS + 60);
+}
+
+/** Abandon the site query in flight, if any — the view no longer wants sites. */
+function cancelSiteLevel() {
+  if (!_inFlight && !_siteLoading) return;
+  _requestGeneration += 1;
+  _inFlight?.abort?.();
+  _inFlight = null;
+  _lastBox = null;
+  _siteLoading = false;
+  syncLoading();
+}
+
+/** The row's "loading" belongs to the level that owns the row. */
+function syncLoading() {
+  if (_regime === 'national') return;
+  _loading = _regime === 'sites' ? _siteLoading : _meshLoading;
 }
 
 /**
@@ -2514,42 +2986,17 @@ function loadLive(box, generation) {
     .catch(() => { /* the card says less, and the map is unaffected */ });
 }
 
-async function loadViewport({ force = false } = {}) {
-  if (!_enabled || !_viewer) return;
-  // Whatever this call concludes — records, a zoom-in verdict or a failure —
-  // it concludes it about the view the camera is showing right now. See
-  // `cameraSettle.js`: an arrival on any other view has to be read afresh.
-  markViewportRead(_viewer, IRVE_FR_LAYER_ID);
-
-  const regime = updateRegime(_viewer);
-  if (regime === 'national') {
-    _lastBox = null;
-    _meshPick = null;
-    await loadNational({ force });
-    return;
-  }
-
-  if (regime === 'mesh') {
-    _lastBox = null;
-    await loadMesh(cameraMeshBox(_viewer));
-    return;
-  }
-
-  const box = cameraIrveBox(_viewer);
-  if (!box) {
-    // Inside the altitude gate but looking at more than the proxy will answer
-    // — an oblique horizon shot. The maillage is the honest fallback, not an
-    // empty map.
-    _regime = 'mesh';
-    await loadMesh(cameraMeshBox(_viewer));
-    return;
-  }
-
-  hideDepartements();
-  _nationalPainted = false;
-  _meshPick = null;
-  dropDepartementSelection();
-
+/**
+ * Fetch the sites in one box and hold them as the drawn site level.
+ *
+ * The old drawing stays on screen until the new answer replaces it, so a pan
+ * is a swap and never a blank gap; and a box that is already in flight is not
+ * asked for twice.
+ *
+ * @param {{south:number, west:number, north:number, east:number}} box
+ * @param {{force?: boolean}} [options]
+ */
+async function loadSiteLevel(box, { force = false } = {}) {
   const key = [box.south, box.west, box.north, box.east].map((v) => v.toFixed(3)).join(',');
   if (!force && key === _lastBox && _inFlight) return;
   _lastBox = key;
@@ -2559,7 +3006,8 @@ async function loadViewport({ force = false } = {}) {
   const controller = new AbortController();
   _inFlight = controller;
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  _loading = true;
+  _siteLoading = true;
+  syncLoading();
 
   try {
     const params = new URLSearchParams({
@@ -2580,14 +3028,14 @@ async function loadViewport({ force = false } = {}) {
       throw new Error(detail);
     }
     const payload = await response.json();
-    if (generation !== _requestGeneration || !_enabled) return;
+    if (generation !== _requestGeneration || !_enabled || _regime === 'national') return;
 
-    reconcile(payload);
     const { sites, ...summary } = payload;
+    _siteLevel = { sites: Array.isArray(sites) ? sites : [], box };
     _summary = summary;
     _lastUpdate = Date.now();
     _error = null;
-    _status = _count > 0 ? 'ready' : 'empty';
+    rebuildPoints();
   } catch (error) {
     if (error?.name === 'AbortError') return;
     if (generation !== _requestGeneration) return;
@@ -2597,10 +3045,65 @@ async function loadViewport({ force = false } = {}) {
   } finally {
     clearTimeout(timer);
     if (generation === _requestGeneration) {
-      _loading = false;
+      _siteLoading = false;
       _inFlight = null;
+      syncLoading();
     }
   }
+}
+
+/**
+ * Read the settled view: decide the regime, load every level whose weight is
+ * above zero, and let go of the levels that are fully replaced.
+ *
+ * LOADING STAYS HERE, on the settle; the frame callback only fades what this
+ * has drawn. Inside {@link IRVE_SITE_FADE_BAND} that means BOTH point levels:
+ * the maillage (re-picked in the client, synchronously once the national set
+ * is in hand) and the sites (one proxy query, the same box it always was).
+ */
+async function loadViewport({ force = false } = {}) {
+  if (!_enabled || !_viewer) return;
+  // Whatever this call concludes — records, a zoom-in verdict or a failure —
+  // it concludes it about the view the camera is showing right now. See
+  // `cameraSettle.js`: an arrival on any other view has to be read afresh.
+  markViewportRead(_viewer, IRVE_FR_LAYER_ID);
+  const viewGeneration = ++_viewGeneration;
+  _fadeReportDirty = true;
+
+  const regime = updateRegime(_viewer);
+  if (regime === 'national') {
+    // The marks stay as the cover until the prisms are painted; only the
+    // question in flight is abandoned.
+    cancelSiteLevel();
+    await loadNational({ force });
+    return;
+  }
+
+  dropDepartementSelection();
+  const wanted = wantedPointLevels(_settledScale, IRVE_SITE_FADE_BAND);
+  const siteBox = wanted.sites ? cameraIrveBox(_viewer) : null;
+  // A view the band gives sites to but the proxy cannot answer — an oblique
+  // horizon shot — keeps the maillage, which is the honest fallback, never an
+  // empty map.
+  const meshBox = wanted.mesh || !siteBox ? cameraMeshBox(_viewer) : null;
+  if (!siteBox) cancelSiteLevel();
+
+  // Retire first, without drawing, so a view that drops one level and
+  // re-picks the other rebuilds once.
+  let rebuild = retireLevel();
+  const jobs = [];
+  if (meshBox && _mesh) {
+    pickMeshLevel(meshBox);
+    _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
+    rebuild = true;
+  } else if (meshBox) {
+    jobs.push(loadMeshLevel(meshBox, viewGeneration));
+  }
+  if (rebuild) rebuildPoints();
+  if (siteBox) jobs.push(loadSiteLevel(siteBox, { force }));
+  syncLoading();
+  publishRowControls();
+  await Promise.all(jobs);
 }
 
 /**
@@ -2875,6 +3378,10 @@ function irveBandLegend() {
   const mesh = _regime === 'mesh';
   const tally = new Map();
   for (const record of _records.values()) {
+    // Inside the fade band the key is the dominant level's, and so is the
+    // count: a maillage key counts cells, a site key charge points, and the
+    // other level's marks are not in either unit.
+    if (!inDominantLevel(record)) continue;
     // THE KEY DESCRIBES WHAT IS ON SCREEN, which is the whole point of a key.
     // Counted over the payload instead, a « > 150 kW » filter left 25 marks on
     // the map under a key still claiming 411 charge points of « Normale » —
@@ -3018,7 +3525,13 @@ const irveFranceLayer = {
     _live = null;
     _regime = 'national';
     _nationalPainted = false;
+    _depShown = false;
     _meshPick = null;
+    _meshLevel = null;
+    _siteLevel = null;
+    _drawn = { mesh: false, sites: false };
+    _settledScale = Infinity;
+    _drawnMarkCount = 0;
     _lastBox = null;
     _floorId = 'all';
     _siteHidden = 0;
@@ -3060,6 +3573,11 @@ const irveFranceLayer = {
     if (!_preRenderRemover) {
       _preRenderRemover = viewer.scene.preRender.addEventListener(onPreRender);
     }
+    // Fade on zoom: one shared per-frame read of the camera, held only while
+    // the layer is on. See `onZoomFadeFrame`.
+    _fade = watchZoomFade(viewer, IRVE_FR_LAYER_ID, onZoomFadeFrame);
+    _markFader.invalidate();
+    _fadeReportDirty = true;
     void loadViewport({ force: true });
     restoreSpriteOrder(viewer);
   },
@@ -3067,13 +3585,20 @@ const irveFranceLayer = {
   disable(viewer) {
     _enabled = false;
     _requestGeneration += 1;
+    _viewGeneration += 1;
     _regime = 'national';
     _nationalPainted = false;
     _meshPick = null;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
+    clearTimeout(_retireTimer);
+    _retireTimer = null;
     _inFlight?.abort?.();
     _inFlight = null;
+    _siteLoading = false;
+    _meshLoading = false;
+    _fade?.release();
+    _fade = null;
 
     clearSelection();
     clearSites();
@@ -3118,7 +3643,7 @@ const irveFranceLayer = {
    * the payload in hand always holds the whole view and the key keeps
    * reporting what was hidden.
    *
-   * The two regimes apply it differently and `reconcileMesh` carries the
+   * The two regimes apply it differently and `pickMeshLevel` carries the
    * argument: the exact regime flips `filteredOut` and never touches the
    * collection (G2), the maillage re-picks because the floor changes which
    * site represents a cell and what the cell totals.
@@ -3132,10 +3657,16 @@ const irveFranceLayer = {
     if (!IRVE_POWER_FLOORS.some((floor) => floor.id === next)) return false;
     if (next === _floorId) return false;
     _floorId = next;
-    if (_regime === 'mesh') {
-      const box = cameraMeshBox(_viewer);
-      if (box && _mesh) reconcileMesh(box);
-    } else if (_regime === 'sites') {
+    // The maillage re-picks under a new floor; with it drawn — alone, or
+    // beside the sites inside the fade band — the marks are recomposed, and
+    // the rebuild re-applies the floor to the sites as well.
+    const meshBox = _regime !== 'national' && _mesh && (_drawn.mesh || _regime === 'mesh')
+      ? (cameraMeshBox(_viewer) || _meshLevel?.box || null)
+      : null;
+    if (meshBox) {
+      pickMeshLevel(meshBox);
+      rebuildPoints();
+    } else if (_regime !== 'national') {
       applySiteFloor();
       // A selected site the floor just hid keeps its card open over an
       // invisible mark otherwise.
@@ -3174,6 +3705,10 @@ const irveFranceLayer = {
     const out = [];
     for (const record of _records.values()) {
       if (out.length >= limit) break;
+      // The level that owns the view speaks for it: inside the fade band the
+      // other level's marks are on screen too, at a fraction of their weight,
+      // and a count over both would be a count of neither.
+      if (!inDominantLevel(record)) continue;
       const readout = irveSiteReadout(record);
       if (readout && Number.isFinite(readout.lat) && Number.isFinite(readout.lon)) out.push(readout);
     }
@@ -3323,6 +3858,52 @@ export function _setIrveStateForTest({
   _national = national || null;
   _depEntities = new Map(depEntities || []);
   _depMeta = new Map(depMeta || []);
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _settledScale = Infinity;
+  _drawnMarkCount = 0;
+}
+
+/**
+ * Compose the two point levels through the production rebuild, on a real
+ * billboard collection and without a scene: what `rebuildPoints` decides —
+ * which mark is shared, which only the sites draw, which only the maillage —
+ * is the whole of the band's no-doubling contract.
+ *
+ * @param {{marks: Cesium.BillboardCollection, meshPick?: object, sites?: Array<object>,
+ *   scale: number}} state
+ * @returns {Map<string, object>} The records, as built.
+ */
+export function _composeIrvePointsForTest({ marks, meshPick = null, sites = null, scale }) {
+  _marks = marks;
+  _meshLevel = meshPick ? { pick: meshPick, box: null } : null;
+  _meshPick = meshPick;
+  _siteLevel = sites ? { sites, box: null } : null;
+  _settledScale = scale;
+  _regime = 'mesh';
+  rebuildPoints();
+  return _records;
+}
+
+/** Move the settled regime without touching what is drawn — a settle in miniature. */
+export function _setIrveRegimeForTest(regime) {
+  _regime = regime;
+}
+
+/**
+ * Run one fade frame at a given view, as `zoomFade.js` would.
+ * @param {{latSpan: number, lonSpan: number, heightM: number}} scale
+ */
+export function _irveFadeFrameForTest(scale) {
+  const enabled = _enabled;
+  _enabled = true;
+  try {
+    onZoomFadeFrame(scale, 0);
+  } finally {
+    _enabled = enabled;
+  }
+  return { ..._fadeAlphas };
 }
 
 /** Exercise the production selection path in focused runtime tests. */
@@ -3371,6 +3952,12 @@ export function _clearIrveSelectionForTest() {
   _floorId = 'all';
   _siteHidden = 0;
   _meshHidden = 0;
+  _meshLevel = null;
+  _siteLevel = null;
+  _drawn = { mesh: false, sites: false };
+  _settledScale = Infinity;
+  _drawnMarkCount = 0;
+  _marks = null;
 }
 
 /** Row-control legend, for tests that do not construct a viewer. */

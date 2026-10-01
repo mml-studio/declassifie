@@ -55,7 +55,13 @@ import irveFranceLayer, {
   irveBeamPitchScale,
   IRVE_BEAM_PDC_DOMAIN,
   IRVE_BEAM_PITCH_LIMIT_RAD,
+  IRVE_SITE_FADE_BAND,
+  irveSiteFadeScale,
+  _composeIrvePointsForTest,
+  _irveFadeFrameForTest,
+  _setIrveRegimeForTest,
 } from './irveFrance.js';
+import { ROLE_MESH, ROLE_SHARED, ROLE_SITES, wantedPointLevels } from './prismMeshSitesFade.js';
 import { IRVE_BAND_KEYS, IRVE_MAX_BOX_DEG } from './irveFeed.js';
 import {
   PRISM_BODY_ALPHA,
@@ -1230,4 +1236,133 @@ test('a beam is clamped in metres, whatever the pixel budget asks for', () => {
   // Nonsense in, floor out — never NaN, which would blank the geometry.
   assert.equal(irveBeamHeightM(NaN, 40, factor), irveBeamHeightM(0, 40, factor));
   assert.ok(Number.isFinite(irveBeamHeightM(1000, 40, NaN)));
+});
+
+// ── Fade on zoom ────────────────────────────────────────────────────────────
+
+test('the maillage ↔ sites band starts exactly where the proxy starts answering', () => {
+  // The coarse end is the box ceiling, so every view the band gives sites to
+  // is a view the proxy will answer — no request it would refuse, and no cap
+  // that moved.
+  assert.equal(IRVE_SITE_FADE_BAND.coarse, IRVE_MAX_BOX_DEG);
+  assert.equal(IRVE_SITE_FADE_BAND.fine, 0.21);
+  const ratio = IRVE_SITE_FADE_BAND.coarse / IRVE_SITE_FADE_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `one zoom level of fade or a little less, got ×${ratio.toFixed(2)}`);
+  const justInside = { south: 48.8, west: 2.2, north: 48.95, east: 2.2 + IRVE_MAX_BOX_DEG - 0.001 };
+  assert.ok(cameraIrveBox(viewerWithView(justInside)), 'the proxy answers the widest view the band draws sites for');
+  assert.equal(wantedPointLevels(irveSiteFadeScale(IRVE_MAX_BOX_DEG - 0.001, 25_000), IRVE_SITE_FADE_BAND).sites, true);
+  const justOutside = { ...justInside, east: 2.2 + IRVE_MAX_BOX_DEG + 0.001 };
+  assert.equal(cameraIrveBox(viewerWithView(justOutside)), null);
+  assert.equal(wantedPointLevels(irveSiteFadeScale(IRVE_MAX_BOX_DEG, 25_000), IRVE_SITE_FADE_BAND).sites, false,
+    'at the ceiling itself the sites weigh nothing, so nothing is asked');
+});
+
+test('a settled view in the band keeps both point levels, and a view outside it only one', () => {
+  const levels = (span, altitude) => wantedPointLevels(irveSiteFadeScale(span, altitude), IRVE_SITE_FADE_BAND);
+  assert.deepEqual(levels(0.28, 20_000), { mesh: true, sites: true });
+  assert.deepEqual(levels(0.5, 35_000), { mesh: true, sites: false });
+  assert.deepEqual(levels(0.12, 9_000), { mesh: false, sites: true });
+  // The altitude is a guard, not a band: a narrow view from above 45 km still
+  // asks for no site.
+  assert.deepEqual(levels(0.3, 46_000), { mesh: true, sites: false });
+});
+
+/** Three maillage marks, two of them standing on sites the viewport answer also holds. */
+function bandFixture() {
+  const meshPick = {
+    picked: [[48.85, 2.3, 12, 2], [48.86, 2.31, 6, 1], [48.99, 2.6, 4, 0]],
+    aggregates: [{ total: 40, rows: 5 }, { total: 9, rows: 2 }, { total: 4, rows: 1 }],
+    stepDeg: 1 / 64,
+    inBox: 8,
+    thinned: true,
+  };
+  const at = (lat, lon, overrides = {}) => siteRecord({
+    id: `${lat.toFixed(5)},${lon.toFixed(5)}`, lat, lon, ...overrides,
+  }).site;
+  const sites = [
+    at(48.85, 2.3, { topBand: 'accelere', name: 'Shared A' }),
+    at(48.86, 2.31, { topBand: 'normale', name: 'Shared B' }),
+    at(48.851, 2.302, { topBand: 'lente', name: 'Extra C' }),
+    at(48.852, 2.303, { topBand: 'lente', name: 'Extra D' }),
+  ];
+  return { meshPick, sites };
+}
+
+test('inside the band a site the maillage stands on is ONE mark, held whole', () => {
+  const { meshPick, sites } = bandFixture();
+  const marks = new Cesium.BillboardCollection();
+  _setIrveStateForTest({ viewer: viewerWithView(), records: [] });
+  const records = _composeIrvePointsForTest({ marks, meshPick, sites, scale: 0.33 });
+  // Four sites and three maillage marks are FIVE points: two are both.
+  assert.equal(records.size, 5);
+  assert.equal(marks.length, 5, 'one plate per point, never two at one coordinate');
+  const role = (id) => records.get(id).fadeRole;
+  assert.equal(role('48.85000,2.30000'), ROLE_SHARED);
+  assert.equal(role('48.86000,2.31000'), ROLE_SHARED);
+  assert.equal(role('48.85100,2.30200'), ROLE_SITES);
+  assert.equal(role('48.99000,2.60000'), ROLE_MESH);
+  // A shared mark is the SITE it is — its name, its own count — and keeps the
+  // cell it represents, which is the card while the maillage owns the view.
+  const shared = records.get('48.85000,2.30000');
+  assert.equal(shared.site.name, 'Shared A');
+  assert.deepEqual(shared.cell, { pdc: 40, sites: 5, stepDeg: 1 / 64 });
+  assert.equal(shared.mesh, true, 'at 0.33° the maillage is still the dominant level');
+  assert.equal(records.get('48.99000,2.60000').mesh, true);
+
+  // Early in the band: the shared marks stay whole, the others cross over.
+  const alphas = _irveFadeFrameForTest({ latSpan: 0.14, lonSpan: 0.33, heightM: 22_000 });
+  assert.equal(alphas.shared, 1);
+  assert.ok(alphas.sites > 0 && alphas.sites < 1, `sites at ${alphas.sites}`);
+  assert.ok(alphas.mesh > 0 && alphas.mesh < 1, `maillage at ${alphas.mesh}`);
+  assert.equal(shared.point.color.alpha, 1);
+  assert.ok(Math.abs(records.get('48.85100,2.30200').point.color.alpha - alphas.sites) < 1e-9);
+  assert.ok(Math.abs(records.get('48.99000,2.60000').point.color.alpha - alphas.mesh) < 1e-9);
+  // The hue is left alone: a fade is an alpha, never a colour.
+  assert.ok(Cesium.Color.equals(
+    records.get('48.85100,2.30200').point.color.withAlpha(1),
+    Cesium.Color.fromCssColorString(irveBandColor('lente')),
+  ));
+
+  // From 0.314° down the sites own the view (the band is a reveal), and a
+  // shared mark wears the site card.
+  const nearer = _composeIrvePointsForTest({ marks, meshPick, sites, scale: 0.3 });
+  assert.equal(nearer.get('48.85000,2.30000').mesh, false);
+  _clearIrveSelectionForTest();
+});
+
+test('the key, the count and the analyst follow the level that owns the band', () => {
+  const { meshPick, sites } = bandFixture();
+  const marks = new Cesium.BillboardCollection();
+  _setIrveStateForTest({ viewer: viewerWithView(), records: [] });
+  // Maillage dominant: the key counts CELLS — the three maillage marks.
+  _composeIrvePointsForTest({ marks, meshPick, sites, scale: 0.33 });
+  const meshKey = _irveRowControlsForTest().legend.filter((row) => !row.heading);
+  assert.equal(meshKey.reduce((sum, row) => sum + row.count, 0), 3);
+  // Sites dominant: it counts charge points over the four sites, and the
+  // maillage-only mark is in neither the key nor the count.
+  _composeIrvePointsForTest({ marks, meshPick, sites, scale: 0.22 });
+  const siteKey = _irveRowControlsForTest().legend.filter((row) => !row.heading);
+  const perSite = siteRecord().site.bands;
+  const expected = Object.values(perSite).reduce((sum, value) => sum + value, 0) * 4;
+  assert.equal(siteKey.reduce((sum, row) => sum + row.count, 0), expected);
+  assert.equal(irveFranceLayer.getStats().count, 4);
+  _clearIrveSelectionForTest();
+});
+
+test('the national cut stays a cut: the marks hold until the prisms are drawn, never blank', () => {
+  const { meshPick } = bandFixture();
+  const marks = new Cesium.BillboardCollection();
+  _setIrveStateForTest({ viewer: viewerWithView(), records: [] });
+  const records = _composeIrvePointsForTest({ marks, meshPick, scale: 3 });
+  // The camera settles France-wide: the regime is national, and the polygons
+  // and the rollup are still in flight. The maillage used to be cleared at
+  // this exact moment; it now holds, whole, as the cover.
+  _setIrveRegimeForTest('national');
+  const alphas = _irveFadeFrameForTest({ latSpan: 10, lonSpan: 24, heightM: 1_500_000 });
+  assert.equal(alphas.mesh, 1);
+  assert.equal(alphas.nationalShown, false, 'nothing painted, nothing shown');
+  for (const record of records.values()) assert.equal(record.point.color.alpha, 1);
+  // And no resting crossfade with the prisms is possible: the target is one
+  // side or the other, never a mix (`prismMeshSitesFade.test.mjs`).
+  _clearIrveSelectionForTest();
 });
