@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the PDF lists Marseille and Nîmes publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the PDF lists Marseille, Nîmes, Lyon and Béziers publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4744,6 +4744,31 @@ reads in half a second); a city is read at most every six hours, a cold
 Marseille scan taking 48 s with Sitadel; the rows are archived like a board's
 in `.gev-cache/archive/permit-lists/` and swept on the same daily clock. The
 applicant's own address is never read, and a person's name is dropped.
+
+**Lyon and Béziers publish theirs as acts**, on Digitech's Webdelib+
+platform, which lists a month of acts per page (`…jsp?role=usager&date=MM-YYYY`)
+and serves each file through `openfile.jsp`, whose page moves on to
+`showFile.jsp` with a script — no cookie, no challenge. Lyon's « Arrêtés »
+tab holds a weekly *Droit des sols* file and, since September 2026, a weekly
+list of filed déclarations préalables: Word files of records, not tables — a
+number, `déposée le …` or `Décision du … à <beneficiary>`, then `Projet`,
+`Terrain`, `Demandeur`, `Mandataire`, `Auteur` — under weekly section
+headings that say the family and whether the dossiers were filed or issued.
+They are read in drawing order (`readLyonList`), a number wrapped over two
+or three lines joined back; the mandatary and the architect are never kept.
+Béziers's « Affichage légal » tab holds, every week and for each family, a
+list of the dossiers still open and a list of those decided, refusals
+included: Aspose tables read by `readGridTable`, whose columns are the
+clusters of cell starts under each header. Every dossier number of the 14
+files checked on 2026-10-01 came out as a row. Lyon's platform answers
+`robots.txt` with `Disallow: /` and is read by the project's decision
+(`robots: 'overridden'`). A scan reads the last two months of acts; the
+daily sweep reads twelve, a month that is over and an act already read
+coming from disk. Lyon: 948 dossiers in the two months to 2026-10-01, 938
+placed by address, 27 merged with Sitadel; Béziers: 587, 554 placed. One of
+Lyon's files, written by Acrobat PDFMaker, declares a two-byte codespace for
+one-byte fonts; `pdfText.js` now reads a simple font one byte a code, as the
+PDF standard says, whatever its ToUnicode map declares.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

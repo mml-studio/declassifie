@@ -429,7 +429,11 @@ function fontDecoder(font, resolve, inflate) {
       : null;
     if (data !== null) unicode = parseToUnicode(data);
   }
-  const bytesPerCode = composite ? (unicode?.bytes ?? 2) : (unicode?.bytes === 2 ? 2 : 1);
+  // A simple font's codes are one byte, whatever its ToUnicode map declares:
+  // Acrobat's PDFMaker writes `<0000> <FFFF>` as the codespace of a WinAnsi
+  // TrueType font whose map then lists one-byte codes (Lyon's list of 7-13
+  // September 2026), and reading that file two bytes a code printed CJK.
+  const bytesPerCode = composite ? (unicode?.bytes ?? 2) : 1;
   const differences = new Map();
   const encoding = resolve(dict.Encoding);
   if (encoding && Array.isArray(resolve(encoding.Differences))) {

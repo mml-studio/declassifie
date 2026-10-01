@@ -67,6 +67,24 @@
  * modification keeps its suffix, as everywhere else in the layer. Nîmes writes
  * its numbers as Sitadel does (`PC 030189 24 P0240`), and needs nothing.
  *
+ * ── Trap 6: some cities publish their lists as acts ─────────────────────────
+ * Lyon and Béziers post no link to a list: they publish each one as an act on
+ * Digitech's Webdelib+ platform, one page per month of acts. A reading walks
+ * the months back ({@link webdelibMonths}), keeps the acts whose titles a
+ * list names ({@link webdelibLists}) and opens each through the script
+ * redirect the platform writes ({@link webdelibFileUrl}). The layouts are two
+ * more: Lyon writes records in Word, not a table ({@link readLyonList}), and
+ * Béziers exports grids whose cells hang from the top of their row ({@link
+ * readGridTable}).
+ *
+ * ── Trap 7: Lyon's platform forbids robots ─────────────────────────────────
+ * `lyon-webdelib.digitechcloud.fr/robots.txt` is `Disallow: /` for every
+ * agent (2026-10-01). Lyon is read by the project's decision, as five Cart@DS
+ * hosts are (Trap 5 of `cartdsFeed.js`), and says so with `robots:
+ * 'overridden'`: what it publishes there is the posting the Code de
+ * l'urbanisme makes public, and the platform sets no barrier — no login, no
+ * challenge, no cookie.
+ *
  * Dependency-free and side-effect-free (no Cesium, no DOM, no fetch): link
  * discovery, table reading and normalisation only. The `/api/ads-fr` proxy and
  * `scripts/lib/permitLists.mjs` import it; nothing in the browser bundle does.
@@ -108,8 +126,13 @@ export const PERMIT_LIST_BOARDS = Object.freeze({ filings: 'filings', decisions:
  *
  * FROM A MEASUREMENT, as `CARTDS_INSTANCES` is: every list here was read on
  * 2026-10-01 and every dossier number it prints came out as a row — Marseille
- * 1 874 under review and 825 granted, Nîmes 348 under review and 321 decided.
- * Both hosts' `robots.txt` let a robot read the pages and the files.
+ * 1 874 under review and 825 granted, Nîmes 348 under review and 321 decided,
+ * ten files of Lyon's (2 006 numbers) and four of Béziers's (531). Every host
+ * but Lyon's lets a robot read the pages and the files (Trap 7).
+ *
+ * `source` says how the lists are found: absent, from the links of `page`;
+ * `webdelib`, as acts on a Webdelib+ platform (Trap 6). `underReview` says the
+ * list of filings is a list of dossiers still under review (Trap 3).
  *
  * `communes` is every code the BAN may answer for the city: Marseille's
  * sixteen arrondissements as well as the commune, as for Paris's portal.
@@ -119,6 +142,7 @@ export const PERMIT_LISTS = Object.freeze([
   Object.freeze({
     key: 'marseille',
     insee: '13055',
+    underReview: true,
     label: 'Ville de Marseille — autorisations d’urbanisme en cours et délivrées', // i18n-ignore-line — the publisher and its lists
     page: 'https://www.marseille.fr/logement-urbanisme/plan-local-durbanisme/renseignements-durbanisme',
     lists: Object.freeze([
@@ -131,10 +155,49 @@ export const PERMIT_LISTS = Object.freeze([
   Object.freeze({
     key: 'nimes',
     insee: '30189',
+    underReview: true,
     label: 'Ville de Nîmes — registre des dossiers en cours', // i18n-ignore-line — the publisher and its list
     page: 'https://www.nimes.fr/mon-quotidien/urbanisme/autorisations-durbanisme',
     lists: Object.freeze([
       Object.freeze({ board: 'filings', layout: 'register', link: /registre_dossiers/i }),
+    ]),
+  }),
+  Object.freeze({
+    key: 'lyon',
+    insee: '69123',
+    label: 'Ville de Lyon — autorisations d’urbanisme déposées et délivrées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://lyon-webdelib.digitechcloud.fr/webdelibplus_Central/jsp/summary_orders.jsp?role=usager',
+    // `Disallow: /` for every agent on 2026-10-01. Read by the project's
+    // decision of that day, as five Cart@DS hosts are: what is read is the
+    // legal posting of the Code de l'urbanisme (art. R.423-6, R.424-15).
+    robots: 'overridden',
+    source: Object.freeze({
+      kind: 'webdelib',
+      base: 'https://lyon-webdelib.digitechcloud.fr/webdelibplus_Central',
+      tab: 'summary_orders',
+    }),
+    lists: Object.freeze([
+      // i18n-ignore-next-line — the titles of the city's own acts, matched on
+      Object.freeze({ layout: 'lyon', title: /droit des sols|d[ée]clarations pr[ée]alables d[ée]pos[ée]es pendant/i }),
+    ]),
+  }),
+  Object.freeze({
+    key: 'beziers',
+    insee: '34032',
+    label: 'Ville de Béziers — dossiers d’urbanisme déposés et décidés', // i18n-ignore-line — the publisher and its lists
+    page: 'https://actes.beziers.fr/webdelibplus/jsp/legal.jsp?role=usager',
+    source: Object.freeze({
+      kind: 'webdelib',
+      base: 'https://actes.beziers.fr/webdelibplus',
+      tab: 'legal',
+    }),
+    lists: Object.freeze([
+      // i18n-ignore-start — the titles of the city's own documents, matched on
+      // A list of filed dossiers holds every one still open (« déposés avant
+      // le … »): the newest of each family says everything the older ones did.
+      Object.freeze({ board: 'filings', layout: 'beziers-filings', title: /^d[ée]p[ôo]t\s+(PC|DP|PA|PD)\b/i, latest: true }),
+      Object.freeze({ board: 'decisions', layout: 'beziers-decisions', title: /^(PC|DP|PA|PD)\s+d[ée]cid[ée]e?s\b/i }),
+      // i18n-ignore-end
     ]),
   }),
 ]);
@@ -149,6 +212,116 @@ export function permitListFor(communeCode) {
   const code = foldToCommune(communeCode);
   if (!code) return null;
   return PERMIT_LISTS.find((city) => city.insee === code) ?? null;
+}
+
+// --- Webdelib+: a month of published acts per page --------------------------
+
+/**
+ * The months a reading of a Webdelib+ city covers, newest first: this month
+ * and the `count - 1` before it.
+ * @param {string} day `YYYY-MM-DD`.
+ * @param {number} count
+ * @returns {Array<{year: number, month: number}>}
+ */
+export function webdelibMonths(day, count) {
+  const [year, month] = String(day).split('-').map(Number);
+  const out = [];
+  for (let i = 0; i < Math.max(1, count); i += 1) {
+    const index = year * 12 + (month - 1) - i;
+    out.push({ year: Math.floor(index / 12), month: (index % 12) + 1 });
+  }
+  return out;
+}
+
+/**
+ * One month's page of a city's acts: Digitech's Webdelib+ lists what was
+ * published in a month, `date=MM-YYYY`, one tab per kind of act.
+ * @param {object} city A city whose `source.kind` is `webdelib`.
+ * @param {{year: number, month: number}} month
+ * @returns {string}
+ */
+export function webdelibMonthUrl(city, { year, month }) {
+  return `${city.source.base}/jsp/${city.source.tab}.jsp?role=usager&date=${String(month).padStart(2, '0')}-${year}`;
+}
+
+/**
+ * The acts of one month's page: title, the address that opens the file, and
+ * the day it was published.
+ *
+ * Each act is a `tableActe` cell — Lyon writes the title before an « Arrêté »
+ * link, Béziers makes the title the link — followed by the act's date and its
+ * publication date. The link's `pdf` parameter is a token that stays the same
+ * from one session to the next (checked 2026-10-01), so an act's address is
+ * its identity.
+ *
+ * @param {string} html
+ * @param {string} pageUrl The page's own address, to resolve the links.
+ * @returns {Array<{title: string, url: string, published: ?string}>}
+ */
+export function parseWebdelibActs(html, pageUrl) {
+  const out = [];
+  const chunks = String(html ?? '').split(/<td\b[^>]*class="tableActe"[^>]*>/i).slice(1);
+  for (const chunk of chunks) {
+    const cell = chunk.split(/<td\b/i)[0];
+    const href = /href\s*=\s*"([^"]*openfile\.jsp[^"]*)"/i.exec(cell)?.[1];
+    if (!href) continue;
+    let url;
+    try { url = new URL(decodeEntities(href), pageUrl).href; } catch { continue; }
+    const row = chunk.split(/<\/tr>/i)[0];
+    const days = [...row.matchAll(/>\s*(\d{2}\/\d{2}\/\d{4})\s*</g)].map((match) => match[1]);
+    const title = text(decodeEntities(cell.replace(/<[^>]*>/g, ' '))
+      // i18n-ignore-next-line — the platform's own link words, dropped
+      .replace(/\s+-\s*(?:arr[êe]t[ée])\s*-\s*\(sans annexe\)\s*$/i, ''));
+    if (title) out.push({ title, url, published: listDay(days.at(-1)) });
+  }
+  return out;
+}
+
+/**
+ * The acts a city's lists are made of, each with the list that reads it.
+ * A list marked `latest` keeps only the newest act of each title, its count
+ * in brackets set aside: Béziers's « Dépôt DP (51) » of 10 September holds
+ * every DP still open, the one of 4 September included.
+ *
+ * @param {object} city
+ * @param {Array<{title: string, url: string, published: ?string}>} acts
+ * @returns {Array<{board: ?string, layout: string, url: string, title: string, published: ?string}>}
+ */
+export function webdelibLists(city, acts) {
+  const out = [];
+  const seen = new Set();
+  const newestFirst = [...acts].sort((a, b) => String(b.published ?? '').localeCompare(String(a.published ?? '')));
+  for (const act of newestFirst) {
+    const list = city.lists.find((candidate) => candidate.title.test(act.title));
+    if (!list || seen.has(act.url)) continue;
+    if (list.latest) {
+      const stem = `${list.layout}|${fold(act.title).replace(/\(\s*\d+\s*\)/g, '').trim()}`;
+      if (seen.has(stem)) continue;
+      seen.add(stem);
+    }
+    seen.add(act.url);
+    out.push({ board: list.board ?? null, layout: list.layout, url: act.url, title: act.title, published: act.published });
+  }
+  return out;
+}
+
+/**
+ * The file behind an act: the page `openfile.jsp` answers moves the browser on
+ * with a script — `document.location.href='../jsp/showFile.jsp?…'` — and that
+ * address serves the PDF. A redirect written in a script, not a challenge:
+ * no cookie, no computation, the same for every visitor.
+ * @param {string} html
+ * @param {string} openUrl
+ * @returns {?string}
+ */
+export function webdelibFileUrl(html, openUrl) {
+  const match = /(?:\.\.\/jsp\/)?showFile\.jsp\?[^'"\s<>]+/i.exec(String(html ?? ''));
+  if (!match) return null;
+  try {
+    return new URL(match[0].startsWith('..') ? match[0] : `../jsp/${match[0]}`, openUrl).href;
+  } catch {
+    return null;
+  }
 }
 
 /** @param {object} city @returns {string} */
@@ -208,15 +381,23 @@ export function permitListLinks(city, html) {
 // --- Reading a table out of positioned text --------------------------------
 
 /**
- * A dossier number as the lists print it: family, the commune's six digits,
- * the year, the counter, and a modification's or transfer's suffix, written
- * apart at Nîmes (`PC 030189 06 P0166 M01`) and joined at Marseille
- * (`PC 013055 25 00123M01`).
+ * A dossier number as the lists print it: family, the commune's code, the
+ * year, the counter, and a modification's or transfer's suffix. Five
+ * spellings, one grammar:
+ *
+ *   Marseille  `PC 013055 26 00230P0`, `PC 013055 25 00123M01`
+ *   Nîmes      `PC 030189 06 P0166 M01`
+ *   Lyon       `DP 069 387 25 00038 M02` — the arrondissement's code, split
+ *   Béziers    `DP 34032 26 T0848` — five digits, as at Tours — and
+ *              `PC 34032 25T0035` on some lines, the counter stuck to the year
  */
-const DOSSIER_RE = /^(PC|DP|PA|PD|CU)\s+(\d{6})\s+(\d{2})\s+([A-Z0-9]{4,10})(?:\s+([MT]\d{1,2}))?$/i;
+const DOSSIER_RE = /^(PC|DP|PA|PD|CU)\s+(\d{3}\s?\d{3}|\d{5})\s+(\d{2})\s*([A-Z]?\d{4,5})(P0)?(?:\s*([MT]\d{1,2}))?$/i;
 
-/** `Page 3/199`: a page's footer, never a cell. */
-const PAGE_FOOTER_RE = /^page\s+\d+\s*\/\s*\d+$/i;
+/** The first line of a number a narrow column wraps: `DP 34032 26`. */
+const DOSSIER_HEAD_RE = /^(PC|DP|PA|PD|CU)\s+(\d{3}\s?\d{3}|\d{5})\s+\d{2}(?=\s|[A-Z]|$)/i;
+
+/** `Page 3/199`, `Page 2 sur 36`: a page's footer, never a cell. */
+const PAGE_FOOTER_RE = /^page\s+\d+\s*(?:\/|sur)\s*\d+$/i;
 
 /** The record's anchor in a register: `Déposé le 03/08/2026`. */
 // i18n-ignore-next-line — the software's own label, matched on
@@ -555,10 +736,385 @@ export function readDecisionTable(document) {
   return rows;
 }
 
+/** A section heading of Lyon's lists: the family, and filed or issued. */
+// i18n-ignore-next-line — the city's own headings, matched on
+const LYON_SECTION_RE = /^(d[ée]clarations? pr[ée]alables?|permis de construire|permis d.am[ée]nager|permis de d[ée]molir|changements? d.usage)\s+(d[ée]pos[ée]e?s?|d[ée]livr[ée]e?s?)\s+pendant la p[ée]riode/i;
+/** Lyon's record line: the number, then what happened and when, maybe on one run. */
+const LYON_RECORD_RE = /^(PC|DP|PA|PD|CU|US)\s+(\d{3})\s+(\d{3})(?:\s+(\d{2}))?(?:\s+(\d{5}))?(?:\s+([MT]\d{1,2}))?(?:\s+(.*))?$/i;
+/** The rest of a number wrapped onto the next lines: `17 02570`, `00673 M01`, `T01`. */
+const LYON_TAIL_RE = /^(?:(\d{2})\s+)?(\d{5})?(?:\s*([MT]\d{1,2}))?$/;
+/** `déposée le 25/09/2026 Modificatif`, `Décision du 28/07/2026 à`, `Arrêté du 28/07/2026`. */
+// i18n-ignore-next-line — the city's own words, matched on
+const LYON_EVENT_RE = /^(d[ée]pos[ée]e?\s+le|d[ée]cision\s+du|arr[êe]t[ée]\s+du)\s+(\d{2}\/\d{2}\/\d{4})\s*(?:(à)\s*(.*?)|(.*?))\s*$/i;
+/** A field's label in the left column, its colon sometimes on the next line. */
+// i18n-ignore-next-line — the city's own labels, matched on
+const LYON_LABEL_RE = /^(projet|terrain|demandeur|mandataire|auteur|r[ée]gie)\s*(?::\s*(.*))?$/i;
+/** The fields of a record that are kept; a mandatary, an architect, a régie never are. */
+const LYON_KEPT = new Set(['projet', 'terrain', 'demandeur', 'beneficiary']);
+// i18n-ignore-start — the city's own labels, matched on
+const LYON_LAND_RE = /^superficie du terrain\s*:\s*([\d\s.,]+?)\s*(?:m²|m2)?$/i;
+const LYON_FLOOR_RE = /^surface cr[ée]{2}e\s*:\s*([\d\s.,]+?)\s*(?:m²|m2)?$/i;
+const LYON_STEP_RE = /^(modificatif|transfert|prorogation|retrait)$/i;
+/** The first half of an event a narrow column wraps: `Décision du` / `31/08/2026 à`. */
+const LYON_EVENT_HEAD_RE = /^(d[ée]pos[ée]e?\s+le|d[ée]cision\s+du|arr[êe]t[ée]\s+du)$/i;
+// i18n-ignore-end
+
+/**
+ * `18 Rue Lortet Lyon 7ème` → the street and the arrondissement's postcode.
+ * @param {?string} value
+ * @returns {{address: ?string, postcode: ?string}}
+ */
+export function lyonSite(value) {
+  const raw = text(value);
+  if (!raw) return { address: null, postcode: null };
+  const match = /^(.*?)\s+lyon\s+(\d)\s*(?:er|e|[èe]me)?\.?$/i.exec(raw);
+  return match
+    ? { address: text(match[1]), postcode: `6900${match[2]}` }
+    : { address: raw, postcode: null };
+}
+
+/**
+ * Lyon's lists, one row per record.
+ *
+ * NOT A TABLE. The city writes its lists in Word, one record after another:
+ * the dossier number with what happened to it (`déposée le …`, `Décision du …
+ * à <beneficiary>`, `Arrêté du …`), then a label in the left column and its
+ * value in the right — `Projet`, `Terrain`, `Demandeur`, `Mandataire`,
+ * `Auteur` — and every week opens a section that names the family and says
+ * whether its dossiers were filed or issued (`Déclarations préalables
+ * déposées pendant la période du …`, `Permis de construire délivrés …`). A
+ * Word file draws its text in reading order, so the records are read in that
+ * order: a section sets the board, a number starts a record, a label opens a
+ * field, and a line under a value, in the same column, continues it.
+ *
+ * A number may be wrapped by a narrow column (`DP 069 389 23` / `00673 M01`,
+ * 100 of the 221 numbers of the list of 21-27 September 2026, and over three
+ * lines in the list of 7-13 September: `DP 069 384` / `17 02570` / `T01`);
+ * its tail is the next runs of the same column. So may the event (`Décision
+ * du` / `31/08/2026 à`), whose halves are joined, and a label and its colon. A value never continues onto the next page
+ * — the page's own header would be read into it — and a mandatary, an
+ * architect or a régie is never kept: they are people more often than not.
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document From `extractPdfText`.
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw, each
+ *   with its `board`.
+ */
+export function readLyonList(document) {
+  const rows = [];
+  let board = null;
+  let record = null;
+  const flush = () => {
+    const parts = record?.parts;
+    if (parts?.year && parts.counter) {
+      record.dossier = `${parts.kind} ${parts.code} ${parts.year} ${parts.counter}${parts.suffix ? ` ${parts.suffix}` : ''}`;
+    }
+    if (record?.dossier && board) {
+      const site = lyonSite(record.fields.terrain);
+      const decided = board === PERMIT_LIST_BOARDS.decisions;
+      rows.push({
+        board,
+        dossier: record.dossier,
+        label: null,
+        purpose: text(record.fields.projet) ?? (record.step ? record.step.toLowerCase() : null),
+        applicant: text(record.fields.demandeur) ?? text(record.fields.beneficiary),
+        address: site.address,
+        postcode: site.postcode,
+        locality: null,
+        filedOn: decided ? null : record.day,
+        verdict: decided ? 'Délivré' : null, // i18n-ignore-line — the section's own word, kept as the verdict
+        decidedOn: decided ? record.day : null,
+        postedOn: null,
+        landArea: record.land,
+        housing: null,
+        lots: null,
+        floorArea: record.floor,
+      });
+    }
+    record = null;
+  };
+  const event = (words) => {
+    const match = LYON_EVENT_RE.exec(words);
+    if (!match) return false;
+    record.day = listDay(match[2]);
+    const rest = text(match[4] ?? match[5]);
+    if (match[3]) {
+      record.field = 'beneficiary';
+      record.column = null;
+      if (rest) record.fields.beneficiary = rest;
+    } else if (rest && LYON_STEP_RE.test(rest)) record.step = rest;
+    return true;
+  };
+  for (const page of document?.pages ?? []) {
+    let last = null;
+    for (const run of page.runs ?? []) {
+      const words = text(run.text);
+      if (!words || PAGE_FOOTER_RE.test(words)) continue;
+      const section = LYON_SECTION_RE.exec(words);
+      if (section) {
+        flush();
+        board = /livr/i.test(section[2]) ? PERMIT_LIST_BOARDS.decisions : PERMIT_LIST_BOARDS.filings;
+        continue;
+      }
+      const head = LYON_RECORD_RE.exec(words);
+      if (head && run.x < 120) {
+        flush();
+        const [, kind, dept, commune, year, counter, suffix, tail] = head;
+        record = {
+          parts: { kind, code: `${dept}${commune}`, year, counter, suffix },
+          dossier: null, fields: {}, field: null, column: null, pending: null, day: null,
+          step: null, land: null, floor: null, x: run.x, y: run.y,
+        };
+        if (tail) event(tail);
+        last = run;
+        continue;
+      }
+      if (!record) continue;
+      // The rest of a wrapped number: the next runs of the number's column,
+      // before any label — `17 02570` and then `T01`, or `00673 M01`.
+      const rest = !record.field && Math.abs(run.x - record.x) < 2 ? LYON_TAIL_RE.exec(words) : null;
+      if (rest && (rest[1] || rest[2] || rest[3])) {
+        const { parts } = record;
+        if (rest[1] && !parts.year) parts.year = rest[1];
+        if (rest[2] && !parts.counter) parts.counter = rest[2];
+        if (rest[3] && !parts.suffix) parts.suffix = rest[3];
+        continue;
+      }
+      if (words === ':') continue;
+      const land = LYON_LAND_RE.exec(words);
+      if (land) { record.land = String(number(land[1]) ?? '') || null; continue; }
+      const floor = LYON_FLOOR_RE.exec(words);
+      if (floor) { record.floor = String(number(floor[1]) ?? '') || null; continue; }
+      if (LYON_EVENT_HEAD_RE.test(words)) { record.pending = words; continue; }
+      if (record.pending) {
+        const whole = `${record.pending} ${words}`;
+        record.pending = null;
+        if (event(whole)) { last = run; continue; }
+      }
+      if (event(words)) { last = run; continue; }
+      if (LYON_STEP_RE.test(words)) { record.step = words; continue; }
+      const label = run.x < record.x + 10 ? LYON_LABEL_RE.exec(words) : null;
+      if (label) {
+        record.field = fold(label[1]).toLowerCase();
+        record.column = null;
+        if (text(label[2]) && LYON_KEPT.has(record.field)) record.fields[record.field] = text(label[2]);
+        last = run;
+        continue;
+      }
+      const field = record.field;
+      if (!field || !LYON_KEPT.has(field)) continue;
+      const pitch = 2 * (run.size || 12);
+      // A field's first value sits beside its label, a little lower when Word
+      // centres a cell taller than the label's; the lines after it, under it.
+      const continues = record.column === null
+        ? (last && run.x > last.x && Math.abs(run.y - last.y) < 1.2 * (run.size || 12))
+        : Math.abs(run.x - record.column) < 2 && last && last.y - run.y < pitch && last.y - run.y > 0;
+      if (!continues) continue;
+      record.fields[field] = record.fields[field] ? `${record.fields[field]} ${words}` : words;
+      if (record.column === null) record.column = run.x;
+      last = run;
+    }
+  }
+  flush();
+  return rows;
+}
+
+/**
+ * The columns of one page of a grid: each cell's text starts at its column's
+ * left edge, so the starts cluster, and a cluster belongs to the header whose
+ * words it lies under — the header that its widest extent overlaps most. A
+ * header centred over a wide column starts far to the right of the column's
+ * cells (Béziers's « Description du projet » at 623, its cells at 529.6),
+ * which is why neither the header's start nor its centre will do alone.
+ *
+ * @param {Array<object>} runs The page's body.
+ * @param {Array<{field: string, x: number, x1: number}>} columns Its header.
+ * @returns {(run: object) => ?string} The field of a run.
+ */
+function gridColumns(runs, columns) {
+  const clusters = [];
+  for (const run of [...runs].sort((a, b) => a.x - b.x)) {
+    const right = Number.isFinite(run.x1) && run.x1 > run.x ? run.x1 : run.x;
+    const near = clusters.at(-1);
+    if (near && run.x - near.start < 4) { near.end = Math.max(near.end, right); continue; }
+    clusters.push({ start: run.x, end: right });
+  }
+  for (const cluster of clusters) {
+    let best = null;
+    let score = -Infinity;
+    for (const column of columns) {
+      const overlap = Math.min(cluster.end, column.x1) - Math.max(cluster.start, column.x);
+      if (overlap > score) { score = overlap; best = column; }
+    }
+    cluster.field = best?.field ?? null;
+  }
+  return (run) => {
+    let found = null;
+    for (const cluster of clusters) {
+      if (run.x - cluster.start > -0.5) found = cluster; else break;
+    }
+    return found?.field ?? null;
+  };
+}
+
+/**
+ * A grid: one row per dossier, every cell hanging from the top of its row,
+ * the dossier number in its own column and the header repeated — or not — on
+ * each page (Béziers's weekly lists, Aspose's export).
+ *
+ * The header gives the fields, `spec.columns` the words that name them; a
+ * page without a header keeps the last page's. A row starts on the line of
+ * its dossier number, which a narrow column may wrap (`DP 34032 26` /
+ * `T0848`), and runs down to the next number, cut at the first empty stretch
+ * of more than two lines. A run as wide as a third of the page is a section's
+ * title across the table, not a cell.
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document From `extractPdfText`.
+ * @param {{board: string, columns: Array<[string, string, {optional?: boolean}?]>,
+ *   row: (cells: Record<string, Array<string>>) => object}} spec
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw, each
+ *   with `spec.board`.
+ */
+export function readGridTable(document, spec) {
+  const rows = [];
+  const { pages, furniture } = pageRuns(document);
+  let header = null;
+  for (const runs of pages) {
+    const found = gridHeader(runs, spec.columns);
+    if (found) header = found;
+    if (!header) continue;
+    const width = Math.max(...header.columns.map((column) => column.x1)) - Math.min(...header.columns.map((column) => column.x));
+    const below = runs.filter((run) => (!found || run.y < found.bottom - 1)
+      && !header.runs.includes(run)
+      && !((Number.isFinite(run.x1) ? run.x1 - run.x : 0) > width / 3));
+    const columnOf = gridColumns(below, header.columns);
+    const anchors = below.filter((run) => columnOf(run) === 'dossier' && DOSSIER_HEAD_RE.test(text(run.text) ?? ''))
+      .sort((a, b) => b.y - a.y);
+    if (!anchors.length) continue;
+    const lowest = anchors.at(-1).y;
+    const body = below.filter((run) => run.y >= lowest || !furniture(run));
+    anchors.forEach((anchor, i) => {
+      const floor = anchors[i + 1]?.y ?? -Infinity;
+      const band = body.filter((run) => run.y <= anchor.y + 0.5 && run.y > floor + 0.5)
+        .sort((a, b) => b.y - a.y);
+      const kept = [];
+      for (const run of band) {
+        const previous = kept.at(-1);
+        if (previous && previous.y - run.y > 2.6 * (run.size || 7)) break;
+        kept.push(run);
+      }
+      const cells = {};
+      for (const run of kept) {
+        const field = columnOf(run);
+        if (field) (cells[field] ??= []).push(run);
+      }
+      const byField = Object.fromEntries(Object.entries(cells).map(([field, cellRuns]) => [field, lines(cellRuns)]));
+      const row = spec.row(byField);
+      if (row && DOSSIER_RE.test(text(row.dossier) ?? '')) rows.push({ board: spec.board, ...row });
+    });
+  }
+  return rows;
+}
+
+/** A grid's header on this page, or null: every required column's words found. */
+function gridHeader(runs, columns) {
+  const found = [];
+  const used = [];
+  for (const [field, words, options] of columns) {
+    const run = runs.find((candidate) => fold(candidate.text) === words);
+    if (!run) {
+      if (options?.optional) continue;
+      return null;
+    }
+    const right = Number.isFinite(run.x1) && run.x1 > run.x ? run.x1 : run.x;
+    found.push({ field, x: run.x, x1: right, y: run.y });
+    used.push(run);
+  }
+  // A header split over two lines (`Date de` / `signature`) leaves its second
+  // line under the first: it is part of the header, not of the first row.
+  const bottom = Math.min(...found.map((column) => column.y));
+  const top = Math.max(...found.map((column) => column.y));
+  const second = runs.filter((run) => !used.includes(run) && run.y < bottom && bottom - run.y < 1.6 * (run.size || 11)
+    && found.some((column) => Math.abs(column.x - run.x) < 1));
+  return {
+    bottom: Math.min(bottom, ...second.map((run) => run.y)),
+    top,
+    runs: [...used, ...second],
+    columns: found.sort((a, b) => a.x - b.x),
+  };
+}
+
+/** A grid cell's lines as one value. */
+function joined(cellLines) {
+  return text((cellLines ?? []).join(' '));
+}
+
+/** Béziers's weekly lists of filed dossiers, one per family (`Dépôt DP (51)`). */
+const BEZIERS_FILINGS = Object.freeze({
+  board: PERMIT_LIST_BOARDS.filings,
+  columns: Object.freeze([
+    ['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'],
+    ['address', 'ADRESSE DU PROJET'], ['purpose', 'DESCRIPTION DU PROJET'],
+  ]),
+  row: (cells) => {
+    const site = registerSite(cells.address ?? []);
+    return {
+      dossier: joined(cells.dossier),
+      label: null,
+      purpose: joined(cells.purpose),
+      applicant: registerApplicant(cells.applicant ?? []),
+      address: site.address,
+      postcode: site.postcode,
+      locality: site.locality,
+      filedOn: listDay(joined(cells.filedOn)),
+      verdict: null,
+      decidedOn: null,
+      postedOn: null,
+      landArea: null,
+      housing: null,
+      lots: null,
+      floorArea: null,
+    };
+  },
+});
+
+/** Béziers's weekly lists of decided dossiers, one per family (`DP décidées (25)`). */
+const BEZIERS_DECISIONS = Object.freeze({
+  board: PERMIT_LIST_BOARDS.decisions,
+  columns: Object.freeze([
+    ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'], ['verdict', 'DECISION'],
+    ['decidedOn', 'DATE DE'], ['purpose', 'NATURE DES TRAVAUX'], ['address', 'ADRESSE DES TRAVAUX'],
+    ['floorArea', 'SURFACE', { optional: true }],
+  ]),
+  row: (cells) => {
+    const site = registerSite(cells.address ?? []);
+    const floor = number(joined(cells.floorArea)?.replace(/\s*m(?:²|2)$/i, ''));
+    return {
+      dossier: joined(cells.dossier),
+      label: null,
+      purpose: joined(cells.purpose),
+      applicant: registerApplicant(cells.applicant ?? []),
+      address: site.address,
+      postcode: site.postcode,
+      locality: site.locality,
+      filedOn: null,
+      verdict: joined(cells.verdict),
+      decidedOn: listDay(joined(cells.decidedOn)),
+      postedOn: null,
+      landArea: null,
+      housing: null,
+      lots: null,
+      floorArea: floor === null ? null : String(floor),
+    };
+  },
+});
+
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
   register: readRegisterList,
   decisions: readDecisionTable,
+  lyon: readLyonList,
+  'beziers-filings': (document) => readGridTable(document, BEZIERS_FILINGS),
+  'beziers-decisions': (document) => readGridTable(document, BEZIERS_DECISIONS),
 });
 
 // --- Keeping and normalising -----------------------------------------------
@@ -605,8 +1161,10 @@ export function scrubPermitListRow(input) {
  *
  * The words counted on 2026-10-01: Marseille's `Accord Tacite`, `Favorable
  * avec Reserves`, `Favorable`; Nîmes's same three and `Defavorable`, `Rejet
- * tacite`, `retiré`, `Dossier irrecevable`. Cart@DS's reader takes every one
- * but `retiré`, a dossier its applicant withdrew — closed, like `Retrait`.
+ * tacite`, `retiré`, `Dossier irrecevable`; Béziers's `Favorable avec
+ * prescriptions`. Cart@DS's reader takes every one but `retiré`, a dossier
+ * its applicant withdrew — closed, like `Retrait` — and Lyon's `Délivré`,
+ * the word of the section a decision is listed under, which lists grants.
  *
  * @param {?string} verdict
  * @returns {?string} `accorde`, `refuse`, `annule`, or null.
@@ -614,8 +1172,12 @@ export function scrubPermitListRow(input) {
 export function permitListVerdictState(verdict) {
   const state = cartdsVerdictState(verdict);
   if (state) return state;
-  // i18n-ignore-next-line — the software's own verdict, matched on
-  return /^retir[ée]/i.test(String(verdict ?? '').trim()) ? 'annule' : null;
+  const value = String(verdict ?? '').trim();
+  // i18n-ignore-start — the publishers' own verdicts, matched on
+  if (/^retir[ée]/i.test(value)) return 'annule';
+  if (/^d[ée]livr[ée]/i.test(value)) return 'accorde';
+  // i18n-ignore-end
+  return null;
 }
 
 /**
@@ -630,16 +1192,22 @@ export const PERMIT_LIST_ROWS = Object.freeze({
 /**
  * A printed number as the layer keys it, or null (Trap 5).
  *
- * @param {?string} raw `PC 013055 26 00230P0`, `PC 030189 06 P0166 M01`.
+ * The commune's code goes on six digits — Béziers's `34032` is Sitadel's
+ * `034032`, as Tours's is (`localDossier` in `adsFeed.js`) — and Lyon's
+ * split `069 387` is joined.
+ *
+ * @param {?string} raw `PC 013055 26 00230P0`, `PC 030189 06 P0166 M01`,
+ *   `DP 069 387 25 00038 M02`, `DP 34032 26 T0848`.
  * @returns {?{kind: string, digits: string}} `digits` as Sitadel writes them,
- *   without the family: `0130552600230`, `03018906P0166M01`.
+ *   without the family: `0130552600230`, `03018906P0166M01`,
+ *   `0693872500038M02`, `03403226T0848`.
  */
 export function permitListDossier(raw) {
   const match = DOSSIER_RE.exec(text(raw) ?? '');
   if (!match) return null;
-  const [, kind, commune, year, counter, suffix] = match;
-  const count = counter.toUpperCase().replace(/^(\d{5})P0$/, '$1');
-  return { kind: kind.toUpperCase(), digits: `${commune}${year}${count}${(suffix ?? '').toUpperCase()}` };
+  const [, kind, commune, year, counter, , suffix] = match;
+  const code = commune.replace(/\s/g, '').padStart(6, '0');
+  return { kind: kind.toUpperCase(), digits: `${code}${year}${counter.toUpperCase()}${(suffix ?? '').toUpperCase()}` };
 }
 
 /**
@@ -685,7 +1253,8 @@ function registerPurpose(label) {
  * @param {string} board A key of {@link PERMIT_LIST_BOARDS}.
  * @param {object|Array<?string>} input
  * @param {{current?: boolean}} [options] `current`: the row is on the edition
- *   read last (Trap 3).
+ *   read last (Trap 3); it says « under review » only for a city whose list
+ *   of filings is a list of dossiers under review (`underReview`).
  * @returns {?object} Null for a row that is not a building authorisation.
  */
 export function normalisePermitListRow(city, board, input, { current = false } = {}) {
@@ -706,7 +1275,7 @@ export function normalisePermitListRow(city, board, input, { current = false } =
     state = verdictState ?? 'depose';
     // A verdict off the ladder keeps its own words, as on a posted board.
     stateLabel = verdictState ? stateFrench(verdictState) : (verdict ?? stateLabel);
-  } else if (current) {
+  } else if (current && city.underReview) {
     state = 'instruction';
     stateLabel = stateFrench('instruction');
   }

@@ -28278,9 +28278,11 @@ function adsFranceProxy() {
   // --- What a city publishes itself: PDF lists ------------------------------
   /**
    * One city's lists, read, archived, folded and placed — the Sirap path above
-   * for the lists Marseille and Nîmes publish as PDF files
-   * (`permitListsFeed.js`). Same six hours and the same archive; bounded by
-   * `PERMIT_LISTS`, so the map needs no eviction.
+   * for the lists cities publish as PDF files (`permitListsFeed.js`): linked
+   * from a page at Marseille and Nîmes, published as acts on a Webdelib+
+   * platform at Lyon and Béziers. Same six hours and the same archive; bounded
+   * by `PERMIT_LISTS`, so the map needs no eviction. A scan reads a Webdelib+
+   * city's last two months; the daily sweep reads a year, each act once.
    *
    * GEOCODED ONCE PER ADDRESS, not once per build. These lists are addresses
    * with no parcel, and the archive only grows: Marseille's first reading was
@@ -28310,7 +28312,7 @@ function adsFranceProxy() {
    * list is megabytes of PDF where a board is kilobytes of JSON.
    */
   const permitListsHttp = {
-    fetch: (url, init = {}) => (/\.pdf$/i.test(new URL(url).pathname)
+    fetch: (url, init = {}) => (/\.pdf$|\/showFile\.jsp$/i.test(new URL(url).pathname)
       ? permitListPdfFetch(url, init) : cartdsFetch(url, init)),
     text: cartdsText,
     bytes: async (response, maxBytes) => {

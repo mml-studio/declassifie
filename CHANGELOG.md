@@ -44,6 +44,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   déclarations préalables for a fence, a pool or solar panels are included. A
   dossier reads « En cours d'instruction » (“Under review”) while the city's
   latest list says so; a person's name never appears.
+- **Lyon and Béziers now show their permits days after the fact**, 0.6
+  million more inhabitants, read from the weekly lists both cities publish
+  as acts on their Webdelib+ platform: at Lyon every filing and every grant,
+  948 dossiers in the two months to 2026-10-01, and at Béziers every filing
+  still open and every week's decisions, refusals included, 587 dossiers. The
+  server reads a year of them once and the new ones every day.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at
