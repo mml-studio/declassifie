@@ -22,7 +22,11 @@ import {
   registerDecision,
   registerSite,
   scrubPermitListRow,
+  PERMIT_LIST_TEXT,
   aixDossier,
+  gridApplicant,
+  joinDossier,
+  typo3ListLinks,
   digilorDocuments,
   digilorIndexBody,
   digilorIndexUrl,
@@ -688,4 +692,159 @@ test('Argenteuil\'s words are read on the ladder', () => {
   assert.equal(normalisePermitListRow(argenteuil, 'decisions', {
     dossier: 'PC 95018 18 O0015 M03', verdict: 'Favorable avec prescriptions', decidedOn: '2026-09-25',
   }).key, 'DAU|09501818O0015M03');
+});
+
+// --- Centred tables: Annecy and Clermont-Ferrand -----------------------------
+
+test('a number printed over several lines is joined, the lines beside it set apart', () => {
+  assert.deepEqual(joinDossier(['DP 074 010 24', '00298 M04', '11/09/2026']),
+    { dossier: 'DP 074 010 24 00298 M04', others: ['11/09/2026'] });
+  assert.deepEqual(joinDossier(['PC 063 113 21 G0729', 'M01']), { dossier: 'PC 063 113 21 G0729 M01', others: [] });
+  assert.deepEqual(joinDossier(['PC 068224 25 S', '0089']), { dossier: 'PC 068224 25 S0089', others: [] });
+  assert.deepEqual(joinDossier(['Permis de construire', 'DP 95018 26 o0413']),
+    { dossier: 'DP 95018 26 o0413', others: ['Permis de construire'] });
+  assert.deepEqual(joinDossier([]), { dossier: null, others: [] });
+});
+
+/** One page of Annecy's list of decisions, two rows centred on their middles. */
+function annecyPage(n) {
+  const r = (t, x, y) => run(t, x, y, { size: 8 });
+  return { runs: [
+    r('Liste des décisions', 368.4, 568.8), r('10 - ANNECY', 32, 554.4), r('Déclaration préalable', 32, 535.4),
+    r('N° de dossier', 34.4, 498.8), r('Lieux des', 285.6, 498.8), r('Date dépôt', 124.8, 494.8),
+    r('Demandeur', 185.2, 494.8), r('Superficie', 366, 494.8), r('Nature des travaux', 416.4, 494.8),
+    r('Projet', 596.9, 494.8), r('Décision', 757.3, 494.8), r("Date d'affichage", 34.4, 490.7), r('travaux', 285.6, 490.7),
+    // Row 1, middle 431.9.
+    r('DP 074 010 25', 34.4, 439.9), r(`1 Avenue Exemple ${n}`, 285.6, 439.9), r('CABINET', 185.2, 435.9),
+    r('Favorable le', 757.3, 435.9), r('00476 M01', 34.4, 431.9), r('29/06/2026', 124.8, 431.9), r('Port', 285.6, 431.9),
+    r('74000', 307.5, 431.9), r('(268 AL', 338.6, 431.9), r('1650 m²', 366, 431.9),
+    r('Isolation thermique par l’extérieur', 416.4, 431.9), r('EXEMPLE', 185.2, 427.9), r('29/07/2026', 757.3, 427.9),
+    r('31/07/2026', 34.4, 423.9), r('300)', 285.6, 423.9),
+    // Row 2, 21 points lower.
+    r('PC 074 010 26', 34.4, 398.5), r('00046', 34.4, 390.5), r('15/01/2026', 124.8, 390.5), r('SCI EXEMPLE', 185.2, 390.5),
+    r('2 rue Exemple 74000 (AY 30)', 285.6, 390.5), r('600 m²', 366, 390.5), r('Maison', 416.4, 390.5),
+    r('- Surface plancher créée : 120,5 m²', 596.9, 390.5), r('Favorable tacite le', 757.3, 394.5), r('02/09/2026', 757.3, 386.5),
+    r(`${n} / 3`, 727, 16.9),
+  ] };
+}
+
+test('Annecy\'s decisions read one row per number, a row ending at the first wide gap', () => {
+  const rows = PERMIT_LIST_READERS['annecy-decisions']({ pages: [annecyPage(1), annecyPage(2), annecyPage(3)] });
+  assert.equal(rows.length, 6);
+  const [first, second] = rows;
+  assert.deepEqual(first, {
+    board: 'decisions', dossier: 'DP 074 010 25 00476 M01', label: null, purpose: 'Isolation thermique par l’extérieur',
+    applicant: 'CABINET EXEMPLE', address: '1 Avenue Exemple 1 Port', postcode: '74000', locality: null,
+    filedOn: '2026-06-29', verdict: 'Favorable', decidedOn: '2026-07-29', postedOn: '2026-07-31', landArea: '1650',
+    housing: null, lots: null, floorArea: null, parcels: '268 AL 300',
+  });
+  assert.deepEqual([second.dossier, second.verdict, second.decidedOn, second.floorArea, second.parcels],
+    ['PC 074 010 26 00046', 'Favorable tacite', '2026-09-02', '120.5', 'AY 30']);
+  const annecy = PERMIT_LISTS.find((city) => city.key === 'annecy');
+  // A former commune's sections are keyed under its old number.
+  assert.deepEqual(normalisePermitListRow(annecy, 'decisions', first).parcelIdus.map((ref) => ref.idu), ['74010268AL0300']);
+});
+
+test('Clermont\'s decisions: the site after a dash, `Retiré le` never read as a withdrawal', () => {
+  const r = (t, x, y) => run(t, x, y, { size: 7.5 });
+  const page = { runs: [
+    r('Registre d\'affichage de la décision', 322.8, 545.2), r('Objet des travaux', 255.9, 498), r('N° de dossier', 31.6, 493.5),
+    r('Demandeur', 143.7, 493.5), r('Date de la décision', 387.6, 493.5), r('Date affichage décision', 491.8, 493.5),
+    r('Retiré le', 631.1, 493.5), r('Nature de la décision', 720, 493.5), r('Lieux des travaux', 255.9, 489),
+    r('Isolation thermique par', 257.4, 473.6), r('l\'extérieur', 257.4, 464.9), r('et remplacement', 291.8, 464.9),
+    r('DP 063 113 23 G1238 M01', 31.6, 451.9), r('EXEMPLE HABITAT', 143.7, 451.9), r('17/08/2026', 402.8, 451.9),
+    r('17/08/2026', 515, 451.9), r('17/10/2026', 627.1, 451.9), r('Favorable', 741, 451.9), r('- RUE EXEMPLE', 255.9, 437.4),
+    r('Piscine', 257.4, 405), r('PC 063 113 26 00042', 31.6, 400.7), r('SCI EXEMPLE', 143.7, 400.7), r('20/08/2026', 402.8, 400.7),
+    r('20/08/2026', 515, 400.7), r('20/10/2026', 627.1, 400.7), r('Défavorable', 723, 400.7), r('- 3 rue Exemple', 255.9, 392),
+  ] };
+  const rows = PERMIT_LIST_READERS.clermont({ pages: [page] });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.purpose, row.address, row.verdict, row.decidedOn, row.postedOn]), [
+    ['DP 063 113 23 G1238 M01', 'Isolation thermique par l\'extérieur et remplacement', 'RUE EXEMPLE', 'Favorable', '2026-08-17', '2026-08-17'],
+    ['PC 063 113 26 00042', 'Piscine', '3 rue Exemple', 'Défavorable', '2026-08-20', '2026-08-20'],
+  ]);
+});
+
+test('Clermont\'s filings: the name over the applicant\'s own address, the parcels last, a decision code', () => {
+  const r = (t, x, y) => run(t, x, y, { size: 7.5 });
+  const page = { runs: [
+    r('Répertoire des dossiers déposés', 326.9, 545.2), r('N° de dossier', 52.1, 497.7), r('Date de dépôt', 129.8, 497.7),
+    r('Demandeur', 187.9, 497.7), r('Adresse du terrain', 376.3, 497.7), r('SHON', 618.8, 497.7), r('Nb logts', 669.6, 497.7),
+    r('Nature et date de décision', 716.1, 497.7), r('Objet des travaux', 376.3, 488.8),
+    r('79 AVENUE EXEMPLE', 377.1, 466.7), r('SCCV EXEMPLE', 188.6, 462.3), r('DP 063 113 21 G0729', 31.6, 453.7),
+    r('2 Rue du Siège', 188.6, 453.7), r('0', 650.3, 453.7), r('27/04/2026', 135.8, 449.3),
+    r('Division en vue de construire', 377.1, 449.3), r('RT', 726.7, 449.3), r('20/05/2026', 763.6, 449.3),
+    r('M01', 31.6, 445), r('19,83', 650.3, 445), r('69160 TASSIN', 188.6, 436.3), r('CH 107, CH 108', 377.1, 432),
+  ] };
+  const [row] = PERMIT_LIST_READERS.clermont({ pages: [page] });
+  assert.deepEqual([row.board, row.dossier, row.applicant, row.address, row.purpose, row.parcels, row.verdict, row.decidedOn, row.floorArea, row.filedOn],
+    ['decisions', 'DP 063 113 21 G0729 M01', 'SCCV EXEMPLE', '79 AVENUE EXEMPLE', 'Division en vue de construire', 'CH 107, CH 108',
+      'Rejet tacite', '2026-05-20', '19.83', '2026-04-27']);
+  assert.ok(!JSON.stringify(row).includes('TASSIN'), 'the applicant\'s own address is never read');
+});
+
+// --- Mulhouse: a grid row that runs on to the next page ---------------------
+
+test('a grid row that runs on to the next page is read whole, the organisation found on its last line', () => {
+  const r = (t, x, y, x1) => run(t, x, y, { x1, size: 11 });
+  const header = (y) => [
+    r('Numéro de dossier', 28.3, y, 124.3), r('Pétitionnaire', 138.7, y, 203), r('Décision', 258.7, y, 304.1),
+    r('Date de', 333.8, y, 375.5), r('signature', 333.8, y - 12.6, 382.1), r('Nature des travaux', 413.8, y, 509.9),
+    r('Adresse des travaux', 593.8, y, 697.2),
+  ];
+  const page1 = { runs: [
+    ...header(549.1),
+    r('DP 068224 26 S0486', 26.8, 113, 135.1), r('Monsieur DUPONT,', 147.1, 113, 242.1), r('Favorable', 257.2, 113, 309.5),
+    r('24/07/2026', 339.3, 113, 397.5), r('remplacement de la porte d’entrée et de la fenêtre', 412.3, 113, 650),
+    r('27 Rue Exemple', 592.3, 100.4, 691.4), r('Directeur Général', 147.1, 100.4, 237.8), r('avec', 257.2, 100.4, 283.6),
+    r('Page 1 sur 2', 738.8, 37.6, 798.3),
+  ] };
+  const page2 = { runs: [
+    ...header(549.1),
+    r('Jean', 147.1, 520, 169.2), r('prescriptions', 257.2, 520, 322.7), r('68200 MULHOUSE', 592.3, 520, 691.4),
+    r('M2A HABITAT', 147.1, 507.4, 222.4),
+    r('DP 068224 26 S0487', 26.8, 480, 135.1), r('SCI EXEMPLE', 147.1, 480, 222), r('Favorable', 257.2, 480, 309.5),
+    r('25/07/2026', 339.3, 480, 397.5), r('Clôture', 412.3, 480, 450), r('1 Rue Exemple', 592.3, 480, 691.4),
+    r('68100 MULHOUSE', 592.3, 467.4, 691.4), r('Page 2 sur 2', 738.8, 37.6, 798.3),
+  ] };
+  const rows = PERMIT_LIST_READERS.grid({ pages: [page1, page2] });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.applicant, row.verdict, row.address, row.postcode]), [
+    ['DP 068224 26 S0486', 'M2A HABITAT', 'Favorable avec prescriptions', '27 Rue Exemple', '68200'],
+    ['DP 068224 26 S0487', 'SCI EXEMPLE', 'Favorable', '1 Rue Exemple', '68100'],
+  ]);
+  assert.equal(gridApplicant(['Monsieur DUPONT', 'Jean']), 'Monsieur DUPONT');
+  assert.equal(permitListVerdictState('Octroi tacite'), 'accorde');
+  assert.equal(permitListVerdictState('Prorogation'), null);
+});
+
+test('a page that links every edition gives them all; an optional list may be missing', () => {
+  const mulhouse = PERMIT_LISTS.find((city) => city.key === 'mulhouse');
+  const page = ['deposes-jusquau-2-sept', 'delivres-jusquau-4-aout', 'deposes-jusquau-4-aout', 'deposes-jusquau-4-aout']
+    .map((name) => `<a href="/wp-content/uploads/2026/09/${name}.pdf">Dossiers ${name.split('-')[0].replace('deposes', 'déposés').replace('delivres', 'délivrés')} jusqu’au …</a>`)
+    .join('\n');
+  const links = permitListLinks(mulhouse, page);
+  assert.deepEqual(links.map((link) => [link.board, link.url.split('/').pop(), link.immutable]), [
+    ['filings', 'deposes-jusquau-2-sept.pdf', true], ['filings', 'deposes-jusquau-4-aout.pdf', true],
+    ['decisions', 'delivres-jusquau-4-aout.pdf', true],
+  ]);
+  const clermont = PERMIT_LISTS.find((city) => city.key === 'clermont');
+  const only = permitListLinks(clermont, '<a href="https://clermont-ferrand.fr/sites/default/files/2026-09/Affichage décisions urbanisme 23 juil 23 sept 2026_0.pdf"><h4>Affichage arrêtés</h4><p>Affichage des autorisations d\'urbanisme décidées.</p></a>');
+  assert.deepEqual(only.map((link) => [link.board, link.url]), [
+    ['decisions', 'https://clermont-ferrand.fr/sites/default/files/2026-09/Affichage%20d%C3%A9cisions%20urbanisme%2023%20juil%2023%20sept%202026_0.pdf'],
+  ]);
+});
+
+test('a headless TYPO3 page gives its files by the heading of their block', () => {
+  const annecy = PERMIT_LISTS.find((city) => city.key === 'annecy');
+  const block = (header, url) => ({ type: 'mask_bloc_downloads', content: { header, items: [{ publicUrl: url, properties: { title: 'x' } }] } });
+  const json = { content: { colPos0: [
+    { type: 'text', content: { bodytext: 'Bienvenue' } },
+    block('Liste des demandes déposées', 'https://www.annecy.fr/api/fileadmin/x/Demandes-2.pdf'),
+    block('Liste des autorisations délivrées', 'https://www.annecy.fr/api/fileadmin/x/Autorisations.pdf'),
+  ] } };
+  assert.deepEqual(typo3ListLinks(annecy, json), [
+    { board: 'filings', layout: 'annecy-filings', url: 'https://www.annecy.fr/api/fileadmin/x/Demandes-2.pdf' },
+    { board: 'decisions', layout: 'annecy-decisions', url: 'https://www.annecy.fr/api/fileadmin/x/Autorisations.pdf' },
+  ]);
+  assert.equal(typo3ListLinks(annecy, { content: { colPos0: [] } }), null);
+  assert.deepEqual(PERMIT_LIST_TEXT['annecy-decisions'], { wordGapEm: 0.15 });
 });

@@ -95,7 +95,7 @@ import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, formatDossier, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 import {
-  CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsVerdictState,
+  CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
 
 /** Trim a value to a non-empty string, or null. */
@@ -227,6 +227,53 @@ export const PERMIT_LISTS = Object.freeze([
       decisions: 2172,
     }),
     lists: Object.freeze([Object.freeze({ layout: 'grid' })]),
+  }),
+  Object.freeze({
+    key: 'mulhouse',
+    insee: '68224',
+    label: 'Ville de Mulhouse — dossiers d’urbanisme déposés et délivrés', // i18n-ignore-line — the publisher and its lists
+    page: 'https://www.mulhouse.fr/mes-demarches/proprietaire-locataire/permis-de-construire/',
+    lists: Object.freeze([
+      // i18n-ignore-start — the words of the city's own links, matched on
+      // Every edition covers only the weeks since the one before: all are read.
+      Object.freeze({ board: 'filings', layout: 'grid', link: /d[ée]pos[ée]s\s+(?:jusqu|avant)/i, all: true }),
+      Object.freeze({ board: 'decisions', layout: 'grid', link: /(?:d[ée]livr[ée]s|d[ée]cid[ée]s)\s+jusqu/i, all: true }),
+      // i18n-ignore-end
+    ]),
+  }),
+  Object.freeze({
+    key: 'annecy',
+    insee: '74010',
+    underReview: true,
+    label: 'Ville d’Annecy — demandes déposées et autorisations délivrées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://www.annecy.fr/ville/amenagement/urbanisme',
+    // The page is a JavaScript shell; its content is served as JSON.
+    source: Object.freeze({ kind: 'typo3', api: 'https://www.annecy.fr/api/ville/amenagement/urbanisme' }),
+    lists: Object.freeze([
+      // i18n-ignore-start — the headings of the city's own download blocks
+      Object.freeze({ board: 'filings', layout: 'annecy-filings', link: /demandes d[ée]pos[ée]es/i }),
+      Object.freeze({ board: 'decisions', layout: 'annecy-decisions', link: /autorisations d[ée]livr[ée]es/i }),
+      // i18n-ignore-end
+    ]),
+  }),
+  Object.freeze({
+    key: 'clermont',
+    insee: '63113',
+    underReview: true,
+    label: 'Ville de Clermont-Ferrand — autorisations d’urbanisme déposées et décidées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://clermont-ferrand.fr/informations-legales-durbanisme',
+    // The host sends its certificate without the Sectigo intermediate that
+    // signed it, as the `pemb.fr` boards do: the reader supplies it
+    // (`trustCartdsIntermediates`).
+    intermediate: 'sectigo-ov-r36',
+    lists: Object.freeze([
+      // i18n-ignore-start — the words of the city's own links, matched on
+      Object.freeze({ board: 'decisions', layout: 'clermont', link: /d[ée]cid[ée]es|affichage d[ée]cisions/i }),
+      // The filings' link answered 404 on 2026-10-01: a missing list of
+      // filings leaves the decisions to be read.
+      Object.freeze({ board: 'filings', layout: 'clermont', link: /d[ée]pos[ée]es|affichage d[ée]p[ôo]ts/i, optional: true }),
+      // i18n-ignore-end
+    ]),
   }),
 ]);
 
@@ -399,7 +446,53 @@ export function permitListLinks(city, html) {
   }
   const out = [];
   for (const list of city.lists) {
-    const found = anchors.find((anchor) => list.link.test(anchor.words));
+    const found = anchors.filter((anchor) => list.link.test(anchor.words));
+    if (!found.length) {
+      if (list.optional) continue;
+      return null;
+    }
+    // `all`: every edition the page links is a list of its own (Mulhouse's
+    // each cover the weeks since the one before); otherwise the first.
+    for (const anchor of list.all ? [...new Map(found.map((item) => [item.url, item])).values()] : found.slice(0, 1)) {
+      out.push({
+        board: list.board, layout: list.layout, url: anchor.url,
+        ...(list.all ? { immutable: true } : {}), ...(list.optional ? { optional: true } : {}),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * The files a headless TYPO3 page offers, by the heading of their block:
+ * Annecy's page is a JavaScript shell with no link, and the same page as JSON
+ * (`/api/<path>`) holds its download blocks — `content.header` over
+ * `content.items[].publicUrl`. The file names are not to be trusted (TYPO3
+ * renames one that collides, `…-2.pdf`), so they are read every time.
+ *
+ * @param {object} city
+ * @param {*} json The parsed page.
+ * @returns {?Array<{board: string, layout: string, url: string}>}
+ */
+export function typo3ListLinks(city, json) {
+  const blocks = [];
+  const walk = (node, depth) => {
+    if (!node || typeof node !== 'object' || depth > 12) return;
+    const content = node.content;
+    if (content && typeof content.header === 'string' && Array.isArray(content.items)) {
+      for (const item of content.items) {
+        const url = item?.publicUrl ?? item?.properties?.publicUrl;
+        if (typeof url === 'string' && /\.pdf$/i.test(new URL(url, city.page).pathname)) {
+          blocks.push({ words: `${content.header} ${item?.properties?.title ?? ''}`, url: new URL(url, city.page).href });
+        }
+      }
+    }
+    for (const value of Array.isArray(node) ? node : Object.values(node)) walk(value, depth + 1);
+  };
+  walk(json, 0);
+  const out = [];
+  for (const list of city.lists) {
+    const found = blocks.find((block) => list.link.test(block.words));
     if (!found) return null;
     out.push({ board: list.board, layout: list.layout, url: found.url });
   }
@@ -508,10 +601,10 @@ function headerOf(runs, columns) {
   };
 }
 
-/** A column's lines, top to bottom, as text. */
+/** A column's lines, top to bottom — page by page, when a row runs on — as text. */
 function lines(runs) {
   return [...runs]
-    .sort((a, b) => (b.y - a.y) || (a.x - b.x))
+    .sort((a, b) => ((a.page ?? 0) - (b.page ?? 0)) || (b.y - a.y) || (a.x - b.x))
     .map((run) => run.text);
 }
 
@@ -1006,20 +1099,45 @@ export function readGridTable(document, spec) {
   const rows = [];
   const { pages, furniture } = pageRuns(document);
   let header = null;
-  for (const runs of pages) {
+  // The last row of a page, kept open: Word lets a row run on to the top of
+  // the next page, above that page's first number (Mulhouse, 43 runs over
+  // five pages of one list, the applicant's organisation among them).
+  let open = null;
+  const close = () => {
+    if (!open) return;
+    const byField = Object.fromEntries(Object.entries(open).map(([field, cellRuns]) => [field, lines(cellRuns)]));
+    const row = spec.row(byField);
+    if (row && DOSSIER_RE.test(text(row.dossier) ?? '')) rows.push({ board: spec.board, ...row });
+    open = null;
+  };
+  for (const [index, runs] of pages.entries()) {
     const found = gridHeader(runs, spec.columns);
     if (found) header = found;
     if (!header) continue;
-    const width = Math.max(...header.columns.map((column) => column.x1)) - Math.min(...header.columns.map((column) => column.x));
+    const columns = [...header.columns].sort((a, b) => a.x - b.x);
+    const width = Math.max(...columns.map((column) => column.x1)) - columns[0].x;
+    // A section's title runs across the table from its first column; a long
+    // description, wide too, starts in its own (Mulhouse's, 240 points).
     const below = runs.filter((run) => (!found || run.y < found.bottom - 1)
       && !header.runs.includes(run)
-      && !((Number.isFinite(run.x1) ? run.x1 - run.x : 0) > width / 3));
+      && !((Number.isFinite(run.x1) ? run.x1 - run.x : 0) > width / 3 && run.x < (columns[1]?.x ?? Infinity)))
+      .map((run) => ({ ...run, page: index }));
     const columnOf = gridColumns(below, header.columns);
     const anchors = below.filter((run) => columnOf(run) === 'dossier' && DOSSIER_HEAD_RE.test(text(run.text) ?? ''))
       .sort((a, b) => b.y - a.y);
-    if (!anchors.length) continue;
-    const lowest = anchors.at(-1).y;
+    const lowest = anchors.at(-1)?.y ?? -Infinity;
     const body = below.filter((run) => run.y >= lowest || !furniture(run));
+    const top = anchors[0]?.y ?? -Infinity;
+    if (open) {
+      // What runs on is never the page's furniture — Béziers stamps « Publié
+      // le … » over every page, and read into the row it became its filing day.
+      for (const run of body.filter((item) => item.y > top + 0.5 && !furniture(item))) {
+        const field = columnOf(run);
+        if (field) (open[field] ??= []).push(run);
+      }
+    }
+    if (!anchors.length) continue;
+    close();
     anchors.forEach((anchor, i) => {
       const floor = anchors[i + 1]?.y ?? -Infinity;
       const band = body.filter((run) => run.y <= anchor.y + 0.5 && run.y > floor + 0.5)
@@ -1035,11 +1153,13 @@ export function readGridTable(document, spec) {
         const field = columnOf(run);
         if (field) (cells[field] ??= []).push(run);
       }
-      const byField = Object.fromEntries(Object.entries(cells).map(([field, cellRuns]) => [field, lines(cellRuns)]));
-      const row = spec.row(byField);
-      if (row && DOSSIER_RE.test(text(row.dossier) ?? '')) rows.push({ board: spec.board, ...row });
+      if (i < anchors.length - 1) {
+        open = cells;
+        close();
+      } else open = cells;
     });
   }
+  close();
   return rows;
 }
 
@@ -1077,6 +1197,29 @@ function joined(cellLines) {
 }
 
 /**
+ * A grid's applicant: the organisation the cell names, where it names one.
+ *
+ * The person who signs comes first and the organisation they sign for after
+ * — `Monsieur <name>` / `<first name>` / `M2A HABITAT` at Mulhouse, in one row
+ * in four; the first line alone would keep the person, whom the filter drops,
+ * and lose the organisation. A grid's applicant cell holds no address (the
+ * site has its own column), so every line may be tried; the first that reads
+ * as an organisation is the applicant, and failing one, the first line, which
+ * the filter will judge like any other.
+ *
+ * @param {Array<string>} cellLines
+ * @returns {?string}
+ */
+export function gridApplicant(cellLines) {
+  const all = (cellLines ?? []).map((line) => text(line)).filter(Boolean);
+  for (let i = 0; i < all.length; i += 1) {
+    const candidate = registerApplicant(all.slice(i));
+    if (organisationApplicant(candidate)) return candidate;
+  }
+  return registerApplicant(all);
+}
+
+/**
  * A grid of filed dossiers: Béziers's weekly lists, one per family (`Dépôt DP
  * (51)`), and Argenteuil's sheets, one per dossier — the same export, the
  * same five headers.
@@ -1090,10 +1233,10 @@ const GRID_FILINGS = Object.freeze({
   row: (cells) => {
     const site = registerSite(cells.address ?? []);
     return {
-      dossier: joined(cells.dossier),
+      dossier: joinDossier(cells.dossier ?? []).dossier,
       label: null,
       purpose: joined(cells.purpose),
-      applicant: registerApplicant(cells.applicant ?? []),
+      applicant: gridApplicant(cells.applicant),
       address: site.address,
       postcode: site.postcode,
       locality: site.locality,
@@ -1121,10 +1264,10 @@ const GRID_DECISIONS = Object.freeze({
     const site = registerSite(cells.address ?? []);
     const floor = number(joined(cells.floorArea)?.replace(/\s*m(?:²|2)$/i, ''));
     return {
-      dossier: joined(cells.dossier),
+      dossier: joinDossier(cells.dossier ?? []).dossier,
       label: null,
       purpose: joined(cells.purpose),
-      applicant: registerApplicant(cells.applicant ?? []),
+      applicant: gridApplicant(cells.applicant),
       address: site.address,
       postcode: site.postcode,
       locality: site.locality,
@@ -1155,7 +1298,7 @@ export function listParcels(cell) {
   const out = [];
   for (const piece of String(cell ?? '').split(/[,;]/)) {
     const label = piece.replace(/\s+/g, ' ').trim().toUpperCase();
-    const match = /^(?:(\d{3}))?\s*([A-Z]{1,2})\s+0*(\d{1,4})(P)?$/.exec(label);
+    const match = /^(?:(\d{1,3})\s*)?([A-Z]{1,2})\s+0*(\d{1,4})(P)?$/.exec(label);
     if (!match) continue;
     out.push({ prefix: match[1] ?? null, section: match[2], numero: `${match[3]}${match[4] ? 'P' : ''}`, label });
   }
@@ -1317,6 +1460,284 @@ export function digilorDocuments(city, index, since) {
   return out.sort((a, b) => b.published.localeCompare(a.published));
 }
 
+// --- Tables whose cells are centred on their row ----------------------------
+
+/** `27 / 36` alone in a page's bottom margin: Firefox's page footer. */
+const BARE_PAGE_FOOTER_RE = /^\d+\s*\/\s*\d+$/;
+
+/**
+ * The parts of a number a narrow column prints over several lines, joined:
+ * `DP 074 010 24` / `00298 M04`, `PC 063 113 21 G0729` / `M01`, `PC 068224
+ * 25 S` / `0089`. Lines that are not part of a number — Annecy prints the
+ * posting date under it, in the same column — are handed back apart.
+ *
+ * @param {Array<string>} cellLines
+ * @returns {{dossier: ?string, others: Array<string>}}
+ */
+export function joinDossier(cellLines) {
+  let dossier = null;
+  const others = [];
+  for (const line of cellLines) {
+    const value = text(line);
+    if (!value) continue;
+    if (!dossier) {
+      if (DOSSIER_HEAD_RE.test(value) || DOSSIER_RE.test(value)) dossier = value;
+      else others.push(value);
+      continue;
+    }
+    if (DOSSIER_RE.test(dossier) && !/^[MTP]\d{1,2}$/i.test(value)) { others.push(value); continue; }
+    if (/^(?:[A-Z]?\d{4,5})?(?:\s*[MTP]\d{1,2})?$/i.test(value) || (/[ A-Z]$/i.test(dossier) && /^\d{4,5}\b/.test(value))) {
+      // A lone letter ending the head (`… 25 S`) is the counter's own.
+      dossier = /\s[A-Z]$/i.test(dossier) && /^\d/.test(value) ? `${dossier}${value}` : `${dossier} ${value}`;
+    } else others.push(value);
+  }
+  return { dossier, others };
+}
+
+/**
+ * A table whose cells are centred on their row's middle and left-aligned on
+ * their column (Annecy's lists printed from Firefox, Clermont-Ferrand's
+ * Géosphère reports). Columns by their header: a run belongs to the last
+ * header that starts at or left of it, give or take five points — a centred
+ * date starts a little left of its own header — and a run left of every
+ * header to the first. Rows one of two ways (`spec.rows`):
+ *
+ * - `gap`: a row ends where the page leaves an empty stretch taller than
+ *   `spec.gap` — Annecy's rows are 16.4 points apart or more and their lines
+ *   8, Clermont's decisions 21 and 8.66. A stretch with no number continues
+ *   the row above it.
+ * - `nearest`: each line goes to the nearest number, as on Marseille's list
+ *   of decisions — Clermont's filings, where a four-line applicant leaves a
+ *   gap inside a row as tall as the gap between two.
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @param {{board: string, columns: Array<[string, string, {optional?: boolean}?]>,
+ *   rows: 'gap'|'nearest', gap?: number, build: (cells: Record<string, Array<string>>) => ?object}} spec
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw.
+ */
+export function readBandTable(document, spec) {
+  const rows = [];
+  const { pages } = pageRuns(document);
+  for (const page of pages) {
+    const runs = page.filter((run) => !(BARE_PAGE_FOOTER_RE.test(text(run.text) ?? '') && run.y < 40));
+    const header = gridHeader(runs, spec.columns);
+    if (!header) continue;
+    const columns = [...header.columns].sort((a, b) => a.x - b.x);
+    const columnOf = (run) => {
+      let found = columns[0];
+      for (const column of columns) if (column.x <= run.x + 5) found = column;
+      return found.field;
+    };
+    const isAnchor = (run) => columnOf(run) === 'dossier' && DOSSIER_HEAD_RE.test(text(run.text) ?? '');
+    // No furniture test here: the title, the commune and the edition date sit
+    // over the header, and the only footer is Firefox's `n / N`, dropped
+    // above. A centred row's last lines hang below its number, where a test
+    // for repeated text would only ever take a row's own words.
+    const body = runs.filter((run) => run.y < header.bottom - 1 && !header.runs.includes(run))
+      .sort((a, b) => (b.y - a.y) || (a.x - b.x));
+    const groups = [];
+    if (spec.rows === 'gap') {
+      let current = null;
+      let previousY = null;
+      for (const run of body) {
+        if (!current || previousY - run.y > spec.gap) {
+          current = [];
+          groups.push(current);
+        }
+        current.push(run);
+        previousY = run.y;
+      }
+      // A stretch with no number continues the row above; one with two is
+      // split between them, each line to the nearer number.
+      for (let i = groups.length - 1; i > 0; i -= 1) {
+        if (!groups[i].some(isAnchor)) { groups[i - 1].push(...groups[i]); groups.splice(i, 1); }
+      }
+    } else {
+      groups.push(body);
+    }
+    for (const group of groups) {
+      const anchors = group.filter(isAnchor);
+      if (!anchors.length) continue;
+      const members = anchors.map(() => []);
+      for (const run of group) {
+        let at = 0;
+        for (let i = 1; i < anchors.length; i += 1) {
+          if (Math.abs(anchors[i].y - run.y) < Math.abs(anchors[at].y - run.y)) at = i;
+        }
+        members[at].push(run);
+      }
+      anchors.forEach((anchor, i) => {
+        const cells = {};
+        for (const run of members[i]) (cells[columnOf(run)] ??= []).push(run);
+        const byField = Object.fromEntries(Object.entries(cells).map(([field, cellRuns]) => [field, sameLines(cellRuns)]));
+        const row = spec.build(byField);
+        if (row && DOSSIER_RE.test(text(row.dossier) ?? '')) rows.push({ board: spec.board, ...row });
+      });
+    }
+  }
+  return rows;
+}
+
+/** A cell's lines, the runs that share a line joined in reading order. */
+function sameLines(cellRuns) {
+  const out = [];
+  let line = null;
+  for (const run of [...cellRuns].sort((a, b) => (b.y - a.y) || (a.x - b.x))) {
+    if (line && Math.abs(line.y - run.y) < 1) { line.text = `${line.text} ${run.text}`; continue; }
+    line = { y: run.y, text: run.text };
+    out.push(line);
+  }
+  return out.map((item) => text(item.text)).filter(Boolean);
+}
+
+/** `569 m²` → `569`. */
+function area(value) {
+  const found = number(String(value ?? '').replace(/\s*m(?:²|2)\s*$/i, ''));
+  return found === null ? null : String(found);
+}
+
+/** Annecy's lists: the columns of both, the decisions' `Décision` the one apart. */
+function annecySpec(board) {
+  const decided = board === PERMIT_LIST_BOARDS.decisions;
+  return Object.freeze({
+    board,
+    rows: 'gap',
+    gap: 12,
+    columns: Object.freeze([
+      ['dossier', 'N° DE DOSSIER'], ['filedOn', 'DATE DEPOT'], ['applicant', 'DEMANDEUR'],
+      ['site', decided ? 'LIEUX DES' : 'LIEUX DES TRAVAUX'], ['landArea', 'SUPERFICIE'],
+      ['purpose', 'NATURE DES TRAVAUX'], ['project', 'PROJET'],
+      ...(decided ? [['verdict', 'DECISION']] : []),
+    ]),
+    build: (cells) => {
+      const { dossier, others } = joinDossier(cells.dossier ?? []);
+      const place = parseCartdsPlace(joined(cells.site));
+      const project = cartdsProject(joined(cells.project));
+      const decision = decided ? registerDecision(cells.verdict ?? []) : null;
+      return {
+        dossier,
+        label: null,
+        purpose: joined(cells.purpose),
+        applicant: joined(cells.applicant),
+        address: place.address,
+        postcode: place.postcode,
+        locality: place.locality,
+        filedOn: listDay(joined(cells.filedOn)),
+        verdict: decision?.verdict ?? null,
+        decidedOn: decision?.decidedOn ?? null,
+        postedOn: listDay(others.find((line) => /^\d{2}\/\d{2}\/\d{4}$/.test(line))),
+        landArea: area(joined(cells.landArea)),
+        housing: null,
+        lots: project.lots === null ? null : String(project.lots),
+        floorArea: project.createdM2 === null ? null : String(project.createdM2),
+        parcels: place.parcels.map((parcel) => parcel.label).join(', ') || null,
+      };
+    },
+  });
+}
+
+/**
+ * Clermont-Ferrand's decisions (« Registre d'affichage de la décision »): the
+ * works and the site share a column, the site last and after a dash; `Retiré
+ * le` is the day the notice comes down, two months on, not a withdrawal.
+ */
+const CLERMONT_DECISIONS = Object.freeze({
+  board: PERMIT_LIST_BOARDS.decisions,
+  rows: 'gap',
+  gap: 14,
+  columns: Object.freeze([
+    ['dossier', 'N° DE DOSSIER'], ['applicant', 'DEMANDEUR'], ['works', 'OBJET DES TRAVAUX'],
+    ['decidedOn', 'DATE DE LA DECISION'], ['postedOn', 'DATE AFFICHAGE DECISION'], ['down', 'RETIRE LE'],
+    ['verdict', 'NATURE DE LA DECISION'],
+  ]),
+  build: (cells) => {
+    const { dossier } = joinDossier(cells.dossier ?? []);
+    const works = cells.works ?? [];
+    const at = works.findIndex((line) => /^-\s/.test(line));
+    const purpose = text((at < 0 ? works : works.slice(0, at)).join(' '));
+    const address = at < 0 ? null : text(works.slice(at).join(' ').replace(/^-\s*/, ''));
+    return {
+      dossier,
+      label: null,
+      purpose,
+      applicant: registerApplicant(cells.applicant ?? []),
+      address,
+      postcode: null,
+      locality: null,
+      filedOn: null,
+      verdict: joined(cells.verdict),
+      decidedOn: listDay(joined(cells.decidedOn)),
+      postedOn: listDay(joined(cells.postedOn)),
+      landArea: null,
+      housing: null,
+      lots: null,
+      floorArea: null,
+      parcels: null,
+    };
+  },
+});
+
+/** Clermont-Ferrand's decision codes in its list of filings. */
+// i18n-ignore-start — the software's own codes and words
+const CLERMONT_CODES = Object.freeze({
+  F: 'Favorable', FR: 'Favorable avec réserve', D: 'Défavorable', A: 'Annulation',
+  FT: 'Favorable tacite', RT: 'Rejet tacite',
+});
+// i18n-ignore-end
+
+/**
+ * Clermont-Ferrand's filings (« Répertoire des dossiers déposés »), every
+ * dossier filed since 1 January with its decision once taken: the applicant
+ * cell is the name over the applicant's own address (only the name is read),
+ * the site cell the address, the works and, last, the parcels.
+ */
+const CLERMONT_FILINGS = Object.freeze({
+  board: PERMIT_LIST_BOARDS.filings,
+  rows: 'nearest',
+  columns: Object.freeze([
+    ['dossier', 'N° DE DOSSIER'], ['filedOn', 'DATE DE DEPOT'], ['applicant', 'DEMANDEUR'],
+    ['site', 'ADRESSE DU TERRAIN'], ['floor', 'SHON'], ['housing', 'NB LOGTS'],
+    ['decision', 'NATURE ET DATE DE DECISION'],
+  ]),
+  build: (cells) => {
+    const { dossier } = joinDossier(cells.dossier ?? []);
+    const site = cells.site ?? [];
+    const last = site.at(-1);
+    const parcels = site.length > 1 && listParcels(last).length ? last : null;
+    const decision = /^([A-Z]{1,2})\s+(\d{2}\/\d{2}\/\d{4})$/.exec(joined(cells.decision) ?? '');
+    const floors = (cells.floor ?? []).map((line) => number(line)).filter((value) => value !== null);
+    return {
+      board: decision ? PERMIT_LIST_BOARDS.decisions : PERMIT_LIST_BOARDS.filings,
+      dossier,
+      label: null,
+      purpose: text(site.slice(1, parcels ? -1 : undefined).join(' ')),
+      applicant: registerApplicant(cells.applicant ?? []),
+      address: text(site[0]),
+      postcode: null,
+      locality: null,
+      filedOn: listDay(joined(cells.filedOn)),
+      verdict: decision ? CLERMONT_CODES[decision[1]] ?? decision[1] : null,
+      decidedOn: decision ? listDay(decision[2]) : null,
+      postedOn: null,
+      landArea: null,
+      housing: number(joined(cells.housing)) ? joined(cells.housing) : null,
+      lots: null,
+      floorArea: floors.at(-1) ? String(floors.at(-1)) : null,
+      parcels,
+    };
+  },
+});
+
+/**
+ * How a layout's files are turned into text, where it differs from the
+ * default (`extractPdfText`'s options): Annecy's, printed from Firefox, draw
+ * no space glyph between words.
+ */
+export const PERMIT_LIST_TEXT = Object.freeze({
+  'annecy-filings': Object.freeze({ wordGapEm: 0.15 }),
+  'annecy-decisions': Object.freeze({ wordGapEm: 0.15 }),
+});
+
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
   register: readRegisterList,
@@ -1325,6 +1746,14 @@ export const PERMIT_LIST_READERS = Object.freeze({
   // A page says by its header which grid it is: Argenteuil posted two filing
   // sheets among its decisions in 2026, and its own title is what is right.
   grid: (document) => [...readGridTable(document, GRID_FILINGS), ...readGridTable(document, GRID_DECISIONS)],
+  'annecy-filings': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.filings)),
+  'annecy-decisions': (document) => readBandTable(document, annecySpec(PERMIT_LIST_BOARDS.decisions)),
+  // The page's header says which of its two reports it is.
+  clermont: (document) => [
+    ...readBandTable(document, CLERMONT_DECISIONS),
+    // A filing whose decision is listed beside it says so itself.
+    ...readBandTable(document, CLERMONT_FILINGS),
+  ],
 });
 
 // --- Keeping and normalising -----------------------------------------------
@@ -1377,8 +1806,10 @@ export function scrubPermitListRow(input) {
  * and `Rapporté` (two, a decision taken back). Cart@DS's reader takes every
  * one but `retiré` and `Rapporté` — closed, like `Retrait` — `Tacite`, and
  * Lyon's `Délivré`, the word of the section a decision is listed under,
- * which lists grants. `Sursis à statuer` is no decision on the merits and
- * keeps its own words.
+ * which lists grants — and `Octroi` and `Octroi tacite`, Mulhouse's and
+ * Versailles's grants (482 rows of Versailles's 2026 lists). `Sursis à
+ * statuer` is no decision on the merits, nor `Prorogation` a new one: both
+ * keep their own words.
  *
  * @param {?string} verdict
  * @returns {?string} `accorde`, `refuse`, `annule`, or null.
@@ -1389,7 +1820,7 @@ export function permitListVerdictState(verdict) {
   const value = String(verdict ?? '').trim();
   // i18n-ignore-start — the publishers' own verdicts, matched on
   if (/^retir[ée]|^rapport[ée]/i.test(value)) return 'annule';
-  if (/^d[ée]livr[ée]|^tacite$/i.test(value)) return 'accorde';
+  if (/^d[ée]livr[ée]|^tacite$|^octroi\b/i.test(value)) return 'accorde';
   // i18n-ignore-end
   return null;
 }
@@ -1521,7 +1952,8 @@ export function normalisePermitListRow(city, board, input, { current = false } =
     parcelIdus: cartdsParcelIdus(parcels, city.insee),
     landAreaM2: number(row.landArea),
     housing: housing && housing > 0 ? housing : null,
-    surfaceCreatedM2: number(row.floorArea),
+    // `Surface plancher créée : 0 m²` says no floor area is created.
+    surfaceCreatedM2: number(row.floorArea) || null,
     lots: number(row.lots),
     lon: null,
     lat: null,

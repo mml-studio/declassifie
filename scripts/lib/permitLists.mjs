@@ -32,6 +32,8 @@ import {
   digilorIndexUrl,
   parseWebdelibActs,
   readAixTables,
+  typo3ListLinks,
+  PERMIT_LIST_TEXT,
   permitListLinks,
   permitListRobotsUrl,
   scrubPermitListRow,
@@ -180,7 +182,9 @@ function rowsOfPdf(bytes, layout, board) {
   const reader = PERMIT_LIST_READERS[layout];
   let document = null;
   try {
-    document = extractPdfText(bytes, { inflate: (data) => zlib.inflateSync(data), maxPages: PDF_MAX_PAGES });
+    document = extractPdfText(bytes, {
+      inflate: (data) => zlib.inflateSync(data), maxPages: PDF_MAX_PAGES, ...(PERMIT_LIST_TEXT[layout] ?? {}),
+    });
   } catch {
     return null;
   }
@@ -371,22 +375,50 @@ export async function readPermitCity(city, http, {
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
-  if (!allows(new URL(city.page).pathname)) return null;
-  const response = await http.fetch(city.page, { headers: { Accept: 'text/html' } });
+  const pageUrl = city.source?.kind === 'typo3' ? city.source.api : city.page;
+  if (!allows(new URL(pageUrl).pathname)) return null;
+  const response = await http.fetch(pageUrl, {
+    headers: { Accept: city.source?.kind === 'typo3' ? 'application/json' : 'text/html' },
+  });
   if (!response?.ok) return null;
-  const html = await http.text(response, PAGE_MAX_BYTES);
-  const links = html ? permitListLinks(city, html) : null;
+  const body = await http.text(response, PAGE_MAX_BYTES);
+  let links = null;
+  if (city.source?.kind === 'typo3') {
+    try { links = typo3ListLinks(city, JSON.parse(body ?? '')); } catch { links = null; }
+  } else links = body ? permitListLinks(city, body) : null;
   if (!links) return null;
+  return readLinkedLists(links, http, { dir, allows, maxFiles });
+}
+
+/**
+ * The files a page links, read: ALL OR NONE, except a list marked optional
+ * (Clermont's filings, whose link answered 404 on 2026-10-01) and the
+ * editions of a list marked `all` (Mulhouse's), which never change once
+ * posted — one already read is not asked for again, and at most `maxFiles`
+ * new ones are read at a time.
+ */
+async function readLinkedLists(links, http, { dir, allows, maxFiles }) {
   const boards = {};
   const lists = [];
+  let fetched = 0;
+  let skipped = 0;
+  let failed = 0;
   for (const list of links) {
-    if (!allows(new URL(list.url).pathname)) return null;
-    const answer = await readPermitList(list, http, { dir });
-    if (!answer) return null;
+    const kept = list.immutable ? await readEdition(dir, list.url) : null;
+    let answer = kept ? { rows: kept.rows, reused: true } : null;
+    if (!answer && list.immutable && fetched >= maxFiles) { skipped += 1; continue; }
+    if (!answer) {
+      if (list.immutable) fetched += 1;
+      answer = allows(new URL(list.url).pathname) ? await readPermitList(list, http, { dir }) : null;
+    }
+    if (!answer) {
+      if (list.optional || list.immutable) { failed += 1; continue; }
+      return null;
+    }
     for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
     lists.push({ board: list.board, url: list.url, rows: answer.rows.length, reused: answer.reused });
   }
-  return { boards, lists };
+  return { boards, lists, failed, skipped, incomplete: failed > 0 || skipped > 0 };
 }
 
 /**

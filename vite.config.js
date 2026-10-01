@@ -27661,7 +27661,7 @@ function adsFranceProxy() {
   /** Every row a board ever showed — see `src/data/cartdsArchive.js`. */
   const cartdsArchive = createCartdsArchiveStore(path.join(process.cwd(), CARTDS_ARCHIVE_DIR));
   // The `pemb.fr` hosts send their certificate without its intermediate.
-  trustCartdsIntermediates(CARTDS_INSTANCES);
+  trustCartdsIntermediates([...CARTDS_INSTANCES, ...PERMIT_LISTS]);
 
   /** One request to an instance, or null. Never throws. */
   async function cartdsFetch(url, init = {}) {

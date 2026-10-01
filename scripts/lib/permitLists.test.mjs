@@ -377,3 +377,29 @@ test('a Datahall city reads its index, then each new file once, a few at a time'
   assert.deepEqual(third.calls.map((call) => call.file), [null], 'every file is on disk now, the scan too');
   assert.equal(await readPermitCity(ARGENTEUIL, datahallHttp({ index: { error: 'no' } }), { months: 2, day: '2026-10-01' }), null);
 });
+
+test('a page\'s editions are read once each; an optional list that fails leaves the others', async () => {
+  const dir = await tempDir();
+  const city = Object.freeze({
+    key: 'm', insee: '68224', label: 'M — listes', page: 'https://m.example/permis/',
+    lists: Object.freeze([
+      Object.freeze({ board: 'filings', layout: 'register', link: /registre_dossiers/i, all: true }),
+      Object.freeze({ board: 'decisions', layout: 'register', link: /decisions/i, optional: true }),
+    ]),
+  });
+  const page = '<a href="/a-registre_dossiers.pdf">A</a><a href="/b-registre_dossiers.pdf">B</a><a href="/decisions.pdf">D</a>';
+  const files = {
+    'https://m.example/a-registre_dossiers.pdf': { bytes: registerPdf('DP 030189 26 01093', 'SCI A') },
+    'https://m.example/b-registre_dossiers.pdf': { bytes: registerPdf('DP 030189 26 01094', 'SCI B') },
+    'https://m.example/decisions.pdf': 404,
+  };
+  const http = fakeHttp({ pages: { [city.page]: page }, files });
+  const first = await readPermitCity(city, http, { dir });
+  assert.deepEqual(first.boards.filings.map((cells) => cells[0]), ['DP 030189 26 01093', 'DP 030189 26 01094']);
+  assert.deepEqual([first.failed, first.incomplete], [1, true]);
+  const again = fakeHttp({ pages: { [city.page]: page }, files });
+  const second = await readPermitCity(city, again, { dir });
+  assert.deepEqual(second.boards.filings.length, 2);
+  // The two editions came from disk; only the page and the failing list were asked for.
+  assert.deepEqual(again.calls.map((call) => new URL(call.url).pathname), ['/permis/', '/decisions.pdf']);
+});

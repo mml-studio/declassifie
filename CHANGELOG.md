@@ -57,6 +57,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   on their cadastral parcel. Argenteuil posts one sheet per dossier, about
   1 400 a year, filings and decisions: 62 of its 476 decisions of 2026 are
   refusals.
+- **Mulhouse, Annecy and Clermont-Ferrand now show their permits days after
+  the fact**, 0.39 million more inhabitants. Mulhouse's 73 lists since 2023,
+  each covering the weeks since the one before, 2 899 dossiers; Annecy's
+  dossiers under review and grants of the last seven weeks, 541, 518 of them
+  on their cadastral parcel; Clermont-Ferrand's decisions of the last two
+  months, 313, refusals included — its list of filings answered « not found »
+  on 2026-10-01 and is read when it is back.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

@@ -208,3 +208,13 @@ test('a ToUnicode range counts up, and an array range maps one by one', () => {
   assert.equal(bytes, 2);
   assert.deepEqual([0x10, 0x11, 0x12, 0x20, 0x21].map((code) => map.get(code)), ['a', 'b', 'c', 'fl', 'é']);
 });
+
+test('a file that draws no space glyph reads its word gaps as spaces, when asked to', () => {
+  // Firefox's print to PDF (cairo): every word placed by its own move, 0.34 em
+  // past the end of the one before, and no space glyph anywhere.
+  const content = 'BT /F1 10 Tf 1 0 0 1 50 700 Tm (DP) Tj 1 0 0 1 63.4 700 Tm (074) Tj 1 0 0 1 81.9 700 Tm (010) Tj ET';
+  const file = simplePage(content);
+  assert.deepEqual(runs(file).map((run) => run.text), ['DP074010']);
+  const spaced = extractPdfText(file, { inflate, wordGapEm: 0.15 }).pages[0].runs;
+  assert.deepEqual(spaced.map((run) => run.text), ['DP 074 010']);
+});

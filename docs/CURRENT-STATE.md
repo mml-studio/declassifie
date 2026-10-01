@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence and Argenteuil publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy and Clermont-Ferrand publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4786,6 +4786,29 @@ the sheets are the same grid as Béziers's (`readGridTable`), and the numbers
 60 files it has not read, the sweep 400, so a year's backlog is read over a
 few days; a scanned sheet is kept as empty and not fetched again. The
 dossiers of both cities go through the cadastre first, the BAN for the rest.
+
+**Mulhouse, Annecy and Clermont-Ferrand.** Mulhouse's page links 73 lists
+since 2023, each holding only the dossiers since the one before, so every
+link is read (`all`) and an edition already read is never asked for again;
+they are Operis exports in the same grid as Béziers's. The grid reader now
+carries a row that runs on to the top of the next page, takes the
+applicant's organisation from a later line when the first names the person
+who signs for it, joins a counter wrapped as `S` / `0089`, and drops a
+section title only when it starts in the first column. Annecy's page is a
+JavaScript shell; its content is the same path under `/api/`, whose download
+blocks give both files. Printed from Firefox, they draw no space between
+words: `extractPdfText` now takes `wordGapEm` and reads a gap wider than
+0.15 em as a space, for these files only — Word and Excel justify with gaps
+that size inside words. Their rows, and Clermont-Ferrand's, are centred on
+their middle (`readBandTable`): a row ends at a wide gap (Annecy, Clermont's
+decisions) or each line goes to the nearest number (Clermont's filings,
+whose four-line applicant leaves a gap as tall as the one between rows).
+Annecy's parcels carry the old number of a commune it absorbed (`(268 AL
+300)`, Seynod), and 518 of its 541 dossiers stand on one. Clermont-Ferrand's
+host sends its certificate without the Sectigo OV R36 intermediate, which
+the server supplies as it does for the `pemb.fr` boards; its list of filings
+answered 404 on 2026-10-01 and is optional, so its decisions are read
+without it. `Octroi` and `Octroi tacite` now read as grants.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on
