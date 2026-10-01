@@ -110,6 +110,7 @@ import {
 } from './focusDeemphasis.js';
 import { holdContinuousRender, releaseContinuousRender } from '../renderGovernor.js';
 import { OSM_CAMERA_CREDIT, registerDynamicCredit } from './dataCredits.js';
+import { cctvPackCreditHtml } from './cctvPacks.js';
 import {
   osmCameraBoxKey,
   snapOsmCameraBox,
@@ -1291,6 +1292,30 @@ async function loadCameraSources() {
   } catch {
     return [];
   }
+}
+
+/**
+ * One Data attribution entry per camera pack (config/cctv-packs/) with
+ * cameras in the served catalog, credited in the reader's language; the city
+ * is named when all of the pack's cameras share one.
+ * @param {Object[]} rawSources - Raw source objects from the backend.
+ * @returns {Array<{ key: string, html: string }>} Credits for registerDynamicCredit.
+ */
+export function cctvPackCredits(rawSources) {
+  const packs = new Map();
+  for (const source of Array.isArray(rawSources) ? rawSources : []) {
+    const packId = typeof source?.packId === 'string' ? source.packId : '';
+    if (!packId || !source.credit) continue;
+    const pack = packs.get(packId) || { credit: source.credit, cities: new Set() };
+    if (source.city) pack.cities.add(String(source.city));
+    packs.set(packId, pack);
+  }
+  const credits = [];
+  for (const [packId, { credit, cities }] of packs) {
+    const html = cctvPackCreditHtml(credit, cities.size === 1 ? [...cities][0] : '');
+    if (html) credits.push({ key: `cctv-pack-${packId}`, html });
+  }
+  return credits;
 }
 
 /**
@@ -5092,6 +5117,7 @@ const cctvLayer = {
     const sources = await loadCameraSources();
     const catalogFromSources = buildCatalogFromSources(sources);
     const catalog = catalogFromSources.length ? catalogFromSources : seedCatalog();
+    for (const credit of cctvPackCredits(sources)) registerDynamicCredit(_viewer, credit);
 
     // Viewshed color identity (design §3a): golden-angle hue over the
     // id-SORTED catalog index — deterministic across sessions for a stable
