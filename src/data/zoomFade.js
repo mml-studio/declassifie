@@ -5,11 +5,11 @@
  * levels crossfades between them as the camera climbs or descends, instead of
  * swapping one for the other on a threshold.
  *
- * THE PROBLEM. Thirteen layers on the globe change level on a hard cut — a
- * région disc becomes a département disc, a 1 km cell becomes twenty-five
- * 200 m cells, a national prism becomes a field of sites — and the swap reads
- * as the map reloading: the eye loses the place it was looking at, because
- * nothing on screen survives the cut. The cartographic answer (Kyle Walker's
+ * THE PROBLEM. Fifteen layers on the globe changed level on a hard cut — a
+ * région disc became a département disc, a 1 km cell twenty-five 200 m cells,
+ * a national prism a field of sites — and the swap read as the map
+ * reloading: the eye lost the place it was looking at, because nothing on
+ * screen survived the cut. The cartographic answer (Kyle Walker's
  * "fade on zoom") is to give each level an opacity that is a function of the
  * scale, so the coarse level is still there, fading, while the finer one comes
  * in over it, and every level is at full strength somewhere.
