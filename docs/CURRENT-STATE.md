@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes ADS portals + 21 Cart@DS *affichage réglementaire* boards (194 communes) and their daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4634,7 +4634,16 @@ the dossier number. Sitadel is national, monthly, about six weeks behind, and
 holds authorisations that were GRANTED only — the SDES dictionary says so, and
 there is no national open feed of applications under instruction because
 Plat'AU is closed. The three métropole portals supply exactly that missing
-half, daily. Both halves are cached per commune-window on disk for a week: a
+half, daily. Since 2026-10-01 two city portals join them: Tours
+(`data.tours-metropole.fr`, weekly, the commune only), which lists a dossier
+once per parcel and per step — 3 198 rows for 1 887 dossiers in the year to
+2026-10-01, folded back into one (`foldLocalRows`) — and writes its numbers
+with a five-digit commune (`DP 37261 26 T1181`), rewritten to Sitadel's
+`037261…` so the two registers meet; seven of its rows in ten have no point,
+so it is asked by commune and placed on the parcel every row names. And Brest
+métropole's eight communes, from an ArcGIS map service asked by radius, which
+publishes the permis de construire and certificats it has GRANTED only, with
+their decision date — three days old on 2026-10-01. Both halves are cached per commune-window on disk for a week: a
 cold commune costs four sequential DiDo calls (parallel ones are rate-limited
 to HTTP 429) plus one bulk BAN geocode — measured at 13-15 s for Paris — and
 every scan inside that commune afterwards is served from cache.
@@ -4688,6 +4697,26 @@ overrides either, and `npm run cartds:archive` runs the same sweep from a
 shell (`--join <dir>` folds in an archive swept elsewhere). The archive starts
 on 2026-09-30: what a board had let go before then is lost, and older dossiers
 still come from Sitadel alone.
+
+**Since 2026-10-01, 56 more communes answer from the other family of boards.**
+Sirap's « Portail Usager », the filing portal of the NEXT'ADS instruction
+software, serves each commune's *affichage réglementaire* as open JSON
+(`<host>/api/v1/communes/0<INSEE>/affichage-reglementaire`, no key, no
+session; `src/data/sirapFeed.js`): Rennes Métropole's 40 communes (2 475
+dossiers posted that day, 798 in Rennes), the Communauté urbaine de
+Dunkerque's 14 (799), Antibes (333) and Asnières-sur-Seine (180), whose own
+site links no board at all. Dunkerque reads three boards, because the PU still
+posts Fort-Mardyck and Saint-Pol-sur-Mer apart, under the codes they had
+before Dunkerque absorbed them in 2010; their parcels sit in Dunkerque's
+cadastre under those codes as prefix. Each commune is read at most every six
+hours, one request per board, placed on its parcel first — 773 of Rennes's
+797 dossiers, 327 of Antibes's 332 — and geocoded for the rest; a cold Rennes
+scan takes 33 s with Sitadel, a warm one is served from
+`.gev-cache/address/sirap1-<insee>.json`. The rows are kept exactly like a
+Cart@DS board's, by the same archive code, in `.gev-cache/archive/sirap/`, and
+swept on the same daily clock (58 requests, about a minute). The applicant is
+filtered and the architect never stored. Every PU host answers `robots.txt`
+with its own app page, which is no file; a host that publishes one is obeyed.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

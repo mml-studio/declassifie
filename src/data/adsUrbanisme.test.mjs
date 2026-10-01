@@ -418,14 +418,14 @@ test('the nature vocabulary is READ from adsFeed, not re-guessed here', () => {
   assert.equal(adsPermitTarget(null), ADS_TARGET_UNKNOWN);
 });
 
-test('exactly two of the seven sources publish a nature column', () => {
+test('exactly two of the nine sources publish a nature column', () => {
   // The measurement the header rests on, re-taken from the configuration
-  // itself. If a fifth Sitadel file or a fourth portal arrives, this changes.
+  // itself. If a fifth Sitadel file or a sixth portal arrives, this changes.
   const withNature = SITADEL_FILES
     .filter((file) => file.columns.includes('NATURE_PROJET_DECLAREE'))
     .map((file) => file.key);
   assert.deepEqual(withNature, ['logements', 'locaux']);
-  assert.equal(SITADEL_FILES.length + LOCAL_ADS_PORTALS.length, 7);
+  assert.equal(SITADEL_FILES.length + LOCAL_ADS_PORTALS.length, 9);
   for (const portal of LOCAL_ADS_PORTALS) {
     assert.ok(!('natureColumn' in portal), `${portal.key} publishes no nature column`);
   }

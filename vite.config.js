@@ -289,7 +289,9 @@ import {
   buildLocalAdsUrl,
   buildSitadelUrl,
   foldToSitadelCommune,
+  foldLocalRows,
   foldSitadelFamilies,
+  localRows,
   mergeRegisters,
   normaliseLocalRow,
   normaliseSitadelRow,
@@ -324,6 +326,13 @@ import {
   PUBLICATION_ACTES_MAX_LISTS,
   PUBLICATION_ACTES_MAX_PAGES,
 } from './src/data/publicationActesFeed.js';
+import {
+  normaliseSirapRow,
+  sirapInstanceFor,
+  SIRAP_INSTANCES,
+  SIRAP_LICENCE,
+  SIRAP_ROWS,
+} from './src/data/sirapFeed.js';
 import { extractPdfText } from './src/data/pdfText.js';
 import { organisationApplicant } from './src/data/permitApplicant.js';
 import { archivedCartdsRows, cartdsDay } from './src/data/cartdsArchive.js';
@@ -340,6 +349,12 @@ import {
   CARTDS_ARCHIVE_DIR,
   CARTDS_USER_AGENT,
 } from './scripts/lib/cartdsArchive.mjs';
+import {
+  readSirapCommune,
+  sirapRobotsVerdict as askSirapRobots,
+  sweepSirapArchive,
+  SIRAP_ARCHIVE_DIR,
+} from './scripts/lib/sirapBoards.mjs';
 import {
   anchorParcels,
   assignDivision,
@@ -26937,6 +26952,10 @@ function emploiFranceProxy() {
  * (`cartdsArchive.js`), and a daily sweep reads every board, because the
  * board forgets after two months and nothing public remembers.
  *
+ * The same holds for the other family of boards, Sirap's PU (`sirapFeed.js`):
+ * an open JSON endpoint this time, but no CORS header either, the same
+ * forgetting, and so the same archive and daily sweep.
+ *
  * The fourth, the acts three communes publish on publication-actes.fr
  * (`publicationActesFeed.js`), has an open API; it is read here because its
  * decisions only become placeable once joined to a PDF list of filed
@@ -26965,8 +26984,9 @@ function adsFranceProxy() {
   const ADS_GEOCODE_MAX_ROWS = 4_000;
   /** Bumped whenever an edition's SHAPE changes; see `loadEdition`. 3: the
    *  city portals' private applicants are no longer kept (permitApplicant.js),
-   *  so an edition written before cannot be served. */
-  const ADS_EDITION_SCHEMA = 3;
+   *  so an edition written before cannot be served. 4: Tours's portal joins
+   *  the commune edition, which an edition of 37261 written before lacks. */
+  const ADS_EDITION_SCHEMA = 4;
 
   // --- Cadastre, and what a permit's parcel became -------------------------
   /**
@@ -27461,17 +27481,21 @@ function adsFranceProxy() {
     const portals = [];
     for (const portal of portalsForCommune(communeCode)) {
       if (portal.geoColumn) continue;
-      const rows = await fetchAddressSource(buildLocalAdsUrl(portal, { communeCode, since }));
-      if (!Array.isArray(rows)) {
+      const rows = localRows(portal, await fetchAddressSource(buildLocalAdsUrl(portal, { communeCode, since })));
+      if (!rows) {
         console.warn(`[ADS Proxy] ${portal.key} commune query unavailable`);
         portals.push({ key: portal.key, label: portal.label, licence: portal.licence, ok: false, count: 0 });
         continue;
       }
-      let kept = 0;
+      let dossiers = [];
       for (const row of rows) {
         const permit = normaliseLocalRow(portal, row);
-        if (permit) { local.push(permit); kept += 1; }
+        if (permit) dossiers.push(permit);
       }
+      // Tours lists a dossier once per parcel and per step; one dossier here.
+      if (portal.rowPerParcel) ({ permits: dossiers } = foldLocalRows(dossiers));
+      local.push(...dossiers);
+      const kept = dossiers.length;
       // Reported alongside the radius-queried portals, not swallowed by the
       // commune cache: without this a Nantes scan showed an empty `portals`
       // list while drawing that portal's dossiers, which reads as "this
@@ -27559,8 +27583,8 @@ function adsFranceProxy() {
       // parallel requests to one open service buys (HTTP 429, silently, as an
       // empty family). It answers a single row.
       const countUrl = buildLocalAdsExcludedCountUrl(portal, query);
-      const rows = await fetchAddressSource(buildLocalAdsUrl(portal, query));
-      if (!Array.isArray(rows)) {
+      const rows = localRows(portal, await fetchAddressSource(buildLocalAdsUrl(portal, query)));
+      if (!rows) {
         console.warn(`[ADS Proxy] ${portal.key} radius query unavailable`);
         asked.push({ key: portal.key, label: portal.label, licence: portal.licence, ok: false, count: 0 });
         continue;
@@ -27789,9 +27813,11 @@ function adsFranceProxy() {
   function armCartdsSweep(preview) {
     if (cartdsSweepArmed || cartdsSweepMode(preview) !== 'daily') return;
     cartdsSweepArmed = true;
-    setTimeout(() => { void sweepCartdsIfDue(); }, CARTDS_SWEEP_WARMUP_MS).unref?.();
-    setInterval(() => { void sweepCartdsIfDue(); }, CARTDS_SWEEP_CHECK_MS).unref?.();
-    console.log(`[cartds-archive] armed — every Cart@DS board once a day, into ${CARTDS_ARCHIVE_DIR}`);
+    // The PU boards are swept on the same clock: other hosts, a minute's work.
+    const sweep = () => { void sweepCartdsIfDue(); void sweepSirapIfDue(); };
+    setTimeout(sweep, CARTDS_SWEEP_WARMUP_MS).unref?.();
+    setInterval(sweep, CARTDS_SWEEP_CHECK_MS).unref?.();
+    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board once a day, into ${CARTDS_ARCHIVE_DIR} and ${SIRAP_ARCHIVE_DIR}`);
   }
 
   /**
@@ -27833,6 +27859,152 @@ function adsFranceProxy() {
         })().finally(() => cartdsInFlight.delete(insee)));
       }
       entry = await cartdsInFlight.get(insee);
+    }
+    return {
+      permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
+      portals: [entry.value.portal],
+    };
+  }
+
+  // --- What a commune posts itself: Sirap PU boards ------------------------
+  /**
+   * One commune's boards, read, archived, folded and placed — the Cart@DS
+   * path above for the other family of boards (`sirapFeed.js`). Same six
+   * hours and for the same reason; bounded by `SIRAP_INSTANCES`, 56 communes,
+   * so the map needs no eviction.
+   */
+  const SIRAP_TTL_MS = 6 * 60 * 60 * 1000;
+  /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
+  const SIRAP_SCHEMA = 1;
+  /** insee → {at, value}. */
+  const sirapCommunes = new Map();
+  /** insee → the build in progress. */
+  const sirapInFlight = new Map();
+  /** origin → {at, allowed}. */
+  const sirapRobots = new Map();
+  /** Every row a PU board ever showed, kept like a Cart@DS board's. */
+  const sirapArchive = createCartdsArchiveStore(path.join(process.cwd(), SIRAP_ARCHIVE_DIR), console, SIRAP_ROWS);
+
+  /** Whether this host lets a robot read its boards, remembered for a day. */
+  async function sirapRobotsVerdict(instance) {
+    const { origin } = new URL(instance.base);
+    const cached = sirapRobots.get(origin);
+    if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.allowed;
+    const verdict = await askSirapRobots(instance, cartdsHttp);
+    if (!verdict.final) return false;
+    if (!verdict.allowed) console.warn(`[ADS Proxy] Sirap ${origin}: robots.txt refuses, board not read`);
+    sirapRobots.set(origin, { at: Date.now(), allowed: verdict.allowed });
+    return verdict.allowed;
+  }
+
+  /** Read, archive, fold and place one commune's boards. The archive is drawn. */
+  async function buildSirapCommune(instance, insee) {
+    const report = { key: `sirap-${instance.key}`, label: instance.label, licence: SIRAP_LICENCE };
+    const failed = { permits: [], portal: { ...report, ok: false, count: 0 } };
+    if (!(await sirapRobotsVerdict(instance))) {
+      return { permits: [], portal: { ...report, ok: false, count: 0, refused: 'robots' } };
+    }
+    const live = await readSirapCommune(instance, insee, cartdsHttp);
+    if (!live) console.warn(`[ADS Proxy] Sirap ${instance.key} ${insee}: a board is unavailable`);
+    const { archive } = live
+      ? await sirapArchive.record(instance, insee, live.boards, cartdsDay())
+      : await sirapArchive.load(instance, insee);
+    const stored = archivedCartdsRows(archive);
+    if (!live && !stored.length) return failed;
+    const rows = [];
+    for (const row of stored) {
+      const permit = normaliseSirapRow(instance, insee, row.cells);
+      if (permit) rows.push(permit);
+    }
+    // One row per dossier, the decision's when there is one: the fold the
+    // Cart@DS boards use, for the archive's same two cases.
+    const { permits: dossiers, folded } = foldCartdsDossiers(rows);
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    let placed = ground.permits;
+    let geocoded = 0;
+    const csv = buildGeocodeCsv(placed);
+    if (csv) {
+      const answer = await geocodeBatch(csv);
+      if (answer) ({ permits: placed, geocoded } = applyGeocoding(placed, answer));
+    }
+    const standing = placed.filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits: standing,
+      portal: {
+        ...report,
+        ok: true,
+        live: Boolean(live),
+        count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0,
+        geocoded,
+        unplaced: dossiers.length - standing.length,
+        folded,
+        archive: {
+          since: archive.firstDay,
+          through: archive.lastDay,
+          days: archive.days,
+          offBoard: stored.filter((row) => row.last < archive.lastDay).length,
+        },
+      },
+    };
+  }
+
+  /** The daily sweep of every PU board, beside the Cart@DS one. */
+  let sirapSweeping = null;
+  async function sweepSirapIfDue() {
+    if (sirapSweeping) return sirapSweeping;
+    sirapSweeping = (async () => {
+      const day = cartdsDay();
+      if (!cartdsSweepDue(await readCartdsSweepStamp(sirapArchive.dir), day)) return null;
+      const summary = await sweepSirapArchive({
+        instances: SIRAP_INSTANCES,
+        store: sirapArchive,
+        http: cartdsHttp,
+        robots: async (instance) => ({ allowed: await sirapRobotsVerdict(instance) }),
+        day,
+      });
+      await writeCartdsSweepStamp(sirapArchive.dir, summary);
+      return summary;
+    })().catch((error) => {
+      console.warn(`[sirap-archive] sweep failed: ${error?.message || error}`);
+      return null;
+    }).finally(() => { sirapSweeping = null; });
+    return sirapSweeping;
+  }
+
+  /** The PU boards for the commune under the scan, cut to the filing date. */
+  async function loadSirap(communeCode, since) {
+    const instance = sirapInstanceFor(communeCode);
+    if (!instance) return { permits: [], portals: [] };
+    const insee = String(communeCode).toUpperCase();
+    let entry = sirapCommunes.get(insee);
+    if (!entry || Date.now() - entry.at >= SIRAP_TTL_MS) {
+      if (!sirapInFlight.has(insee)) {
+        sirapInFlight.set(insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `sirap${SIRAP_SCHEMA}-${insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < SIRAP_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              sirapCommunes.set(insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildSirapCommune(instance, insee);
+          const fresh = { at: Date.now(), value };
+          // As for a Cart@DS board: a failed read, an archive served for a
+          // board that did not answer, or a geocode our pacing refused, is
+          // served to this scan and not kept.
+          if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
+          sirapCommunes.set(insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => sirapInFlight.delete(insee)));
+      }
+      entry = await sirapInFlight.get(insee);
     }
     return {
       permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
@@ -28112,13 +28284,16 @@ function adsFranceProxy() {
           const sitadelCommune = foldToSitadelCommune(commune.code);
           if (!sitadelCommune) return null;
           // What the commune posts and publishes itself runs beside the two
-          // others: four hosts, none of them shared, so racing them costs no
-          // upstream anything. At most one of the last two answers — no
-          // commune is on both a Cart@DS board and publication-actes.fr.
-          const [edition, placed, posted, published] = await Promise.all([
+          // others: five hosts, none of them shared, so racing them costs no
+          // upstream anything. At most one of the last three answers — no
+          // commune is on two of a Cart@DS board, a PU board and
+          // publication-actes.fr (`sirapFeed.test.mjs` holds the registries
+          // to that).
+          const [edition, placed, posted, postedPu, published] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
             loadCartds(commune.code, since),
+            loadSirap(commune.code, since),
             loadPublicationActes(commune.code, since),
           ]);
           // TRAP 6: fold BEFORE merging. One operation filed once can appear
@@ -28131,6 +28306,7 @@ function adsFranceProxy() {
             ...edition.permits.filter((permit) => permit.source !== 'sitadel'),
             ...placed.permits,
             ...posted.permits,
+            ...postedPu.permits,
             ...published.permits,
           ];
           const { permits, merged } = mergeRegisters(fromState, fromCounter);
@@ -28149,7 +28325,8 @@ function adsFranceProxy() {
               // Multi-family dossiers collapsed into the one operation they are.
               folded,
               portals: [
-                ...(edition.portals || []), ...placed.portals, ...posted.portals, ...published.portals,
+                ...(edition.portals || []), ...placed.portals, ...posted.portals, ...postedPu.portals,
+                ...published.portals,
               ],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could
