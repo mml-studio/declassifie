@@ -160,7 +160,7 @@ function frenchTable(catalog) {
 
 /** Attribution carried on every payload (see DATA_SOURCES.md). */
 // i18n-ignore-next-line — the registry owns a layer's source line (layerTaxonomy.i18n.js)
-export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains, + affichage réglementaire communal (Cart@DS)';
+export const ADS_SOURCE = 'Sitadel — SDES, + portails ADS métropolitains, + affichage réglementaire communal (Cart@DS, Sirap)';
 
 /** DiDo's per-datafile JSON endpoint. Keyless, `access-control-allow-origin: *`. */
 export const SITADEL_JSON_BASE =
@@ -385,12 +385,19 @@ export function adsKindLabel(kind) {
 }
 
 /**
- * The three métropole portals, and what each one's columns are called.
+ * The métropole and city portals, and what each one's columns are called.
  *
  * Gated by INSEE code rather than by a bounding box: the codes are published
  * by the datasets themselves (`group_by` on the commune column, measured
  * 2026-09-02) and a code test cannot half-cover a commune the way a rectangle
  * drawn around a métropole can.
+ *
+ * Paris, Bordeaux and Nantes came first, and `normaliseLocalRow` reads their
+ * column names directly. Tours and Brest, added on 2026-10-01, name theirs
+ * differently and say so in `columns`: the normaliser's own name on the left,
+ * the portal's on the right, the first non-blank of a list winning. Brest is
+ * not an Opendatasoft portal at all but an ArcGIS map service (`api:
+ * 'arcgis'`), asked by radius like Paris and answering GeoJSON.
  */
 export const LOCAL_ADS_PORTALS = Object.freeze([
   Object.freeze({
@@ -483,6 +490,89 @@ export const LOCAL_ADS_PORTALS = Object.freeze([
     ]),
     dateColumn: 'date_de_depot',
     // i18n-ignore-end
+  }),
+  Object.freeze({
+    key: 'tours',
+    portal: 'data.tours-metropole.fr',
+    dataset: 'dossiers-deposes-urbanisme-tours',
+    label: 'Ville de Tours — Dossiers d’autorisation du droit des sols', // i18n-ignore-line — the portal's own dataset title
+    licence: 'Licence Ouverte 2.0',
+    // The commune of Tours alone: the métropole's portal holds no file for
+    // its 21 other communes (checked 2026-10-01).
+    communes: Object.freeze(['37261']),
+    // A `geo_point_2d` column exists and is EMPTY on 2 252 of the 3 198 rows
+    // filed in the year to 2026-10-01, so a distance query would miss seven
+    // dossiers in ten. Queried by commune instead, like Nantes, and placed on
+    // the parcel every row names (`resolveParcels`), the geocoder after.
+    geoColumn: null,
+    communeColumn: 'code_insee',
+    // i18n-ignore-start — column names in the portal's own schema
+    select: Object.freeze([
+      'numero_de_dossier', 'code_insee', 'type_de_demande_d_autorisation', 'recu_en_mairie',
+      'adresse_des_travaux', 'cp_des_travaux', 'objet_des_travaux', 'surface_de_plancher_creee',
+      'nature_de_la_decision', 'date_de_la_decision', 'ref_cadastre',
+    ]),
+    dateColumn: 'recu_en_mairie',
+    columns: Object.freeze({
+      nom_dossier: 'numero_de_dossier',
+      type_dossier: 'type_de_demande_d_autorisation',
+      date_depot: 'recu_en_mairie',
+      date_decision: 'date_de_la_decision',
+      etat: 'nature_de_la_decision',
+      adresse: 'adresse_des_travaux',
+      code_postal: 'cp_des_travaux',
+      objet: 'objet_des_travaux',
+      surf_creee: 'surface_de_plancher_creee',
+      insee: 'code_insee',
+      refcad: 'ref_cadastre',
+    }),
+    // i18n-ignore-end
+    // `DP 37261 26 T1181`: the commune's five-digit code where Sitadel and
+    // every other register write six (`037261…`). See `localDossier`.
+    fiveDigitDossier: true,
+    // ONE ROW PER PARCEL AND PER STEP. A dossier is listed once when filed
+    // and again when decided, and once per parcel each time: 3 198 rows for
+    // 1 887 dossiers that year. `foldLocalRows` makes them one.
+    rowPerParcel: true,
+    // A row with no decision is the filing's, so it says FILED.
+    blankIsFiled: true,
+    resolveParcels: true,
+  }),
+  Object.freeze({
+    key: 'brest',
+    api: 'arcgis',
+    service: 'https://geo.brest-metropole.fr/arcgis/rest/services/public/GPB_URB/MapServer/2811003',
+    label: 'Brest métropole — Dossiers d’urbanisme accordés', // i18n-ignore-line — the portal's own dataset title
+    licence: 'Licence Ouverte 2.0',
+    communes: Object.freeze([
+      '29011', '29019', '29061', '29069', '29075', '29189', '29212', '29235',
+    ]),
+    // A point on every row (580 of 580 decided in the year to 2026-10-01),
+    // asked for in WGS 84 (`outSR=4326`) and answered as GeoJSON.
+    geoColumn: 'geometry',
+    // i18n-ignore-start — column names in the service's own schema
+    select: Object.freeze([
+      'NOM_DOSSIER', 'TYPE_DOSSIER', 'ADRESSE', 'PARCELLE', 'OBJET_DEMANDE', 'PRECISION_TRAVAUX',
+      'SF_CREEE', 'NB_LOGEMENTS', 'DATE_DEPOT', 'DECISION_ARRETE', 'DATE_ARRETE',
+    ]),
+    dateColumn: 'DATE_DEPOT',
+    columns: Object.freeze({
+      nom_dossier: 'NOM_DOSSIER',
+      type_dossier: 'TYPE_DOSSIER',
+      date_depot: 'DATE_DEPOT',
+      date_decision: 'DATE_ARRETE',
+      etat: 'DECISION_ARRETE',
+      adresse: 'ADRESSE',
+      objet: Object.freeze(['PRECISION_TRAVAUX', 'OBJET_DEMANDE']),
+      surf_creee: 'SF_CREEE',
+      nb_logements: 'NB_LOGEMENTS',
+      refcad: 'PARCELLE',
+    }),
+    // i18n-ignore-end
+    // GRANTED PERMITS ONLY: the service publishes the permis de construire and
+    // certificats it has granted, and no déclaration préalable, no refusal and
+    // nothing still under review. What it adds is the date: decisions three
+    // days old on 2026-10-01, where Sitadel is weeks behind.
   }),
 ]);
 
@@ -638,6 +728,7 @@ export function buildSitadelUrl(file, { communeCode, since }) {
 export function buildLocalAdsUrl(portal, {
   lon, lat, radiusM, communeCode, since, onlyKind = null,
 }) {
+  if (portal.api === 'arcgis') return buildArcgisAdsUrl(portal, { lon, lat, radiusM, since });
   const clauses = [`${portal.dateColumn} >= date'${since}'`];
   if (portal.geoColumn) {
     clauses.unshift(`distance(${portal.geoColumn}, geom'POINT(${lon} ${lat})', ${Math.round(radiusM)}m)`);
@@ -663,6 +754,74 @@ export function buildLocalAdsUrl(portal, {
     limit: '-1',
   });
   return `https://${portal.portal}/api/explore/v2.1/catalog/datasets/${portal.dataset}/exports/json?${params}`;
+}
+
+/**
+ * The same query, asked of an ArcGIS map service (`api: 'arcgis'`).
+ *
+ * A layer's `query` operation takes the circle as a point and a distance in
+ * metres, the date floor in the service's SQL (`DATE '…'`, the standardised
+ * form, which Brest's server accepted on 2026-10-01), and answers GeoJSON in
+ * WGS 84 when asked for `outSR=4326` — the same `{lon, lat}` a row's position
+ * is read from everywhere else, one level down in its `geometry`. 2 000 rows
+ * is the service's own ceiling per answer; a 1 200 m circle over thirteen
+ * years in the centre of Brest holds fewer.
+ *
+ * @param {object} portal An `api: 'arcgis'` portal.
+ * @param {{lon: number, lat: number, radiusM: number, since: string}} query
+ * @returns {string}
+ */
+function buildArcgisAdsUrl(portal, { lon, lat, radiusM, since }) {
+  const params = new URLSearchParams({
+    where: `${portal.dateColumn} >= DATE '${since}'`,
+    geometry: `${lon},${lat}`,
+    geometryType: 'esriGeometryPoint',
+    inSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+    distance: String(Math.round(radiusM)),
+    units: 'esriSRUnit_Meter',
+    outFields: portal.select.join(','),
+    outSR: '4326',
+    resultRecordCount: '2000',
+    f: 'geojson',
+  });
+  return `${portal.service}/query?${params}`;
+}
+
+/**
+ * The rows of a portal's answer, or null when it did not answer with rows.
+ *
+ * An Opendatasoft export is an array already. An ArcGIS service answers a
+ * GeoJSON FeatureCollection, its columns under each feature's `properties`
+ * and its dates as milliseconds since 1970; each feature becomes one flat row
+ * with the point under `geometry` and its dates as the Paris day they fall
+ * on — 1766098800000 is 23:00 UTC on 18 December 2025, the 19th in Brest. An
+ * answer that is neither — an error object, which both kinds of portal send
+ * with HTTP 200 — is null, never an empty list.
+ *
+ * @param {object} portal One of {@link LOCAL_ADS_PORTALS}.
+ * @param {*} answer The parsed body.
+ * @returns {?Array<object>}
+ */
+export function localRows(portal, answer) {
+  if (portal.api !== 'arcgis') return Array.isArray(answer) ? answer : null;
+  if (!answer || answer.type !== 'FeatureCollection' || !Array.isArray(answer.features)) return null;
+  const dates = Object.values(portal.columns ?? {}).flat()
+    .filter((column) => /^DATE_/.test(column));
+  return answer.features.map((feature) => {
+    const row = { ...(feature?.properties ?? {}), geometry: feature?.geometry ?? null };
+    for (const column of dates) row[column] = parisDay(row[column]);
+    return row;
+  });
+}
+
+/** Milliseconds since 1970 → the `YYYY-MM-DD` it is in Paris, or null. */
+function parisDay(value) {
+  const ms = Number(value);
+  if (value === null || value === undefined || value === '' || !Number.isFinite(ms)) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(ms));
 }
 
 /**
@@ -895,6 +1054,12 @@ function localKind(label, dossier) {
  * — its file carries no decision column, so a Bordeaux dossier is drawn as
  * filed and its card says only when.
  *
+ * Tours and Brest write a decision the way the boards do — `Défavorable`,
+ * `Rejet tacite pour incomplétude`, `Favorable avec réserve` — so REFUSAL IS
+ * TESTED FIRST, because `défavorable` contains `favorable`, and `non
+ * opposition` is a grant before `opposition` is a refusal. Neither word is in
+ * the Paris or Nantes vocabulary (all five values checked 2026-10-01).
+ *
  * @param {?string} raw
  * @returns {{state: ?string, label: ?string}}
  */
@@ -902,8 +1067,13 @@ export function localState(raw) {
   const value = String(raw ?? '').toLowerCase();
   if (!value) return { state: null, label: null };
   if (value.includes('instruction')) return { state: 'instruction', label: adsStateFrench('instruction') };
-  if (value.includes('refus')) return { state: 'refuse', label: adsStateFrench('refuse') };
-  if (value.includes('accord') || value.includes('autoris')) return { state: 'accorde', label: adsStateFrench('accorde') };
+  // i18n-ignore-start — the portals' own decision wording, matched on
+  const granted = /non[\s-]opposition/.test(value);
+  if (!granted && /refus|rejet|d[ée]favorable|opposition/.test(value)) {
+    return { state: 'refuse', label: adsStateFrench('refuse') };
+  }
+  if (granted || /accord|autoris|favorable/.test(value)) return { state: 'accorde', label: adsStateFrench('accorde') };
+  // i18n-ignore-end
   if (value.includes('annul') || value.includes('retir')) return { state: 'annule', label: adsStateFrench('annule') };
   return { state: 'depose', label: String(raw).trim() };
 }
@@ -920,6 +1090,10 @@ export function localState(raw) {
 function localPoint(portal, record) {
   if (!portal.geoColumn) return { lon: null, lat: null };
   const value = record[portal.geoColumn];
+  // An ArcGIS service's GeoJSON point: `[lon, lat]`, the GeoJSON order.
+  if (value?.type === 'Point' && Array.isArray(value.coordinates)) {
+    return { lon: number(value.coordinates[0]), lat: number(value.coordinates[1]) };
+  }
   if (Array.isArray(value) && value.length >= 2) return { lat: number(value[0]), lon: number(value[1]) };
   if (value && typeof value === 'object') return { lon: number(value.lon), lat: number(value.lat) };
   return { lon: null, lat: null };
@@ -1013,24 +1187,92 @@ function inseeCode(value) {
 }
 
 /**
+ * A portal row under the normaliser's own column names, for a portal that
+ * declares `columns`; the others are read as they come.
+ */
+function canonicalRow(portal, record) {
+  if (!portal.columns) return record;
+  const row = { ...record };
+  for (const [ours, theirs] of Object.entries(portal.columns)) {
+    const names = Array.isArray(theirs) ? theirs : [theirs];
+    row[ours] = names.map((name) => record[name]).find((value) => text(value) !== null) ?? null;
+  }
+  return row;
+}
+
+/**
+ * A portal's dossier number, spelled the way Sitadel's is.
+ *
+ * Tours writes `DP 37261 26 T1181`: the commune's five-digit INSEE code where
+ * Sitadel writes the département on three digits (`03726126T1181`), so the
+ * two never met on `dossierKey` and every Tours dossier Sitadel also held was
+ * drawn twice. Only a portal flagged `fiveDigitDossier` is rewritten, and only
+ * a number of exactly that spaced shape: `DP 037 261 26 T1181`.
+ *
+ * @param {object} portal One of {@link LOCAL_ADS_PORTALS}.
+ * @param {*} raw
+ * @returns {?string}
+ */
+export function localDossier(portal, raw) {
+  const value = text(raw);
+  if (!value || !portal.fiveDigitDossier) return value;
+  const match = /^([A-Z]{2})\s+(\d{2})(\d{3})\s+(\d{2})\s+(\S.*)$/.exec(value.toUpperCase());
+  return match ? `${match[1]} 0${match[2]} ${match[3]} ${match[4]} ${match[5]}` : value;
+}
+
+/**
+ * A portal's parcel references as the cadastre keys them, for a portal that
+ * asks for it (`resolveParcels`): Tours writes `BV366`, `CV0548`, and `0` for
+ * none. The section is padded to two characters and the number to four, with
+ * the prefix `000` — the only one in Tours's cadastre (30 628 parcels in
+ * Etalab's edition of 2026-06-01). 1 738 of the 1 887 dossiers filed in the
+ * year to 2026-10-01 name a parcel found there.
+ *
+ * @param {Array<string>} refs
+ * @param {?string} insee
+ * @returns {Array<{idu: string, provisional: boolean, label: string}>}
+ */
+function localParcelIdus(refs, insee) {
+  if (!insee || !/^\d{5}$/.test(insee)) return [];
+  const out = [];
+  for (const ref of refs) {
+    const match = /^([A-Z]{1,2})(\d{1,4})$/.exec(String(ref).replace(/\s+/g, '').toUpperCase());
+    if (!match || /^0+$/.test(match[2])) continue;
+    const idu = `${insee}000${match[1].padStart(2, '0')}${match[2].padStart(4, '0')}`;
+    if (!out.some((known) => known.idu === idu)) {
+      out.push({ idu, provisional: false, label: `${match[1]} ${Number.parseInt(match[2], 10)}` });
+    }
+  }
+  return out;
+}
+
+/**
  * One métropole record → the same normalised shape.
  *
  * @param {object} portal One of {@link LOCAL_ADS_PORTALS}.
- * @param {object} record One row as `exports/json` returns it.
+ * @param {object} input One row as `exports/json` returns it, or as
+ *   {@link localRows} flattens an ArcGIS feature.
  * @returns {?object}
  */
-export function normaliseLocalRow(portal, record) {
-  const dossier = text(record.nom_dossier ?? record.ident ?? record.numero_de_dossier);
+export function normaliseLocalRow(portal, input) {
+  const record = canonicalRow(portal, input);
+  const dossier = localDossier(portal, record.nom_dossier ?? record.ident ?? record.numero_de_dossier);
   if (!dossier) return null;
   const kind = localKind(record.type_dossier ?? record.type_libelle, dossier);
-  const status = portal.publishesDecision === false
+  const verdict = record.etat ?? record.etat_dossier;
+  const status = portal.publishesDecision === false || (portal.blankIsFiled && !text(verdict))
     ? { state: 'depose', label: adsStateFrench('depose') }
-    : localState(record.etat ?? record.etat_dossier);
+    : localState(verdict);
   const { lon, lat } = localPoint(portal, record);
   const placed = Number.isFinite(lon) && Number.isFinite(lat)
     && (lon !== 0 || lat !== 0)
     && !isProjectedOrigin(portal, record);
   const refcad = record.refcad;
+  const parcels = (Array.isArray(refcad) ? refcad.map(text) : [text(refcad)])
+    // `0` is how Tours writes a decision row's missing parcel.
+    .filter((ref) => ref && !/^0+$/.test(ref));
+  const communeCode = inseeCode(record.insee ?? record.code_insee_commune);
+  const parcelIdus = portal.resolveParcels ? localParcelIdus(parcels, communeCode) : [];
   return {
     id: `${portal.key}:${dossier}`,
     dossier,
@@ -1050,17 +1292,19 @@ export function normaliseLocalRow(portal, record) {
     applicant: organisationApplicant(record.demandeur),
     purpose: plain(record.objet ?? record.details_du_projet) ?? (ADS_KINDS[kind] ?? null),
     address: plain(record.adresse ?? record.adresse_du_terrain),
-    postcode: null,
+    postcode: text(record.code_postal),
     commune: text(record.commune ?? record.nom),
-    communeCode: inseeCode(record.insee ?? record.code_insee_commune),
-    // A portal's `refcad` is a parcel reference too, but it is not resolved
-    // against the cadastre: Bordeaux is the only portal that publishes one and
-    // it publishes the OUTLINE beside it, so there is nothing left to look up.
-    cadastreCommune: null,
-    parcelIdus: [],
-    parcels: Array.isArray(refcad) ? refcad.map(text).filter(Boolean) : [text(refcad)].filter(Boolean),
+    communeCode,
+    // A portal's `refcad` is resolved against the cadastre only where the
+    // portal asks (`resolveParcels`, Tours). Bordeaux publishes the OUTLINE
+    // beside its reference, so there is nothing left to look up; Brest a
+    // point on every row, which already places it.
+    cadastreCommune: parcelIdus.length ? communeCode : null,
+    parcelIdus,
+    parcels: parcelIdus.length ? parcelIdus.map((ref) => ref.label) : parcels,
     landAreaM2: number(record.superficie),
-    housing: null,
+    // Blank is not none: `number(null)` would read 0.
+    housing: text(record.nb_logements) === null ? null : number(record.nb_logements),
     surfaceCreatedM2: number(record.surf_creee) ?? number(record.surface_de_plancher),
     lon: placed ? lon : null,
     lat: placed ? lat : null,
@@ -1074,6 +1318,47 @@ export function normaliseLocalRow(portal, record) {
     source: portal.key,
     sourceLabel: portal.label,
   };
+}
+
+/**
+ * One dossier per number, for a portal that lists a dossier on several rows
+ * (`rowPerParcel`).
+ *
+ * Tours lists a dossier once when it is filed and again when it is decided,
+ * and once per parcel each time — four rows for a decision on two parcels.
+ * The decided row leads, the blanks are taken from the others, and the
+ * parcels are the union of all of them, so a dossier filed on two lots is
+ * drawn on both.
+ *
+ * @param {Array<object>} permits Normalised rows of ONE portal.
+ * @returns {{permits: Array<object>, folded: number}}
+ */
+export function foldLocalRows(permits) {
+  const byKey = new Map();
+  let folded = 0;
+  for (const permit of permits) {
+    const identity = `${permit.kind}|${permit.key}`;
+    const seen = byKey.get(identity);
+    if (!seen) { byKey.set(identity, permit); continue; }
+    folded += 1;
+    const later = Boolean(permit.decidedOn) !== Boolean(seen.decidedOn)
+      ? Boolean(permit.decidedOn)
+      : String(permit.decidedOn ?? '') > String(seen.decidedOn ?? '');
+    const [lead, other] = later ? [permit, seen] : [seen, permit];
+    const merged = { ...lead };
+    for (const [field, value] of Object.entries(other)) {
+      const mine = merged[field];
+      if (mine === null || mine === undefined) merged[field] = value;
+    }
+    merged.parcels = [...new Set([...(lead.parcels || []), ...(other.parcels || [])])];
+    merged.parcelIdus = [...(lead.parcelIdus || [])];
+    for (const ref of other.parcelIdus || []) {
+      if (!merged.parcelIdus.some((known) => known.idu === ref.idu)) merged.parcelIdus.push(ref);
+    }
+    merged.cadastreCommune = lead.cadastreCommune ?? other.cadastreCommune;
+    byKey.set(identity, merged);
+  }
+  return { permits: [...byKey.values()], folded };
 }
 
 /**

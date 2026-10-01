@@ -85,6 +85,18 @@ export function scrubCartdsRow(row) {
   return cells;
 }
 
+/**
+ * What the archive needs to know about a register's rows: which boards a row
+ * may come from, and how a row is made fit to store. Cart@DS by default; a
+ * Sirap board brings its own (`SIRAP_ROWS` in `sirapFeed.js`), and the rest —
+ * one row stored once, first and last day, the union of two copies — is
+ * shared.
+ */
+export const CARTDS_ROWS = Object.freeze({
+  board: (board) => BOARDS.has(board),
+  scrub: scrubCartdsRow,
+});
+
 /** The identity of a stored row: its board and its text. */
 function rowKey(board, cells) {
   return `${board}\u0001${JSON.stringify(cells)}`;
@@ -118,9 +130,10 @@ export function emptyCartdsArchive(instance, insee) {
  * @param {*} document Parsed JSON, or anything.
  * @param {{key: string}} instance
  * @param {string} insee
+ * @param {{board: Function}} [kind] {@link CARTDS_ROWS}, or another register's.
  * @returns {{archive: object, usable: boolean}}
  */
-export function readCartdsArchive(document, instance, insee) {
+export function readCartdsArchive(document, instance, insee, kind = CARTDS_ROWS) {
   const empty = emptyCartdsArchive(instance, insee);
   if (!document || typeof document !== 'object') return { archive: empty, usable: document == null };
   if (document.schema !== CARTDS_ARCHIVE_SCHEMA
@@ -129,7 +142,7 @@ export function readCartdsArchive(document, instance, insee) {
     || !Array.isArray(document.rows)) return { archive: empty, usable: false };
   const rows = [];
   for (const row of document.rows) {
-    if (!row || !BOARDS.has(row.board) || !Array.isArray(row.cells)) continue;
+    if (!row || !kind.board(row.board) || !Array.isArray(row.cells)) continue;
     if (!DAY_PATTERN.test(row.first) || !DAY_PATTERN.test(row.last)) continue;
     rows.push({ board: row.board, cells: row.cells, first: row.first, last: row.last });
   }
@@ -154,18 +167,20 @@ export function readCartdsArchive(document, instance, insee) {
  * @param {object} archive From {@link readCartdsArchive} or {@link emptyCartdsArchive}.
  * @param {Record<string, Array<Array<?string>>>} boards Raw rows per board (`'1'`, `'2'`).
  * @param {string} day `YYYY-MM-DD`, from {@link cartdsDay}.
+ * @param {{board: Function, scrub: Function}} [kind] {@link CARTDS_ROWS}, or
+ *   another register's.
  * @returns {{archive: object, added: number, seen: number}}
  */
-export function recordCartdsBoards(archive, boards, day) {
+export function recordCartdsBoards(archive, boards, day, kind = CARTDS_ROWS) {
   if (!DAY_PATTERN.test(day)) throw new Error(`cartdsArchive: bad day ${day}`);
   const rows = archive.rows.map((row) => ({ ...row }));
   const index = new Map(rows.map((row, i) => [rowKey(row.board, row.cells), i]));
   let added = 0;
   let seen = 0;
   for (const [board, raw] of Object.entries(boards || {})) {
-    if (!BOARDS.has(board)) continue;
+    if (!kind.board(board)) continue;
     for (const row of raw || []) {
-      const cells = scrubCartdsRow(row);
+      const cells = kind.scrub(row);
       if (!cells) continue;
       const key = rowKey(board, cells);
       const at = index.get(key);

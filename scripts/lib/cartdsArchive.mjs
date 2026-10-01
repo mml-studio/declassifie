@@ -34,6 +34,7 @@ import {
 } from '../../src/data/cartdsFeed.js';
 import {
   cartdsDay,
+  CARTDS_ROWS,
   readCartdsArchive,
   recordCartdsBoards,
   unionCartdsArchives,
@@ -267,10 +268,15 @@ async function writeAtomic(file, text) {
  * file that cannot be read as this commune's archive is renamed aside, never
  * written over: it may be the only copy of something.
  *
+ * Another register's boards are kept the same way in a directory of their own:
+ * `kind` says which boards its rows may come from and how a row is scrubbed
+ * (`SIRAP_ROWS` for a Sirap board).
+ *
  * @param {string} dir
  * @param {{warn?: (message: string) => void}} [log]
+ * @param {{board: Function, scrub: Function}} [kind] `CARTDS_ROWS` by default.
  */
-export function createCartdsArchiveStore(dir, log = console) {
+export function createCartdsArchiveStore(dir, log = console, kind = CARTDS_ROWS) {
   const queues = new Map();
   const fileOf = (insee) => path.join(dir, `${String(insee).toUpperCase()}.json`);
 
@@ -291,7 +297,7 @@ export function createCartdsArchiveStore(dir, log = console) {
     } catch (error) {
       if (error?.code !== 'ENOENT') document = { unreadable: String(error?.message || error) };
     }
-    return readCartdsArchive(document, instance, insee);
+    return readCartdsArchive(document, instance, insee, kind);
   }
 
   async function setAside(insee) {
@@ -325,7 +331,7 @@ export function createCartdsArchiveStore(dir, log = console) {
     record: (instance, insee, boards, day = cartdsDay()) => queued(insee, async () => {
       const { archive, usable } = await loadFile(instance, insee);
       if (!usable) await setAside(insee);
-      const answer = recordCartdsBoards(archive, boards, day);
+      const answer = recordCartdsBoards(archive, boards, day, kind);
       return { ...answer, saved: await save(answer.archive) };
     }),
     /** Join another copy of the commune's archive into the stored one. */

@@ -27,6 +27,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   its host, shared with the three other Val-de-Marne communes, sends an
   incomplete certificate chain; the server now supplies the missing
   intermediate itself, as a browser does.
+- **Rennes and its métropole, Dunkerque, Antibes, Asnières-sur-Seine, Tours
+  and Brest now show their permits days after the fact**, 65 more communes and
+  1.1 million more inhabitants. Rennes Métropole's 40 communes, the
+  Communauté urbaine de Dunkerque's 14, Antibes and Asnières post their board
+  through Sirap's filing portal, now read like the Cart@DS boards and kept the
+  same way after they let a dossier go: 3 787 postings on 2026-10-01, 96 % of
+  them on their cadastral parcel. Tours publishes every dossier it receives
+  and Brest métropole every permit it grants, with decisions three days old;
+  a Tours dossier Sitadel also holds is drawn once, not twice.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at
