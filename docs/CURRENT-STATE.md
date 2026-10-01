@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4913,13 +4913,41 @@ read per scan, never bundled). It is anonymised: one row per parcel, the
 form, the filing year and nothing finer, no number, no address. The rows of
 one dossier are folded back by consecutive ids and equal attributes (24 432
 dossiers for Montpellier), placed on their parcel — 21 215 — or on the
-file's own Lambert-93 point, and drawn as granted, without a date. A dossier
+file's own Lambert-93 point, and drawn as granted. A dossier
 Sitadel already holds is recognised by a parcel in common, the same family
 and Sitadel's filing year the file's or the one before (a modification is
 filed in its own year here), and is not drawn twice: 317 within two years of
 a scan of Montpellier's centre. The file has carried almost no déclaration
-préalable since 2025, upstream; a quiet block there says nothing. These
-communes do not count as covered by a fresh source: a year is not days.
+préalable since 2025, upstream; a quiet block there says nothing.
+
+**What the file cannot date, its editions do.** The export is rewritten every
+night (`Last-Modified` 05:00 UTC), so every edition the server reads is folded
+into an archive, `.gev-cache/archive/mmm/<insee>.json`, by the store the
+Cart@DS boards use (`scripts/lib/mmmPermits.mjs`): each row with the first and
+last edition that held it, dated by the edition's `Last-Modified`, not by the
+reading. A dossier whose rows all appeared after the archive's first edition
+carries that day as `postedOn`: the card's timeline prints « Au plus tard le
+<day> » (“By <day>”) under « Permis accordé », the date line « accordé au plus
+tard le <day> ». The decision was recorded by then, and no finer date exists.
+The first edition's rows are the stock and carry nothing;
+so are an edition's rows when it adds more than 2 % of the rows already kept
+(at least 100) — a year adds about 5.5 %, so such a night is a rebuilt or
+reworded export, not four months of decisions (`mmmPostedOn`). A row is known
+by what it says, never by its `objectid`: every row filed since 2024 sits in
+one interleaved range of ids, and the point and `annee_parcelle` come from a
+cadastre join the métropole re-runs; identical rows (1 421 of 41 742) are told
+apart by their rank. Montpellier's archive is 41 644 rows and 11.6 MB, written
+in about 80 ms. Under `vite preview` the files are swept once a French day
+after 08:00, when the day's export is out, 10 s apart as `robots.txt` asks
+(28 files, about five minutes), on the boards' clock and `CARTDS_ARCHIVE`
+switch; a sweep that archived new rows drops the communes' built answers so
+the next scan sees them. Each portal reports `edition`, `archive` (`since`,
+`through`, `days`, `dated`, `offExport` — rows a later edition no longer
+holds — and `rebased`) and `publishedLag`: for the dated dossiers Sitadel
+also holds, the days from Sitadel's decision to the export, the measure of
+how close « au plus tard » is. The archive starts on the first day a server
+reads the file; what was added before is stock. These communes do not count
+as covered by a fresh source until that lag is measured.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

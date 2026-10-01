@@ -24,20 +24,41 @@
  * A twin is not drawn twice; Sitadel's row stands ({@link dropSitadelTwins}).
  *
  * ── Trap 3: the filing year is the only date ────────────────────────────────
- * No filing day, no decision day: a card says « granted » and nothing about
- * when, and the scan's window cuts on the year. The file holds favourable
- * decisions only — nothing under review, no refusal.
+ * No filing day, no decision day, and the scan's window cuts on the year. The
+ * file holds favourable decisions only — nothing under review, no refusal.
+ * What the file cannot say, the archive does (Trap 5).
  *
  * ── Trap 4: the déclarations préalables have all but stopped ────────────────
  * 1 535 DP rows filed in 2024, 177 in 2025, one in 2026, at Montpellier and
  * at Lattes alike: something upstream stopped exporting them. A quiet block
  * here says nothing about the work done in it.
  *
+ * ── Trap 5: the night a row first appears is the only finer date ───────────
+ * The export is rewritten every night, so a row that was not in one edition
+ * and is in the next was recorded in between: the decision is at the latest
+ * that edition's day. Every edition read is folded into an archive, each row
+ * with the first and last edition that held it (the store Cart@DS boards use,
+ * `.gev-cache/archive/mmm/<insee>.json`), and a dossier whose rows all
+ * appeared after the archive began carries that day as `postedOn`; the card
+ * says « granted, at the latest on <day> ». The rows the first edition held
+ * are the stock and carry nothing ({@link mmmPostedOn}).
+ *
+ * A row is known by what it says, never by its `objectid`: every row filed
+ * since 2024 sits in one interleaved range of ids (85 020 698 to 85 059 638 on
+ * 2026-10-01, the years mixed), so the ids were issued in one batch and may be
+ * again. The Lambert-93 point and `annee_parcelle` are left out too: both come
+ * from the cadastre join, which the métropole re-runs (rows filed in 2010
+ * mostly carry 2021). Rows that say the same thing — 1 421 of 41 742 on
+ * 2026-10-01, mostly a parcel listed twice in one dossier — are told apart by
+ * their rank among their twins ({@link rankMmmRows}).
+ *
  * Dependency-free and side-effect-free: parsing and normalisation only. The
- * `/api/ads-fr` proxy imports it.
+ * `/api/ads-fr` proxy imports it, and `scripts/lib/mmmPermits.mjs` reads and
+ * archives the files.
  */
 
 import { foldToCommune } from './communeCode.js';
+import { cartdsDay } from './cartdsArchive.js';
 import { ADS_KINDS, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 
@@ -140,6 +161,114 @@ export function mmmParcel(code) {
   return { idu: `${dept}${commune}${pre}${section}${numero}`, provisional: false, label: `${section.replace(/^0/, '')}${Number(numero)}` };
 }
 
+/**
+ * What a row says, in the order the archive stores it (Trap 5): every column
+ * but the id, the commune (one per file), the point and the parcel's year.
+ */
+const MMM_IDENTITY = Object.freeze([
+  'modele', 'annee_depot', 'code_parcelle', 'shon_global', 'utilisation', 'type_hebergement',
+  'collect_1p', 'collect_2p', 'collect_3p', 'collect_4p', 'collect_5p', 'collect_6p', 'coll_nb_ch',
+  'indiv_1_piece', 'indiv_2_pieces', 'indiv_3_pieces', 'indiv_4_pieces', 'indiv_5_pieces', 'indiv_6_pieces',
+  'indiv_nb_total_logts', 'nb_chambre_accueil', 'nb_pieces_creees', 'nb_logts_crees',
+  'nature_travaux', 'details_travaux', 'nature_signature', 'destination',
+]);
+
+/** The one board a file has, as the archive store names a register's boards. */
+export const MMM_BOARD = 'decisions';
+
+/** What the archive store checks a stored file against: one register for every commune. */
+export const MMM_ARCHIVE_INSTANCE = Object.freeze({ key: 'mmm' });
+
+/**
+ * Each row with its rank among the rows that say the same thing, in `objectid`
+ * order (Trap 5): the second of two identical rows is `rank: 1`, so a new row
+ * identical to one already kept is still new.
+ * @param {Array<Record<string, ?string>>} rows From {@link parseMmmCsv}.
+ * @returns {Array<Record<string, ?string|number>>}
+ */
+export function rankMmmRows(rows) {
+  const seen = new Map();
+  return [...rows].filter((row) => Number.isFinite(Number(row.objectid)))
+    .sort((a, b) => Number(a.objectid) - Number(b.objectid))
+    .map((row) => {
+      const said = JSON.stringify(MMM_IDENTITY.map((name) => row[name] ?? null));
+      const rank = seen.get(said) ?? 0;
+      seen.set(said, rank + 1);
+      return { ...row, rank };
+    });
+}
+
+/**
+ * One row as the archive stores it, or null for a form the layer does not
+ * draw: what it says, then its rank among its twins.
+ * @param {Record<string, ?string|number>} row From {@link rankMmmRows}.
+ * @returns {?Array<?string>}
+ */
+export function scrubMmmRow(row) {
+  if (!row || !mmmKind(row.modele)) return null;
+  return [...MMM_IDENTITY.map((name) => row[name] ?? null), String(row.rank ?? 0)];
+}
+
+/** How the archive store reads and keeps a file's rows (`createCartdsArchiveStore`'s `kind`). */
+export const MMM_ROWS = Object.freeze({
+  board: (board) => board === MMM_BOARD,
+  scrub: scrubMmmRow,
+});
+
+/**
+ * The French day an edition was written, from its `Last-Modified`, or null.
+ * The export lands at 05:00 UTC; the day is the one the métropole was living.
+ * @param {?string} lastModified An HTTP date.
+ * @returns {?string} `YYYY-MM-DD`.
+ */
+export function mmmEditionDay(lastModified) {
+  const at = Date.parse(String(lastModified ?? ''));
+  return Number.isFinite(at) ? cartdsDay(new Date(at)) : null;
+}
+
+/**
+ * One year of rows is about 5.5 % of the stock (2 309 rows filed in 2024 of
+ * Montpellier's 41 742), so an edition that adds more than 2 % of the rows
+ * already kept — four months of work in one night — did not record that many
+ * decisions: the export was rebuilt or reworded, and its new rows say nothing
+ * about when. The floor keeps a small commune's one large lotissement dated.
+ */
+export const MMM_REBASE_SHARE = 0.02;
+export const MMM_REBASE_FLOOR = 100;
+
+/**
+ * The day each archived row first appeared, for the rows that date anything
+ * (Trap 5): not the first edition's — the stock — and not an edition that
+ * added more than {@link MMM_REBASE_SHARE} of the rows already kept.
+ *
+ * @param {object} archive A commune's archive (`cartdsArchive.js`).
+ * @returns {{postedOn: (row: object) => ?string, rebased: Array<string>}}
+ *   `postedOn` takes a row from {@link rankMmmRows}; `rebased` lists the
+ *   editions whose rows are undated, the first one included.
+ */
+export function mmmPostedOn(archive) {
+  const stored = archive?.rows ?? [];
+  const added = new Map();
+  for (const row of stored) added.set(row.first, (added.get(row.first) ?? 0) + 1);
+  const rebased = [];
+  let kept = 0;
+  for (const day of [...added.keys()].sort()) {
+    const count = added.get(day);
+    if (!kept || day <= archive.firstDay || count > Math.max(MMM_REBASE_FLOOR, kept * MMM_REBASE_SHARE)) rebased.push(day);
+    kept += count;
+  }
+  const undated = new Set(rebased);
+  const days = new Map();
+  for (const row of stored) if (!undated.has(row.first)) days.set(JSON.stringify(row.cells), row.first);
+  return {
+    postedOn: (row) => {
+      const cells = scrubMmmRow(row);
+      return cells ? days.get(JSON.stringify(cells)) ?? null : null;
+    },
+    rebased,
+  };
+}
+
 /** The attributes the rows of one dossier share. */
 const SAME = Object.freeze([
   'modele', 'annee_depot', 'shon_global', 'nature_travaux', 'details_travaux', 'nature_signature', 'nb_logts_crees',
@@ -156,13 +285,18 @@ function value(cell) {
  * three apart — with the same attributes are one dossier, its parcels each
  * row's. Rows of a form the layer does not draw (`Pré Projet`) are left out.
  *
- * @param {Array<Record<string, ?string>>} rows From {@link parseMmmCsv}.
+ * A dossier is dated (`postedOn`, Trap 5) only when every one of its rows is,
+ * and with the earliest of their days.
+ *
+ * @param {Array<Record<string, ?string>>} rows From {@link parseMmmCsv} or
+ *   {@link rankMmmRows}.
  * @param {object} commune One of {@link MMM_COMMUNES}.
+ * @param {{postedOn?: (row: object) => ?string}} [archive] From {@link mmmPostedOn}.
  * @returns {Array<object>} The shape every source of the layer is normalised
  *   into, `point` holding the file's Lambert-93 point for a dossier the
  *   cadastre cannot place.
  */
-export function foldMmmRows(rows, commune) {
+export function foldMmmRows(rows, commune, { postedOn = () => null } = {}) {
   const sorted = [...rows].filter((row) => Number.isFinite(Number(row.objectid)))
     .sort((a, b) => Number(a.objectid) - Number(b.objectid));
   const groups = [];
@@ -188,6 +322,7 @@ export function foldMmmRows(rows, commune) {
     }
     const x = Number(first.x);
     const y = Number(first.y);
+    const days = members.map((member) => postedOn(member));
     out.push({
       id: `mmm:${commune.insee}:${first.objectid}`,
       dossier: null,
@@ -200,7 +335,7 @@ export function foldMmmRows(rows, commune) {
       stateLabel: ADS_STATE_WORDS.definition.accorde.fr,
       depositedOn: null,
       decidedOn: null,
-      postedOn: null,
+      postedOn: days.every(Boolean) ? days.sort()[0] : null,
       startedOn: null,
       completedOn: null,
       depositYear: year,
@@ -229,13 +364,23 @@ export function foldMmmRows(rows, commune) {
   return out;
 }
 
+/** Whole days from `from` to `to`, two `YYYY-MM-DD`. */
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 /**
  * The dossiers Sitadel does not already hold (Trap 2): same family, a parcel
  * in common, and Sitadel's filing year the file's or the one before.
  *
+ * A twin is also the one measure of Trap 5's date: Sitadel knows the day the
+ * permit was granted, the archive the day the export first held it. `lags`
+ * holds, per dated twin, the days from the first to the second — the nearest
+ * Sitadel decision when several share the parcel.
+ *
  * @param {Array<object>} permits From {@link foldMmmRows}.
  * @param {Array<object>} sitadel Sitadel's normalised rows for the commune.
- * @returns {{permits: Array<object>, twins: number}}
+ * @returns {{permits: Array<object>, twins: number, lags: Array<number>}}
  */
 export function dropSitadelTwins(permits, sitadel) {
   const byParcel = new Map();
@@ -246,12 +391,29 @@ export function dropSitadelTwins(permits, sitadel) {
     }
   }
   const kept = [];
+  const lags = [];
   let twins = 0;
   for (const permit of permits) {
-    const twin = permit.parcelIdus.some((ref) => (byParcel.get(ref.idu) ?? []).some((row) => row.kind === permit.kind
+    const matches = permit.parcelIdus.flatMap((ref) => (byParcel.get(ref.idu) ?? []).filter((row) => row.kind === permit.kind
       && Number.isInteger(row.depositYear) && row.depositYear <= permit.depositYear && row.depositYear >= permit.depositYear - 1));
-    if (twin) twins += 1;
-    else kept.push(permit);
+    if (!matches.length) { kept.push(permit); continue; }
+    twins += 1;
+    const gaps = permit.postedOn
+      ? matches.filter((row) => /^\d{4}-\d{2}-\d{2}/.test(row.decidedOn ?? '')).map((row) => daysBetween(row.decidedOn.slice(0, 10), permit.postedOn))
+      : [];
+    if (gaps.length) lags.push(gaps.sort((a, b) => Math.abs(a) - Math.abs(b))[0]);
   }
-  return { permits: kept, twins };
+  return { permits: kept, twins, lags };
+}
+
+/**
+ * Trap 5's date, measured: how many dated twins, the median and the largest
+ * number of days from Sitadel's decision to the export, or null before any.
+ * @param {Array<number>} lags From {@link dropSitadelTwins}.
+ * @returns {?{dossiers: number, medianDays: number, maxDays: number}}
+ */
+export function mmmLagSummary(lags) {
+  if (!lags?.length) return null;
+  const sorted = [...lags].sort((a, b) => a - b);
+  return { dossiers: sorted.length, medianDays: sorted[Math.floor((sorted.length - 1) / 2)], maxDays: sorted.at(-1) };
 }

@@ -322,6 +322,9 @@ export function adsDateLine(permit) {
     return permit.depositedOn ? m.filed(adsDate(permit.depositedOn)) : null;
   }
   if (permit.decidedOn) return m.decided(adsDate(permit.decidedOn));
+  // Granted, the day unknown, but published on a day the decision cannot be
+  // later than (Montpellier's export: Trap 5 of `mmmPermitsFeed.js`).
+  if (permit.state === 'accorde' && permit.postedOn) return m.decidedBy(adsDate(permit.postedOn));
   return permit.depositedOn ? m.filed(adsDate(permit.depositedOn)) : null;
 }
 
@@ -986,6 +989,7 @@ export function adsPermitPanel(permit, { others = 0 } = {}) {
     dates: {
       filed: permit.depositedOn,
       granted: permit.decidedOn,
+      grantedBy: permit.state === 'accorde' ? permit.postedOn : null,
       started: permit.startedOn,
       completed: permit.completedOn,
     },

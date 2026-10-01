@@ -107,6 +107,19 @@ test('the card is the mock’s: what, how many, where, how far, then the rest fo
   assert.equal(card.source, 'Source : Sitadel · SDES');
 });
 
+test('a grant whose day is unknown but not after its publication says « at the latest »', () => {
+  const card = permitProjectCard({
+    key: 'm', type: 'Permis de construire', classId: 'granted',
+    commune: 'Montpellier', dates: { granted: null, grantedBy: '2026-10-02' },
+  });
+  assert.deepEqual(card.steps.items[0], {
+    label: 'Permis accordé', value: 'Au plus tard le 2 oct. 2026', done: true, color: PERMIT_PROJECT_COLORS.granted,
+  });
+  // A known day wins.
+  const known = permitProjectCard({ key: 'k', type: 'PC', classId: 'granted', dates: { granted: '2026-09-28', grantedBy: '2026-10-02' } });
+  assert.equal(known.steps.items[0].value, '28 sept. 2026');
+});
+
 test('a card with no dwelling is titled by its address, and a demolition has no work dates', () => {
   const card = permitProjectCard({
     key: 'd', type: 'Permis de démolir', classId: 'demolition',
