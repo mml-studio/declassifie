@@ -194,7 +194,12 @@ function stringOption(key, token, defaultValue) {
   });
 }
 
-function enumOption(key, token, defaultValue, values, codes) {
+/**
+ * `retired` maps the code of a value the option no longer offers to the value a
+ * link carrying it now opens on. Decode-only: nothing writes a retired code, and
+ * a code stays retired forever, so a new value never reuses one.
+ */
+function enumOption(key, token, defaultValue, values, codes, retired = {}) {
   const reverse = Object.fromEntries(Object.entries(codes).map(([name, code]) => [code, name]));
   return Object.freeze({
     key,
@@ -202,7 +207,7 @@ function enumOption(key, token, defaultValue, values, codes) {
     defaultValue,
     normalize: (value) => normalizeEnum(values, value),
     encode: (value) => codes[value],
-    decode: (value) => reverse[value] || null,
+    decode: (value) => reverse[value] || retired[value] || null,
   });
 }
 
@@ -306,17 +311,25 @@ const OPTION_GROUPS = Object.freeze({
   // The permit window, and the FIRST option on any of the six address layers.
   // It is here rather than in the layer because a window is a question, and a
   // link that reopens the same block on a different question is a different
-  // answer — `au.w.6` is the whole of "this street, over six years".
+  // answer — `au.w.1` is the whole of "this street, over the last year".
   //
-  // The codes are the years and not the months: `3`, `6`, `d` for a decade,
-  // chosen so a link stays legible to the person pasting it. The months are
-  // what the layer and the proxy speak, and `adsUrbanisme.js` owns the mapping.
+  // The codes are the years and not the months: `1`, `3`, `d` for the whole
+  // register, and `h` for the half year, chosen so a link stays legible to the
+  // person pasting it. The months are what the layer and the proxy speak, and
+  // `adsUrbanisme.js` owns the mapping.
+  //
+  // `6` was six years until 2026-10-01, when the half year and the year took
+  // its place. A link written before opens on the whole register — the window
+  // that still holds every permit its author saw — and `6` is never handed to
+  // another window.
   //
   // Keyed by the LAYER ID and not by a family name: `encodeLayerStateParams`
   // looks the owner up in the layer registry to find the token it writes into
   // the link, so an owner that is not a registered layer id throws at boot.
   'ads-fr': Object.freeze([
-    enumOption('months', 'w', '36', ['36', '72', '156'], { 36: '3', 72: '6', 156: 'd' }),
+    enumOption('months', 'w', '36', ['6', '12', '36', '156'], { 6: 'h', 12: '1', 36: '3', 156: 'd' },
+      // Retired CODE → months: `au.w.6` (six years) opens on the whole register.
+      { '6': '156' }),
   ]),
   // WHICH COVERAGE THE GROUND UNDER THE MASTS IS PAINTED WITH — the ARCEP's
   // 4G map, counted (`z`, the dead zones) or one operator's own levels. It is

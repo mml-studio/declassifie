@@ -6349,7 +6349,7 @@ function makeUrbanismePanel({ controls = {} } = {}) {
   return makeFusedRowPanel({
     ids: ['ads-fr', 'sitadel-fr', 'urbanisme-gpu'],
     params: { 'ads-fr': { months: '36' }, 'sitadel-fr': { months: '36' } },
-    accepts: (next) => ['36', '72', '156'].includes(String(next?.months)),
+    accepts: (next) => ['6', '12', '36', '156'].includes(String(next?.months)),
     categories: [{ id: 'built-environment', label: 'BÂTI & TERRITOIRE', icon: '▤' }],
     controls,
   });
@@ -6429,8 +6429,9 @@ test('Urbanisme lights its permits and leaves the zoning dark, its tiles under t
     select: {
       param: 'months', label: 'Période', value: '36', fanOut: true, title: '',
       options: [
+        { value: '6', label: '6 derniers mois' },
+        { value: '12', label: 'Dernière année' },
         { value: '36', label: '3 dernières années' },
-        { value: '72', label: '6 dernières années' },
         { value: '156', label: 'Toutes les dates' },
       ],
     },
@@ -6450,7 +6451,7 @@ test('Urbanisme lights its permits and leaves the zoning dark, its tiles under t
     assert.deepEqual(findAll(panel.row(), '.data-toggle-chip'), []);
     // The period, as a menu, and the hint while nothing is selected.
     assert.equal(panel.select().dataset.selectParam, 'months');
-    assert.equal(panel.select().children.length, 3);
+    assert.equal(panel.select().children.length, 4);
     assert.equal(panel.select().value, '36');
     assert.equal(panel.hint().textContent, 'Sélectionnez un projet sur la carte.');
 
@@ -6484,7 +6485,10 @@ test('the period menu sends its window to both permit layers', async () => {
   const period = (own) => ({
     select: {
       param: 'months', label: 'Période', value: own.months, fanOut: true,
-      options: [{ value: '36', label: '3' }, { value: '72', label: '6' }, { value: '156', label: 'Tout' }],
+      options: [
+        { value: '6', label: '6 mois' }, { value: '12', label: '1 an' },
+        { value: '36', label: '3 ans' }, { value: '156', label: 'Tout' },
+      ],
     },
   });
   const panel = makeUrbanismePanel({ controls: { 'ads-fr': period } });
@@ -6492,12 +6496,12 @@ test('the period menu sends its window to both permit layers', async () => {
     await panel.mgr._setRowEnabled('ads-fr', true);
     panel.mgr._refreshTogglePanel();
     const select = panel.select();
-    select.value = '156';
+    select.value = '6';
     panel.row().querySelector('.data-toggle-controls').listeners.get('change')[0]({ target: select });
-    assert.equal(panel.params['ads-fr'].months, '156');
-    assert.equal(panel.params['sitadel-fr'].months, '156', 'the Sitadel parcels follow the same period');
+    assert.equal(panel.params['ads-fr'].months, '6');
+    assert.equal(panel.params['sitadel-fr'].months, '6', 'the Sitadel parcels follow the same period');
     panel.mgr._refreshTogglePanel();
-    assert.equal(panel.select().value, '156');
+    assert.equal(panel.select().value, '6');
   } finally {
     await panel.restore();
   }
