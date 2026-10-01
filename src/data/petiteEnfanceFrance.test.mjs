@@ -29,6 +29,7 @@ import petiteEnfanceFranceLayer, {
   NATIONAL_EXIT_SPAN_DEG,
   PE_COMMUNE_BAND,
   PE_NATIONAL_BAND,
+  peBandWeights,
   buildPeTerritoryLevels,
   peContourBox,
   pePlanLevels,
@@ -42,7 +43,6 @@ import petiteEnfanceFranceLayer, {
 import {
   PE_BANDS, PE_BOX_STEP_DEG, PE_MAX_BOX_DEG, PE_MAX_BOX_COMMUNES, projectPeAreas,
 } from './petiteEnfanceFeed.js';
-import { bandWeights } from './zoomFade.js';
 import { schoolLevelColor } from './schoolsFrance.js';
 import { SCHOOL_LEVELS } from './schoolsFeed.js';
 
@@ -324,8 +324,8 @@ test('the bands sit where the levels already changed, and the proxy can answer b
   // the product of two alphas of which at most one is below 1.
   assert.ok(PE_COMMUNE_BAND.coarse < PE_NATIONAL_BAND.fine);
   for (let span = 0.2; span < 1; span += 0.01) {
-    const outer = bandWeights(span, PE_NATIONAL_BAND);
-    const inner = bandWeights(span, PE_COMMUNE_BAND);
+    const outer = peBandWeights(span, PE_NATIONAL_BAND);
+    const inner = peBandWeights(span, PE_COMMUNE_BAND);
     assert.ok(outer.fine === 1 || inner.coarse === 1, `both bands at once at ${span.toFixed(2)}°`);
   }
 });
@@ -335,13 +335,15 @@ test('a settled view loads every level with weight, and only those', () => {
   assert.deepEqual(pePlanLevels(3), {
     national: true, local: false, under: false, over: false, regime: 'national', grain: 'epci',
   });
-  // Inside the outer band: both levels load, and the heavier owns the row.
-  const outer = pePlanLevels(0.8);
+  // Inside the outer band: both levels load, and the territories own the row
+  // once the reveal has them at half strength (15 % into the band).
+  const outer = pePlanLevels(0.86);
   assert.equal(outer.national, true);
   assert.equal(outer.local, true);
   assert.equal(outer.under, true);
   assert.equal(outer.over, false);
   assert.equal(outer.regime, 'national');
+  assert.equal(pePlanLevels(0.8).regime, 'local');
   assert.equal(pePlanLevels(0.6).regime, 'local');
   // Between the bands: the territories at the EPCI grain, the choropleth gone.
   assert.deepEqual(pePlanLevels(0.5), {
@@ -489,13 +491,15 @@ test('inside the outer band both levels are drawn, and their weights follow the 
   const entity = { show: false, polygon: {} };
   _setPeLevelsForTest({
     viewer: fakeViewer(),
-    plan: pePlanLevels(0.7),
+    plan: pePlanLevels(0.82),
     nationalPainted: true,
     depEntities: [['01', [entity]]],
     local: { under: true, groups: { local: [wash] } },
   });
-  const frame = _peFadeFrameForTest(0.7);
-  const expected = bandWeights(0.7, PE_NATIONAL_BAND);
+  // 0.82° is in the first 30 % of the band, where the reveal still has the
+  // territories coming in and the départements going out.
+  const frame = _peFadeFrameForTest(0.82);
+  const expected = peBandWeights(0.82, PE_NATIONAL_BAND);
   assert.ok(Math.abs(frame.levels.departements - expected.coarse) < 1e-12);
   assert.ok(Math.abs(frame.levels.epci - expected.fine) < 1e-12);
   assert.ok(frame.levels.departements > 0 && frame.levels.departements < 1);
@@ -524,7 +528,7 @@ test('inside the commune band the EPCI ground under the cut-outs fades as the co
     },
   });
   const frame = _peFadeFrameForTest(0.35);
-  const inner = bandWeights(0.35, PE_COMMUNE_BAND);
+  const inner = peBandWeights(0.35, PE_COMMUNE_BAND);
   assert.equal(frame.levels.epci, 1);
   assert.ok(Math.abs(frame.levels.epciUnderCommunes - inner.coarse) < 1e-12);
   assert.ok(Math.abs(frame.levels.communes - inner.fine) < 1e-12);

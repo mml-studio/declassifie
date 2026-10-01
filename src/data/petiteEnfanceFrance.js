@@ -89,13 +89,14 @@ import {
 } from './petiteEnfanceFeed.js';
 import { pickAt } from './pickAt.js';
 import {
-  bandAlphas,
-  bandWeights,
+  bandPosition,
+  coverAlphas,
   fadeBand,
   fadeInstances,
   fadingColorMaterial,
   levelVisible,
   quantizeFade,
+  reveal,
   watchZoomFade,
 } from './zoomFade.js';
 import { formatDecimal, formatNumber } from '../i18n/format.js';
@@ -153,7 +154,7 @@ export const COMMUNE_SPAN_DEG = 0.45;
  * That is the case fade on zoom exists for: the département fill can dim while
  * the EPCI wash comes in over it, and both mean the same thing for as long as
  * the camera rests between them. Each band's two levels are drawn at the
- * alphas `bandAlphas` gives them, multiplied into each band's own alpha
+ * alphas `peBandAlphas` gives them, multiplied into each band's own alpha
  * (`BAND_ALPHA`, `TERRITORY_ALPHA`) — one factor for every band of a level,
  * so the extremes still outweigh the middle at every point of the fade.
  */
@@ -193,6 +194,33 @@ export const PE_NATIONAL_BAND = fadeBand(0.54, NATIONAL_EXIT_SPAN_DEG);
  * product of its two alphas, of which at most one is below 1 at any span.
  */
 export const PE_COMMUNE_BAND = fadeBand(0.27, COMMUNE_SPAN_DEG);
+
+/**
+ * The two weights a band gives its levels: a `reveal`, not a symmetric
+ * crossfade.
+ *
+ * Both bands can only sit BELOW the old switches (the outer one is capped by
+ * the contour proxy's box, the inner one starts where the cut-outs always
+ * did), and a symmetric crossfade there hands most of each band to the
+ * coarser level: a view just under 0,9° that used to show the EPCI wash
+ * would show the départements, and one just under 0,45° that used to show
+ * communes would show EPCI. Measured the same way on the carroyage, where it
+ * turned the harness's city view into a view of the 1 km grid. The reveal
+ * brings the finer level to full strength over the first 30 % of the band and
+ * fades the coarser one out behind it.
+ *
+ * @param {number} span View latitude span, degrees.
+ * @param {{fine: number, coarse: number}} band
+ * @returns {{fine: number, coarse: number}}
+ */
+export function peBandWeights(span, band) {
+  return reveal(bandPosition(span, band));
+}
+
+/** The alphas a band's levels are drawn at, with the zoomFade cover rule. */
+function peBandAlphas(span, band, state) {
+  return coverAlphas(peBandWeights(span, band), state);
+}
 
 /** The two bands as the zoom-fade diagnostics report them. */
 const FADE_BANDS_REPORT = Object.freeze({
@@ -492,8 +520,9 @@ export function peViewSpanDeg(viewer) {
  * band both grains are drawn; `under` is the EPCI colour on the ground of the
  * communes that are cut out, `over` their own colour on it.
  *
- * The dominant level is the heavier of each band's two, decided here, on the
- * settled view, exactly as the regime was before — ties go to the coarser.
+ * The dominant level is decided here, on the settled view, exactly as the
+ * regime was before: the finer level owns the row from half strength, which
+ * the reveal reaches 15 % into each band.
  *
  * @param {number} span View latitude span, degrees (Infinity past the limb).
  * @param {{hasBox?: boolean}} [options] `hasBox`: the view has a rectangle to
@@ -502,8 +531,8 @@ export function peViewSpanDeg(viewer) {
  *   regime: string, grain: string}}
  */
 export function pePlanLevels(span, { hasBox = true } = {}) {
-  const outer = bandWeights(span, PE_NATIONAL_BAND);
-  const inner = bandWeights(span, PE_COMMUNE_BAND);
+  const outer = peBandWeights(span, PE_NATIONAL_BAND);
+  const inner = peBandWeights(span, PE_COMMUNE_BAND);
   const local = Boolean(hasBox) && levelVisible(true, outer.fine);
   const national = !local || levelVisible(true, outer.coarse);
   const under = local && levelVisible(true, inner.coarse);
@@ -514,8 +543,8 @@ export function pePlanLevels(span, { hasBox = true } = {}) {
     local,
     under,
     over,
-    regime: local && outer.fine > outer.coarse ? 'local' : 'national',
-    grain: over && (!under || inner.fine > inner.coarse) ? 'com' : 'epci',
+    regime: local && outer.fine >= 0.5 ? 'local' : 'national',
+    grain: over && (!under || inner.fine >= 0.5) ? 'com' : 'epci',
   };
   // i18n-ignore-end
 }
@@ -1635,13 +1664,13 @@ function onFadeFrame(scale, now) {
   if (_pendingLocal && localDrawingReady(_pendingLocal)) promotePendingLocal();
   const span = scale?.latSpan;
   const arrival = (key) => _fade?.arrival(key, now) ?? 1;
-  const outer = bandAlphas(span, PE_NATIONAL_BAND, {
+  const outer = peBandAlphas(span, PE_NATIONAL_BAND, {
     fineReady: Boolean(_local),
     coarseReady: _nationalPainted,
     fineArrival: arrival('local'),
     coarseArrival: arrival('national'),
   });
-  const inner = bandAlphas(span, PE_COMMUNE_BAND, {
+  const inner = peBandAlphas(span, PE_COMMUNE_BAND, {
     fineReady: Boolean(_local?.over),
     coarseReady: Boolean(_local?.under),
     fineArrival: arrival('cut-outs'),
