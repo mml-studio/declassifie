@@ -6,18 +6,19 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
-- **Vannes and 58 more communes of the Golfe du Morbihan, Saint-Nazaire, Pau,
-  Narbonne, Ivry-sur-Seine, Clichy, Choisy-le-Roi, Vincennes,
-  Neuilly-sur-Seine and Villejuif now show the permits they post
-  themselves**, 121 communes and 0.97 million inhabitants more, every filing
-  and every decision days after the fact. Twelve Cart@DS boards on the
-  communes' own hosts — among them 30 communes of Porte de DrômArdèche, 4 of
-  the Pays d'Orange en Provence, Sanary-sur-Mer, Foix — which the platform
-  scan could not name, found by searching the web for the board's address;
-  Narbonne's own path on the Grand Narbonne host; Villejuif's Sirap board on
-  its own host; and thirteen communes posting on e-permis, as Nice does: Pau,
-  Biarritz, Hendaye, eight communes of the Landes coast,
-  Jouars-Pontchartrain and Saint-Hippolyte.
+- **Vannes and 58 more communes of the Golfe du Morbihan, Saint-Nazaire, Pau
+  and 27 more communes of its agglomeration, Narbonne, Arcachon,
+  Ivry-sur-Seine, Clichy, Choisy-le-Roi, Vincennes, Neuilly-sur-Seine and
+  Villejuif now show the permits they post themselves**, 154 communes and
+  1.08 million inhabitants more, every filing and every decision days after
+  the fact. Twelve Cart@DS boards on the communes' own hosts — among them 30
+  communes of Porte de DrômArdèche, 4 of the Pays d'Orange en Provence,
+  Sanary-sur-Mer, Foix — which the platform scan could not name, found by
+  searching the web for the board's address; Narbonne's own path on the Grand
+  Narbonne host; Villejuif's Sirap board on its own host; and nineteen
+  publishers on e-permis, as Nice does: the Agglomération Pau Béarn Pyrénées,
+  Biarritz, Hendaye, Bidart, Arcachon, Cabestany, Jouars-Pontchartrain,
+  Maintenon, Saint-Hippolyte and ten communes of the Landes.
 - **Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin now show
   their published planning permits**, including prior declarations, refusals
   and withdrawals. Municipal PDF lists and individual notices join the daily

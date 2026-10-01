@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 204 Cart@DS *affichage réglementaire* boards (1 536 communes) and Sirap PU boards (1 066 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), Pau and twelve more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 204 Cart@DS *affichage réglementaire* boards (1 536 communes) and Sirap PU boards (1 066 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4779,9 +4779,9 @@ Narbonne's board is a second path on the Grand Narbonne host, whose first,
 Leucate's, the scan kept: the scan asks one path per host, so both are now
 written by hand in `cartdsFeed.js`, and asking the path of each of the 37
 communes found no third. Measured the same evening against
-geo.api.gouv.fr's populations, with the e-permis publishers below: 24.1 % of
+geo.api.gouv.fr's populations, with the e-permis publishers below: 24.2 % of
 the population is seen within days, from 22.7 %; 41 of the 100 most
-populous communes, from 35.
+populous communes, from 35, and 215 of the 1 000, from 198.
 
 **Since 2026-10-01, Marseille and Nîmes answer with the lists they publish
 as PDF** (`src/data/permitListsFeed.js`, `scripts/lib/permitLists.mjs`).
@@ -5090,21 +5090,27 @@ filing reads *Déposé*; the software changed its words in early 2025
 (`FAVORABLE`, `rejet implicite` became `Accord`, `Rejet`) and both are read;
 `Rejet`, the tacit rejection of a file left incomplete, reads as refused, and
 a withdrawal of a granted permit as cancelled.
-**Since the evening of 2026-10-01, Pau and twelve more communes answer from
-e-permis too.** The Wayback Machine had seen boards at `depot?id=70` to `119`;
-their configurations name one commune each: Pau, Biarritz, Hendaye,
-Soorts-Hossegor, Labenne, Seignosse, Bénesse-Maremne, Vieux-Boucau-les-Bains,
-Azur, Moliets-et-Maâ, Angresse, Jouars-Pontchartrain and Saint-Hippolyte,
-158 999 inhabitants. Same API, same public client, an environment each; one
-page of each list from August on held 1 010 rows, every one naming its
-commune, 98 % their parcel, the verdicts in Nice's words, and the same signs
-(`EN`) and works on public buildings (`AT`) that are not permits. Each
-publisher has its reader, its token and its environment, and all of them
-wait in ONE queue (`createEpermisGate`), half a second after the last answer:
-the API refused an address everything for about three hours after some forty
-requests for clients that do not exist, in half a minute, on 2026-10-01. A
-publisher is added when one of its boards is named somewhere, not by asking
-every `id`.
+**Since the evening of 2026-10-01, Pau's agglomeration and eighteen more
+communes answer from e-permis too.** The Wayback Machine had seen boards at
+`depot?id=70` to `119`, one commune each; asking the configuration of every
+`id` from 44 to 160, one every thirty seconds, found the others. Read: the
+Agglomération Pau Béarn Pyrénées (`id` 97, 28 communes of its 31 — Gan, Idron
+and Lons posted nothing in twelve months, 3 756 decisions for the others;
+Pau's and Lescar's own boards post the same dossiers and are not read),
+Biarritz, Hendaye, Bidart, Arcachon, Cabestany, Jouars-Pontchartrain,
+Maintenon, Saint-Hippolyte, Soorts-Hossegor, Labenne, Seignosse,
+Bénesse-Maremne, Vieux-Boucau-les-Bains, Azur, Moliets-et-Maâ, Angresse,
+Tosse and Magescq: 46 communes, 263 185 inhabitants. Left out: Hagetmau,
+whose lists answer HTTP 500; Saint-Barthélemy, which has its own planning
+code; Nantes Métropole, whose portal is read already. Same API, same public
+client, an environment each; one page of each list from August on held 1 447
+rows, every one naming its commune, 98 % their parcel, the verdicts in Nice's
+words, and the same signs (`EN`) and works on public buildings (`AT`) that
+are not permits. Each publisher has its reader, its token and its
+environment, and all of them wait in ONE queue (`createEpermisGate`), half a
+second after the last answer: the API refused an address everything for
+about three hours after some forty requests for clients that do not exist,
+in half a minute, on 2026-10-01.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

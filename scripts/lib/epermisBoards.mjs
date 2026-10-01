@@ -12,7 +12,7 @@
  * ONE REQUEST AT A TIME. Every request a reader makes — a scan's, the sweep's
  * — goes through one queue, {@link EPERMIS_PAUSE_MS} after the previous answer
  * was read, whoever asked; and the server gives every reader the same gate
- * ({@link createEpermisGate}), so that fourteen publishers on one API are
+ * ({@link createEpermisGate}), so that twenty publishers on one API are
  * still one request at a time: about forty requests for clients that do not
  * exist, in half a minute, got an address refused everything for some three
  * hours (2026-10-01).
