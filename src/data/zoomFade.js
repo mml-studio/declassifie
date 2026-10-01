@@ -114,6 +114,31 @@ export function crossfade(position, overlap = CROSSFADE_OVERLAP) {
   return { fine: clamp01(p / ramp), coarse: clamp01((1 - p) / ramp) };
 }
 
+/** Where a `reveal` has brought the finer level to full strength. */
+export const REVEAL_LEAD = 0.3;
+/** Where a `reveal` has faded the coarser level out. */
+export const REVEAL_TRAIL = 0.7;
+
+/**
+ * The two levels' weights when the finer level is what the reader zoomed in
+ * FOR: it comes in over the first 30 % of the band, and the coarser one fades
+ * out behind it over the first 70 %.
+ *
+ * This is the shape of Kyle Walker's maps — "higher-aggregation layers fade
+ * away to show more detail" — and the one to use where a band can only sit on
+ * the fine side of an old threshold (because the finer level's request is
+ * capped there): a symmetric crossfade would hand most of the band to the
+ * coarse level, and a view that used to show the detail would show the
+ * aggregate instead.
+ *
+ * @param {number} position `bandPosition()` result, 0 (coarse) .. 1 (fine).
+ * @returns {{fine: number, coarse: number}}
+ */
+export function reveal(position) {
+  const p = clamp01(position);
+  return { fine: clamp01(p / REVEAL_LEAD), coarse: clamp01(1 - p / REVEAL_TRAIL) };
+}
+
 /**
  * Both levels' weights straight from the camera's scale.
  *
@@ -559,6 +584,13 @@ function fadeItem(item, w) {
 
 /** primitive -> { attributes: Map(id -> attributes), weight } */
 const _instanceCache = new WeakMap();
+/**
+ * The value written into each instance's colour attribute. The attribute's
+ * setter copies it into the batch table, so one array serves every write;
+ * reading `attributes.color` instead would mint a new one per instance per
+ * step — about 1 450 arrays a frame over a 0.9° view of communes.
+ */
+const _instanceColorScratch = new Uint8Array(4);
 
 /**
  * Fade the instances of a primitive by writing each one's colour attribute.
@@ -594,7 +626,7 @@ export function fadeInstances(primitive, entries, weight, options = {}) {
     if (!attributes || !color) continue;
     Cesium.Color.clone(color, _colorScratch);
     _colorScratch.alpha = color.alpha * w;
-    attributes.color = Cesium.ColorGeometryInstanceAttribute.toValue(_colorScratch, attributes.color);
+    attributes.color = Cesium.ColorGeometryInstanceAttribute.toValue(_colorScratch, _instanceColorScratch);
   }
   return true;
 }

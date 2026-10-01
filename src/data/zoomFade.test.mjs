@@ -27,6 +27,7 @@ import {
   quantizeFade,
   readViewScale,
   releaseZoomFade,
+  reveal,
   setAppearanceFade,
   watchZoomFade,
 } from './zoomFade.js';
@@ -135,6 +136,21 @@ test('a hard cut swaps without a blank frame: the outgoing level holds, then the
   assert.deepEqual(coverAlphas(cut, { coarseReady: true, fineReady: true }), { fine: 1, coarse: 0 });
   // A target outside 0..1 is clamped rather than overshooting.
   assert.deepEqual(coverAlphas({ fine: 3, coarse: -1 }, { fineReady: true, coarseReady: true }), { fine: 1, coarse: 0 });
+});
+
+test('a reveal brings the detail in first and fades the aggregate out behind it', () => {
+  assert.deepEqual(reveal(0), { fine: 0, coarse: 1 });
+  assert.deepEqual(reveal(1), { fine: 1, coarse: 0 });
+  assert.equal(reveal(0.3).fine, 1);
+  assert.ok(reveal(0.3).coarse > 0.5, 'the aggregate is still there when the detail is in');
+  assert.equal(reveal(0.7).coarse, 0);
+  let previous = reveal(0);
+  for (let p = 0.05; p <= 1; p += 0.05) {
+    const weights = reveal(p);
+    assert.ok(weights.fine >= previous.fine && weights.coarse <= previous.coarse);
+    assert.ok(weights.fine + weights.coarse >= 1 - 1e-12, `the layer dipped at ${p}`);
+    previous = weights;
+  }
 });
 
 test('weights are written on a fixed grid of steps, so a drifting camera writes nothing', () => {
@@ -343,7 +359,12 @@ test('a collection fades from each item\'s own alpha, outline included, and foll
 
 test('instance fades wait for a ready primitive and look each attribute up once', () => {
   let lookups = 0;
-  const stored = new Map([['x', { color: new Uint8Array([255, 0, 0, 200]) }], ['y', { color: new Uint8Array([0, 0, 255, 100]) }]]);
+  // Like Cesium's attribute handles, the setter COPIES what it is given.
+  const handle = (rgba) => {
+    let color = new Uint8Array(rgba);
+    return { get color() { return new Uint8Array(color); }, set color(value) { color = new Uint8Array(value); } };
+  };
+  const stored = new Map([['x', handle([255, 0, 0, 200])], ['y', handle([0, 0, 255, 100])]]);
   const primitive = {
     ready: false,
     getGeometryInstanceAttributes(id) {
