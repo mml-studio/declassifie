@@ -94,6 +94,7 @@ import { sitadelParcelRefs } from './cadastreLineage.js';
 import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
+import { CARTDS_SCANNED_INSTANCES } from './cartdsScanned.js';
 
 /** Trim a value to a non-empty string, or null. */
 function text(value) {
@@ -159,17 +160,21 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  *
  * `intermediate` names a certificate the host does not send. The four
  * `pemb.fr` hosts present their own certificate without the Sectigo
- * intermediate that signed it: a browser fetches the missing link from the
+ * intermediate that signed it, and so has `ads.lecotentin.fr` since its
+ * certificate was renewed on 2026-09-30 — its six communes went unread from
+ * the next sweep on. A browser fetches the missing link from the
  * address the certificate gives, Node does not, and refuses the connection
  * (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`). The reader supplies that intermediate
  * (`trustCartdsIntermediates` in `scripts/lib/cartdsArchive.mjs`); the chain
  * still has to end at a root Node already trusts.
  *
  * `codes` says what the instance's commune menu sends as `NCommune`: the INSEE
- * code (`'insee'`) or the commune's three-digit number with the leading zeros
- * dropped (`'number'`, so Porto-Vecchio, 2A247, is `247`). Ten of the fifteen
- * send the number, and sending the INSEE code to one of them answers an empty
- * table rather than an error.
+ * code (`'insee'`), the commune's three-digit number with the leading zeros
+ * dropped (`'number'`, so Porto-Vecchio, 2A247, is `247`), or the INSEE code
+ * with its leading zero dropped (`'unpadded'`, so Châtillon in the Allier,
+ * 03058, is `3058` — two departmental agencies found by the scan). Ten of the
+ * fifteen send the number, and sending the INSEE code to one of them answers an
+ * empty table rather than an error.
  *
  * `robots5xx` is set on the one host whose front answers every path outside the
  * application with HTTP 503 — `robots.txt`, and an invented `nope.txt` alike,
@@ -177,7 +182,7 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  * it usually means a server that is down; here it is the absence of a file,
  * and the flag says so for this host only.
  */
-export const CARTDS_INSTANCES = Object.freeze([
+const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
   Object.freeze({
     key: 'mamp',
     base: 'https://mamp.geosphere.fr/guichet-unique',
@@ -258,6 +263,7 @@ export const CARTDS_INSTANCES = Object.freeze([
     label: 'Le Cotentin — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
     codes: 'number',
     robots: 'overridden',
+    intermediate: 'sectigo-dv-r36',
     communes: Object.freeze(['50082', '50129', '50238', '50041', '50480', '50643']),
   }),
   Object.freeze({
@@ -372,6 +378,21 @@ export const CARTDS_INSTANCES = Object.freeze([
 ]);
 
 /**
+ * Every instance read: the documented ones above, then the ones
+ * `npm run permits:scan` found (`cartdsScanned.js`).
+ *
+ * THE SCAN. Most instances run on one hosting family, `<tenant>.geosphere.fr`,
+ * and the Wayback Machine and the DNS name the tenants. Asking each of them
+ * for its board, on 2026-10-01, found 303 boards among 389 hosts; the scan
+ * keeps a commune when its board posted within three months and no other
+ * register reads it, and writes the result to its own module so that running
+ * it again each quarter is a diff, not an edit. The instances above stay
+ * written by hand because each carries something a scan cannot know — a
+ * missing certificate, a front that answers 503 for a missing file.
+ */
+export const CARTDS_INSTANCES = Object.freeze([...CARTDS_DOCUMENTED_INSTANCES, ...CARTDS_SCANNED_INSTANCES]);
+
+/**
  * The instance that posts for this commune, or null.
  * @param {?string} communeCode INSEE code.
  * @returns {?object} One of {@link CARTDS_INSTANCES}.
@@ -390,8 +411,9 @@ export function cartdsInstanceFor(communeCode) {
  */
 export function cartdsCommuneValue(instance, insee) {
   const code = String(insee ?? '').trim().toUpperCase();
-  if (instance.codes !== 'number') return code;
-  return String(Number.parseInt(code.slice(-3), 10));
+  if (instance.codes === 'number') return String(Number.parseInt(code.slice(-3), 10));
+  if (instance.codes === 'unpadded') return code.replace(/^0+/, '');
+  return code;
 }
 
 /** @param {object} instance @returns {string} The board's page. */

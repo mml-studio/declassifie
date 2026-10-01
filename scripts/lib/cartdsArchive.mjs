@@ -55,7 +55,8 @@ export const CARTDS_SWEEP_STAMP = 'sweep.json';
  * `CARTDS_INSTANCES` and `PERMIT_LISTS`).
  *
  * `sectigo-dv-r36`: Sectigo Public Server Authentication CA DV R36, which
- * signs the `pemb.fr` hosts' certificate and is signed by Sectigo Public
+ * signs the certificate of the `pemb.fr` hosts and of `ads.lecotentin.fr`
+ * (renewed 2026-09-30, sent without it) and is signed by Sectigo Public
  * Server Authentication Root R46, a root Node ships. Downloaded on 2026-10-01
  * from the address those certificates name
  * (`http://crt.sectigo.com/SectigoPublicServerAuthenticationCADVR36.crt`);
@@ -204,7 +205,8 @@ export async function cartdsRobotsVerdict(instance, http) {
   if (response.status >= 400) return { allowed: true, final: true };
   const body = await http.text(response, ROBOTS_MAX_BYTES);
   if (body === null) return { allowed: false, final: false };
-  const base = new URL(instance.base).pathname;
+  // A board at the root of its host has `/` for a path, not a prefix.
+  const base = new URL(instance.base).pathname.replace(/\/$/, '');
   return {
     allowed: robotsAllows(body, `${base}${CARTDS_PAGE_PATH}`) && robotsAllows(body, `${base}${CARTDS_DATA_PATH}`),
     final: true,

@@ -77,6 +77,18 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   favourable decision since 2006, on its cadastral parcel, the ones that
   create no floor area included. The file gives the filing year and no date;
   a permit Sitadel already holds on the same parcel is not drawn twice.
+- **« Urbanisme » now shows the permits of 2 239 more communes days after the
+  fact: 5.3 million more inhabitants, 17.5 % of the population instead of
+  9.7 %.** They were found by asking the posting platforms which communes they
+  serve rather than reading the communes' sites one by one: 168 Cart@DS boards
+  with 1 230 communes — Colmar, Saint-Malo, Carcassonne, Saint-Denis and its
+  Plaine Commune neighbours, Massy, Bobigny, Hyères, La Seyne-sur-Mer, Douai,
+  Istres, Tournefeuille, Fontainebleau, the Grand Dole's 70 communes — and
+  Sirap's shared filing portal with 1 009 communes, Cholet, Garges-lès-Gonesse,
+  Sens, Villeneuve-la-Garenne, Carpentras and Saint-Gratien among them. Of
+  the 1 000 most populous communes, 176 are now covered instead of 79.
+  `npm run permits:scan` runs the search again; it is meant to run each
+  quarter.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at
@@ -526,6 +538,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **The six communes of the Cotentin stopped updating on 2026-09-30, the day
+  the agglomeration renewed its certificate**: the new one is served without
+  the Sectigo intermediate that signed it, so the board answered every request
+  with a TLS error and the daily archive kept nothing new (6 of 129 communes
+  failed on staging that night). The server now supplies that intermediate, as
+  it already did for the four Val-de-Marne boards; read again on 2026-10-01,
+  740 postings across the six communes.
 - **Turning on the defibrillators of « Santé & secours » (“Health &
   emergency services”) flashed LOAD FAILED and drew none**, anywhere in
   France: on 2026-10-01 GeoDAE replaced its two hours columns with one

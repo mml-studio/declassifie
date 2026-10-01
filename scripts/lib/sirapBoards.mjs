@@ -137,10 +137,14 @@ export async function sweepSirapArchive({
     failed: [],
     unsaved: [],
   };
+  // One verdict per host and sweep: Sirap's shared portal carries a thousand
+  // instances, one per commune, and every board sits under the same path.
+  const verdicts = new Map();
   for (const instance of instances) {
     summary.communes += instance.communes.length;
-    const verdict = await robots(instance);
-    if (!verdict.allowed) { summary.refused.push(instance.key); continue; }
+    const origin = new URL(instance.base).origin;
+    if (!verdicts.has(origin)) verdicts.set(origin, await robots(instance));
+    if (!verdicts.get(origin).allowed) { summary.refused.push(instance.key); continue; }
     for (const insee of instance.communes) {
       const answer = await readSirapCommune(instance, insee, paced);
       if (!answer) { summary.failed.push(insee); continue; }

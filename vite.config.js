@@ -27650,10 +27650,24 @@ function adsFranceProxy() {
    * the only reason this register is read: a commune posts a decision 0 to 7
    * days after signing it, and a week of cache would hand most of that back.
    * Four reads a day is also as often as a map has any business knocking on a
-   * municipal service's door. Bounded by `CARTDS_INSTANCES` — 194 communes —
-   * so the map needs no eviction.
+   * municipal service's door.
    */
   const CARTDS_TTL_MS = 6 * 60 * 60 * 1000;
+  /**
+   * Communes kept in memory, per board family. A placed commune
+   * weighs about 500 KB (six on disk, 2026-10-01), and since the scan of
+   * 2026-10-01 the registries hold 2 489 communes: kept unbounded, a client
+   * walking the map from commune to commune could pin more than a gigabyte.
+   * The disk copy (`ADDRESS_CACHE_DIR`) still answers an evicted commune
+   * without asking its board again.
+   */
+  const POSTED_COMMUNES_MAX = 300;
+  /** LRU-ish insert (Map preserves insertion order; evict the oldest). */
+  function rememberPostedCommune(map, insee, entry) {
+    map.delete(insee);
+    if (map.size >= POSTED_COMMUNES_MAX) map.delete(map.keys().next().value);
+    map.set(insee, entry);
+  }
   /** A host's `robots.txt` verdict, re-read daily. */
   const CARTDS_ROBOTS_TTL_MS = 24 * 60 * 60 * 1000;
   const CARTDS_TIMEOUT_MS = 20_000;
@@ -27863,7 +27877,7 @@ function adsFranceProxy() {
             const stat = await fsp.stat(diskPath);
             if (Date.now() - stat.mtimeMs < CARTDS_TTL_MS) {
               const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
-              cartdsCommunes.set(insee, disk);
+              rememberPostedCommune(cartdsCommunes, insee, disk);
               return disk;
             }
           } catch { /* no disk copy yet */ }
@@ -27874,7 +27888,7 @@ function adsFranceProxy() {
           // this scan and not kept: kept, it would stand for six hours as the
           // commune's answer.
           if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
-          cartdsCommunes.set(insee, fresh);
+          rememberPostedCommune(cartdsCommunes, insee, fresh);
           try {
             await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
             await fsp.writeFile(diskPath, JSON.stringify(value));
@@ -27894,8 +27908,8 @@ function adsFranceProxy() {
   /**
    * One commune's boards, read, archived, folded and placed — the Cart@DS
    * path above for the other family of boards (`sirapFeed.js`). Same six
-   * hours and for the same reason; bounded by `SIRAP_INSTANCES`, 56 communes,
-   * so the map needs no eviction.
+   * hours and for the same reason, and the same bound in memory
+   * (`POSTED_COMMUNES_MAX`).
    */
   const SIRAP_TTL_MS = 6 * 60 * 60 * 1000;
   /** Bumped whenever a cached commune's SHAPE changes; see `loadEdition`. */
@@ -28010,7 +28024,7 @@ function adsFranceProxy() {
             const stat = await fsp.stat(diskPath);
             if (Date.now() - stat.mtimeMs < SIRAP_TTL_MS) {
               const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
-              sirapCommunes.set(insee, disk);
+              rememberPostedCommune(sirapCommunes, insee, disk);
               return disk;
             }
           } catch { /* no disk copy yet */ }
@@ -28020,7 +28034,7 @@ function adsFranceProxy() {
           // board that did not answer, or a geocode our pacing refused, is
           // served to this scan and not kept.
           if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
-          sirapCommunes.set(insee, fresh);
+          rememberPostedCommune(sirapCommunes, insee, fresh);
           try {
             await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
             await fsp.writeFile(diskPath, JSON.stringify(value));
