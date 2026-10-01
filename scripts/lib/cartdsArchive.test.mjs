@@ -12,6 +12,7 @@ import {
   cartdsRobotsVerdict,
   cartdsSweepDue,
   createCartdsArchiveStore,
+  readCartdsBoard,
   readCartdsSweepStamp,
   sweepCartdsArchive,
   trustCartdsIntermediates,
@@ -247,4 +248,23 @@ test('the intermediates are added to the default CA list once, after what is alr
   // Instances that need none leave the list alone.
   assert.deepEqual(trustCartdsIntermediates([OPEN, SHUT], tlsApi), []);
   assert.equal(sets, 1);
+});
+
+test('a board\'s POST names the page it comes from, as the page\'s own form does', async () => {
+  const seen = [];
+  const http = {
+    async fetch(url, init = {}) {
+      seen.push(init.headers ?? {});
+      // A front that refuses a POST from nowhere, as Grand Reims's does.
+      const ok = init.headers?.Referer === 'https://open.example/guichet-unique/Login/AffichageReglementaire'
+        && init.headers?.Origin === 'https://open.example';
+      return ok
+        ? { ok: true, status: 200, body: JSON.stringify({ recordsTotal: 1, data: [ROW('DP 013 114 26 00167')] }) }
+        : { ok: false, status: 403, body: 'Forbidden' };
+    },
+    async text(res) { return res.body; },
+  };
+  const answer = await readCartdsBoard(OPEN, '114', '1', { token: 't', cookie: 'c=1' }, http);
+  assert.equal(answer.rows.length, 1);
+  assert.equal(seen[0]['User-Agent'], undefined, 'the caller\'s user agent is left alone');
 });

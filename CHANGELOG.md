@@ -6,6 +6,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Five communes of the Grand Reims now show their permits days after the
+  fact**: Bétheny, Cormicy, Hermonville, Taissy and Witry-lès-Reims, from the
+  urban community's own Cart@DS board, which the platform scan could not see
+  (161 rows on 2026-10-01). Reims itself is not on it.
 - **« Urbanisme » (“Planning”) now shows the permits 129 communes post
   themselves**, days after the fact: every filing notice and every decision
   on their Cart@DS « affichage réglementaire » board, the déclarations
