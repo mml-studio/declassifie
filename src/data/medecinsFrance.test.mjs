@@ -7,11 +7,15 @@
 // availability, a headcount, or a precision BAN did not return.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as Cesium from 'cesium';
 
 import medecinsFranceLayer, {
   APL_BINS,
   FAMILY_COLORS,
   MEDECINS_FR_LAYER_ID,
+  MEDECINS_SITES_BAND,
+  medecinsLevelAlphas,
+  planMedecinsLevels,
   aplBin,
   boxKey,
   buildDepartementCard,
@@ -21,7 +25,10 @@ import medecinsFranceLayer, {
   selectLabelCohort,
   tariffLine,
 } from './medecinsFrance.js';
-import { MEDECIN_FAMILIES } from './medecinsFrFeed.js';
+import { MEDECIN_FAMILIES, MEDECINS_MAX_BOX_DEG } from './medecinsFrFeed.js';
+import { _resetZoomFadeForTest, getZoomFadeDiagnostics } from './zoomFade.js';
+import { _resetRenderGovernorForTest } from '../renderGovernor.js';
+import { _resetJoinsForTest } from './layerJoins.js';
 
 const SPECIALITES = { '01': 'Médecin généraliste', 15: 'Ophtalmologiste', '06': 'Radiologue' };
 const PRECISION = ['numero', 'voie', 'lieu-dit', 'commune'];
@@ -255,4 +262,186 @@ test('a card opened across a server rebuild asks to be reopened instead of guess
   const card = buildSiteCard(site(), null, { specialites: SPECIALITES, precision: PRECISION, names: 'stale' });
   assert.match(card, /Annuaire mis à jour/);
   assert.ok(!card.includes('Dr '), 'no name from another pack may reach the card');
+});
+
+// --- Fade on zoom -------------------------------------------------------------
+
+test('the practices band starts where `/sites` stops refusing the box, one zoom level and a half wide', () => {
+  assert.deepEqual({ ...MEDECINS_SITES_BAND }, { fine: 0.36, coarse: 0.6 });
+  // `/sites` takes the camera box unpadded and answers 413 above 0.6° on either
+  // axis: the coarse end IS the ceiling, so the request is unchanged.
+  assert.equal(MEDECINS_SITES_BAND.coarse, MEDECINS_MAX_BOX_DEG);
+  const ratio = MEDECINS_SITES_BAND.coarse / MEDECINS_SITES_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+});
+
+test('a settled view inside the band loads the mesh and the practices, and a view outside drops the other', () => {
+  const inBand = planMedecinsLevels({ lat: 0.3, max: 0.5 });
+  assert.deepEqual([inBand.mesh, inBand.sites, inBand.dominant], [true, true, 'sites']);
+  // A tall-and-narrow view at 0.5° of latitude but 0.8° of longitude is wider
+  // than `/sites` answers: the mesh, as the old latitude test fell back to.
+  const wide = planMedecinsLevels({ lat: 0.5, max: 0.8 });
+  assert.deepEqual([wide.mesh, wide.sites, wide.dominant], [true, false, 'mesh']);
+  // The mesh's own dots are gone by 0.6 × 0.6^0.7 = 0.420°.
+  const close = planMedecinsLevels({ lat: 0.2, max: 0.41 });
+  assert.deepEqual([close.mesh, close.sites, close.dominant], [false, true, 'sites']);
+  assert.equal(planMedecinsLevels({ lat: 0.2, max: 0.43 }).mesh, true);
+  // The key changes hands where the weights cross, 0.539°.
+  assert.equal(planMedecinsLevels({ lat: 0.3, max: 0.55 }).dominant, 'mesh');
+  assert.equal(planMedecinsLevels({ lat: 0.3, max: 0.53 }).dominant, 'sites');
+  const national = planMedecinsLevels({ lat: 9.6, max: 20 });
+  assert.deepEqual([national.national, national.mesh, national.sites], [true, false, false]);
+});
+
+test('the APL map and the practices still change on a hard cut that never blanks', () => {
+  for (const span of [0.3, 0.5, 2, 9, 12]) {
+    for (const regime of ['national', 'mesh', 'sites']) {
+      for (const nationalReady of [false, true]) {
+        for (const pointsReady of [false, true]) {
+          const alphas = medecinsLevelAlphas(span, {
+            regime, nationalReady, pointsReady, meshReady: pointsReady, sitesReady: pointsReady, sitesArrival: 0.5,
+          });
+          assert.ok(alphas.national === 0 || alphas.national === 1, `national ${alphas.national}`);
+          assert.ok(alphas.points === 0 || alphas.points === 1, `points ${alphas.points}`);
+        }
+      }
+    }
+  }
+  assert.equal(medecinsLevelAlphas(2, { regime: 'mesh', nationalReady: true }).national, 1, 'held until the dots land');
+  assert.equal(medecinsLevelAlphas(12, { regime: 'national', pointsReady: true, meshReady: true }).mesh, 1, 'held until painted');
+});
+
+test('across the band a practice both levels draw never fades', () => {
+  const both = { regime: 'sites', nationalReady: true, pointsReady: true, meshReady: true, sitesReady: true };
+  let previous = { mesh: 2, sites: -1 };
+  for (let span = 0.62; span >= 0.34; span -= 0.01) {
+    const alphas = medecinsLevelAlphas(span, both);
+    assert.equal(alphas.shared, 1, `shared dipped at ${span}`);
+    assert.ok(alphas.mesh <= previous.mesh && alphas.sites >= previous.sites);
+    assert.ok(alphas.mesh + alphas.sites >= 1 - 1e-12, `dipped at ${span}`);
+    previous = alphas;
+  }
+  assert.equal(medecinsLevelAlphas(0.51, both).sites, 1, 'in at full strength by 0.515°');
+});
+
+// One pack of five practices. The mesh writes one tuple per pack line, in pack
+// order — the join this layer relies on.
+const PACK_ID = 'pack-test';
+const practice = (lat, lon, practitioners = 1) => [
+  lat, lon, 0, '75056', '75001', 'PARIS', '1 RUE DE RIVOLI', '', 'liberal', [['01', practitioners]], practitioners, '',
+];
+const PACK_SITES = [
+  practice(48.85, 2.35), practice(48.86, 2.34), practice(48.87, 2.33), practice(48.88, 2.32), practice(48.89, 2.31),
+];
+const ONE_DEPARTEMENT = {
+  type: 'FeatureCollection',
+  features: [{
+    type: 'Feature',
+    properties: { code: '75', nom: 'Paris' },
+    geometry: { type: 'Polygon', coordinates: [[[2.2, 48.8], [2.5, 48.8], [2.5, 48.95], [2.2, 48.95], [2.2, 48.8]]] },
+  }],
+};
+
+/** `/sites` answers lines 0, 1 and 4 — and 4 is not in the mesh this test serves. */
+function medecinsFetch() {
+  const json = (body) => ({ ok: true, status: 200, json: async () => body });
+  return async (url) => {
+    const href = String(url);
+    if (href.endsWith('departements.geojson')) return json(ONE_DEPARTEMENT);
+    if (href.startsWith('/api/medecins-fr/national')) {
+      return json({ etablissements: [], apl: { departements: { 75: [3.1, 3, 2.9, 2.8, 2_100_000] } }, departements: {} });
+    }
+    if (href.startsWith('/api/medecins-fr/mesh')) {
+      // Lines 0-3 only: line 4 stands for a practice the mesh does not hold.
+      return json({ packId: PACK_ID, sites: PACK_SITES.slice(0, 4).map((site) => [site[0], site[1], site[10], 0]) });
+    }
+    if (href.startsWith('/api/medecins-fr/sites')) {
+      return json({ packId: PACK_ID, sites: [0, 1, 4].map((index) => ({ index, site: PACK_SITES[index] })), truncated: false });
+    }
+    throw new Error(`unexpected ${href}`);
+  };
+}
+
+/** A viewer whose camera sees a box, with a preRender event the fade listens to. */
+function fakeViewer() {
+  const listeners = new Set();
+  const viewer = {
+    rect: null,
+    primitives: [],
+    look(south, west, north, east) {
+      const r = Cesium.Math.toRadians;
+      viewer.rect = new Cesium.Rectangle(r(west), r(south), r(east), r(north));
+    },
+    camera: {
+      computeViewRectangle: () => viewer.rect,
+      positionCartographic: { height: 60_000 },
+    },
+    scene: {
+      frameState: { mode: Cesium.SceneMode.SCENE3D },
+      globe: { ellipsoid: Cesium.Ellipsoid.WGS84 },
+      requestRenderMode: true,
+      requestRender() {},
+      primitives: { add: (primitive) => { viewer.primitives.push(primitive); return primitive; }, remove: () => true },
+      preRender: { addEventListener: (fn) => { listeners.add(fn); return () => listeners.delete(fn); } },
+    },
+    dataSources: { add: async () => {}, remove: () => {} },
+    render() { for (const fn of [...listeners]) fn(); },
+  };
+  return viewer;
+}
+
+const ids = (collection) => Array.from({ length: collection.length }, (_, i) => collection.get(i).id).sort();
+
+test('a view inside the band draws each practice once: shared, practices-only and mesh-only', async (t) => {
+  t.after(() => { _resetZoomFadeForTest(); _resetRenderGovernorForTest(); _resetJoinsForTest(); });
+  const viewer = fakeViewer();
+  viewer.look(48.6, 2.1, 49.1, 2.6); // 0.5°: inside the band, the practices dominant
+  const layer = createMedecinsLayer({
+    overlayHost: { setEntries() {}, clearSource() {}, setVisible() {} },
+    fetchImpl: medecinsFetch(),
+  });
+  layer.init(viewer);
+  await layer.enable();
+  const [mesh, practices, shared] = viewer.primitives;
+  // Lines 0 and 1 are in both levels: drawn once, as the practice, in the shared class.
+  assert.deepEqual(ids(shared), ['medecins-fr:site:0', 'medecins-fr:site:1']);
+  // Line 4 only the practices hold; lines 2 and 3 only the mesh holds.
+  assert.deepEqual(ids(practices), ['medecins-fr:site:4']);
+  assert.deepEqual(ids(mesh), ['medecins-fr:site:2', 'medecins-fr:site:3']);
+  // The practices own the count: their three, not the five marks on screen.
+  assert.equal(layer.getStats().count, 3);
+  assert.equal(layer.getStats().regime, 'sites');
+
+  viewer.render();
+  const state = getZoomFadeDiagnostics().owners.find((owner) => owner.ownerId === MEDECINS_FR_LAYER_ID).state;
+  const expected = medecinsLevelAlphas(0.5, {
+    regime: 'sites', pointsReady: true, meshReady: true, sitesReady: true,
+  });
+  assert.equal(state.levels.shared, 1);
+  assert.equal(state.levels.sites, 1);
+  assert.ok(Math.abs(state.levels.mesh - expected.mesh) < 1e-12 && state.levels.mesh > 0);
+  assert.deepEqual(state.bands['mesh-sites'], { fine: 0.36, coarse: 0.6, unit: 'deg-max' });
+  assert.equal(state.dominant, 'sites');
+  assert.equal(shared.get(0).color.alpha, 1);
+  assert.equal(mesh.show, true);
+
+  // Closer: the settled view no longer wants the mesh, and once its dots are
+  // at zero they go — the shared practices stay where they were.
+  viewer.look(48.75, 2.2, 49.05, 2.5);
+  await layer.update();
+  viewer.render();
+  assert.equal(mesh.length, 0);
+  assert.equal(mesh.show, false);
+  assert.deepEqual(ids(shared), ['medecins-fr:site:0', 'medecins-fr:site:1']);
+  assert.equal(layer.getStats().count, 3);
+
+  // Out to France: the APL map takes the screen in one frame once painted,
+  // and the practices go with it.
+  viewer.look(41, -5, 51, 10);
+  await layer.update();
+  assert.equal(layer.getStats().regime, 'national');
+  assert.equal(practices.length + shared.length + mesh.length, 0);
+  const after = getZoomFadeDiagnostics().owners.find((owner) => owner.ownerId === MEDECINS_FR_LAYER_ID).state;
+  assert.deepEqual([after.levels.national, after.levels.sites, after.levels.shared], [1, 0, 0]);
+  layer.disable();
 });
