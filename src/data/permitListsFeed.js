@@ -85,6 +85,22 @@
  * l'urbanisme makes public, and the platform sets no barrier — no login, no
  * challenge, no cookie.
  *
+ * ── Trap 8: Limoges posts its decisions as scans ───────────────────────────
+ * Limoges publishes every act on DigiContent's « Arcade Portail », whose
+ * public JSON search answers without a key ({@link arcadeSearchUrl}): 647
+ * urbanism acts from 15 June to 1 October 2026, one per decision. The arrêté
+ * is a 600-dpi scan with no text, but its TITLE is the dossier number
+ * (`PC2600135_DECISION_SIGNEE`, `DP_ARRÊTÉ_2600984 ÉTAT`) and the act carries
+ * the day it was signed and the day it was published — so a decision is read
+ * without opening its file ({@link limogesDecisionRow}). Not its verdict: the
+ * shelf says « délivrés », but 5 of 27 arrêtés read by OCR on 2026-10-01 were
+ * no grant (one refused permit, three oppositions to a déclaration préalable,
+ * one withdrawal). So the row says what the title says, « Décision signée »,
+ * off the ladder, until Sitadel or nothing says more. The place comes from the
+ * other kind of act, a list of the dossiers filed over a month or two
+ * ({@link readLimogesList}): text, an address and no parcel, folded onto the
+ * decision by its number.
+ *
  * Dependency-free and side-effect-free (no Cesium, no DOM, no fetch): link
  * discovery, table reading and normalisation only. The `/api/ads-fr` proxy and
  * `scripts/lib/permitLists.mjs` import it; nothing in the browser bundle does.
@@ -133,7 +149,8 @@ export const PERMIT_LIST_BOARDS = Object.freeze({ filings: 'filings', decisions:
  * but Lyon's lets a robot read the pages and the files (Trap 7).
  *
  * `source` says how the lists are found: absent, from the links of `page`;
- * `webdelib`, as acts on a Webdelib+ platform (Trap 6). `underReview` says the
+ * `webdelib`, as acts on a Webdelib+ platform (Trap 6); `arcade`, as acts on
+ * an Arcade portal, decisions by their titles (Trap 8). `underReview` says the
  * list of filings is a list of dossiers still under review (Trap 3).
  *
  * `communes` is every code the BAN may answer for the city: Marseille's
@@ -323,6 +340,15 @@ export const PERMIT_LISTS = Object.freeze([
         }),
       ]),
     }),
+    lists: Object.freeze([]),
+  }),
+  Object.freeze({
+    key: 'limoges',
+    insee: '87085',
+    label: 'Ville de Limoges — autorisations d’urbanisme déposées et décidées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://actesreglementaires.limoges.fr/arcade/',
+    // DigiContent's « Arcade Portail », its acts searched as JSON (Trap 8).
+    source: Object.freeze({ kind: 'arcade', base: 'https://actesreglementaires.limoges.fr' }),
     lists: Object.freeze([]),
   }),
 ]);
@@ -2150,6 +2176,374 @@ export function readLaRochelleFilings(document) {
   return rows;
 }
 
+// --- Limoges: an Arcade portal, decisions by title, filings as tables (Trap 8)
+
+/**
+ * A Limoges number as its lists and its acts' titles spell it, Sitadel's way:
+ * `DP 87 085 2601030` on a list, `PC07C0325M04_DECISION_SIGNEE`,
+ * `DP_ARRÊTÉ_2600984 ÉTAT` and `DP 2600604 DECISION SIGNEE` in a title →
+ * `DP 087085 26 01030`, `PC 087085 07 C0325 M04`. The counter is five digits,
+ * or a letter and four (`07C0325`, `24A0002`) on the older series, as Sitadel
+ * writes it (`08708524C0181`). Three titles of 647 drop the year
+ * (`DP00782M02_…`) and are no number.
+ * @param {?string} raw
+ * @returns {?string}
+ */
+export function limogesDossier(raw) {
+  // i18n-ignore-next-line — the city's own title word, matched on
+  const match = /^(PC|DP|PA|PD|CU)[\s_]*(?:87\s?085\s*)?(?:ARR[ÊE]T[ÉE][\s_]*)?(\d{2})\s?([A-Z]?\d{4,5})(?!\d)(?:\s*([MT])\s*(\d{1,2})(?!\d))?/i
+    .exec(text(raw) ?? '');
+  if (!match) return null;
+  const [, kind, year, counter, step, rank] = match;
+  const number = /^\d+$/.test(counter) ? counter.padStart(5, '0') : counter.toUpperCase();
+  const suffix = step ? ` ${step.toUpperCase()}${rank.padStart(2, '0')}` : '';
+  return `${kind.toUpperCase()} 087085 ${year} ${number}${suffix}`;
+}
+
+/**
+ * An Arcade portal's urbanism acts, newest first, a page at a time. The
+ * search is the one the portal's own pages send; 200 acts a page is two
+ * weeks of Limoges's in a busy month.
+ * @param {object} city A city whose `source.kind` is `arcade`.
+ * @param {{page?: number, size?: number}} [options]
+ */
+export function arcadeSearchUrl(city, { page = 0, size = 200 } = {}) {
+  const params = new URLSearchParams({
+    viewName: 'fileViewer',
+    filter: 'entityType.code = ACTE,parameters.ACTE_TYPE = Urbanisme',
+    page: String(page),
+    size: String(size),
+    sort: 'id,desc',
+  });
+  return `${city.source.base}/public/api/entities/search/findBySpecification?${params}`;
+}
+
+/** The files an act holds: an act is a folder, its PDF a child of it. */
+export function arcadeFilesUrl(city, id) {
+  const params = new URLSearchParams({ viewName: 'fileViewer', filter: `parent.id = ${id}`, page: '0', size: '10' });
+  return `${city.source.base}/public/api/entities/search/findBySpecification?${params}`;
+}
+
+/** A file's bytes, by the content id the search gives it. */
+export function arcadeContentUrl(city, contentId) {
+  return `${city.source.base}/arcade/api/entities/content/${encodeURIComponent(contentId)}`;
+}
+
+/**
+ * The address an act's rows are kept under once read: never fetched, the
+ * act's own place in the portal, which a new edition does not reuse.
+ */
+export function arcadeActUrl(city, id) {
+  return `${city.source.base}/public/api/entities/${id}`;
+}
+
+/** `20260928000000` → `2026-09-28`; Limoges's one `00260605000000` is no day. */
+function arcadeDay(value) {
+  const match = /^(\d{4})(\d{2})(\d{2})/.exec(String(value ?? ''));
+  if (!match) return null;
+  const year = Number(match[1]);
+  return year >= 1970 && year <= 2100 ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+/**
+ * One page of an Arcade search as acts: the id, the title, the shelf it is
+ * published on (`Permis de construire délivrés`, `Autorisations déposées`),
+ * the day it was signed and the day it was published.
+ * @param {*} json
+ * @returns {?{acts: Array<{id: number, title: string, shelf: ?string, actOn: ?string,
+ *   publishedOn: ?string}>, last: boolean}} Null for an answer that is not a page of acts.
+ */
+export function arcadeActs(json) {
+  if (!Array.isArray(json?.content)) return null;
+  const acts = [];
+  for (const entity of json.content) {
+    const values = Object.fromEntries((entity?.parameters ?? []).map((parameter) => [parameter?.propertyTypeCode, parameter?.value]));
+    const title = text(values.ACTE_TITLE);
+    if (!Number.isInteger(entity?.id) || !title) continue;
+    acts.push({
+      id: entity.id,
+      title,
+      shelf: text(values.ACTE_CRAP_PLCL_URBA),
+      actOn: arcadeDay(values.ACTE_DATE_ACT) ?? arcadeDay(values.ACTE_RAP_DATE_SIGN),
+      publishedOn: arcadeDay(values.ACTE_CRAP_DATE_PUB) ?? arcadeDay(String(entity.publicationDate ?? '').replace(/-/g, '')),
+    });
+  }
+  const { number, totalPages } = json.page ?? {};
+  return { acts, last: !Number.isInteger(number) || !Number.isInteger(totalPages) || number >= totalPages - 1 };
+}
+
+/**
+ * The PDF an act holds, out of its files' answer, or null.
+ * @param {*} json
+ * @returns {?string} Its content id.
+ */
+export function arcadeFileContent(json) {
+  const file = (Array.isArray(json?.content) ? json.content : [])
+    .find((entity) => entity?.mimeType === 'application/pdf' && text(entity.contentId));
+  return file ? text(file.contentId) : null;
+}
+
+/**
+ * Whether an act is a list of filings rather than a decision: its shelf
+ * (`Autorisations déposées`) or its title (`LISTE DU 01.09.26 AU 25.09.26`,
+ * `AFFICHAGE JUILLET-AOUT 26`, posted under `Documents d'urbanisme`).
+ */
+export function arcadeIsList(act) {
+  // i18n-ignore-next-line — the city's own shelf and title words, matched on
+  return /^autorisations d[ée]pos[ée]es$/i.test(act?.shelf ?? '') || /^(liste|affichage)\b/i.test(act?.title ?? '');
+}
+
+/** What a Limoges decision says of itself: the title's words, off the ladder (Trap 8). */
+// i18n-ignore-next-line — a verdict in the payload's French, as published verdicts are
+export const LIMOGES_VERDICT = 'Décision signée';
+
+/**
+ * One Limoges decision act as a row, from its title and its days alone, or
+ * null for an act that is no decision on a numbered dossier.
+ * @param {{title: string, actOn: ?string, publishedOn: ?string}} act From {@link arcadeActs}.
+ * @returns {?object}
+ */
+export function limogesDecisionRow(act) {
+  if (arcadeIsList(act)) return null;
+  const dossier = limogesDossier(act?.title);
+  if (!dossier) return null;
+  return {
+    board: PERMIT_LIST_BOARDS.decisions, dossier, label: null, purpose: null, applicant: null,
+    address: null, postcode: null, locality: null, filedOn: null, verdict: LIMOGES_VERDICT,
+    decidedOn: act.actOn ?? null, postedOn: act.publishedOn ?? null,
+    landArea: null, housing: null, lots: null, floorArea: null, parcels: null,
+  };
+}
+
+/** Limoges's list headers, folded, and the fields they name. */
+const LIMOGES_HEADERS = Object.freeze({
+  // i18n-ignore-start — the lists' own header words, matched on
+  NUMERO: 'dossier',
+  DEMANDEUR: 'applicant',
+  'ADRESSE TRAVAUX': 'address',
+  'NATURE DES TRAVAUX': 'purpose',
+  'DEPOSE LE': 'filedOn',
+  // i18n-ignore-end
+});
+
+/** A number as a Limoges list prints it, alone in its cell. */
+const LIMOGES_LIST_NUMBER_RE = /^(PC|DP|PA|PD|CU)\s+87\s?085\s+\d{2}\s?[A-Z]?\d{4,5}(?:\s*[MT]\d{1,2})?$/i;
+
+/**
+ * The lines of a column, each given to the row whose middle its cell is
+ * centred on.
+ *
+ * A cell centred on its row reaches as far above the row's number as below
+ * it, however many lines it has, so neither the nearest number nor the gaps
+ * between lines will do: a description of fourteen lines and two blank ones
+ * reaches past the numbers of the rows above and below (Limoges, 1 September
+ * 2026). Each row takes a run of consecutive lines, in order, and the runs are
+ * chosen together so that each is centred on its number as closely as may be
+ * — a little of each run's height added, so that three one-line cells are
+ * never read as one three-line cell centred on the middle number, and a line's
+ * spacing for a row left empty, so that a row is not emptied to centre its
+ * neighbour's cell better: a cell may sit half a line off its middle, Excel
+ * counting a trailing blank line (`… remise en peinture` / ``, page 2 of the
+ * September list).
+ *
+ * @param {Array<number>} lineYs The lines' heights, top to bottom.
+ * @param {Array<number>} anchorYs The rows' numbers' heights, top to bottom.
+ * @returns {Array<number>} For each line, the index of its row.
+ */
+export function centredRows(lineYs, anchorYs) {
+  const n = lineYs.length;
+  const m = anchorYs.length;
+  if (!n || !m) return lineYs.map(() => 0);
+  const gaps = lineYs.slice(1).map((y, i) => lineYs[i] - y).filter((gap) => gap > 1).sort((a, b) => a - b);
+  const empty = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 10;
+  const cost = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(Infinity));
+  const from = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(-1));
+  cost[0][0] = 0;
+  for (let k = 0; k < m; k += 1) {
+    for (let i = 0; i <= n; i += 1) {
+      const base = cost[i][k];
+      if (base === Infinity) continue;
+      if (base + empty < cost[i][k + 1]) { cost[i][k + 1] = base + empty; from[i][k + 1] = i; }
+      for (let j = i + 1; j <= n; j += 1) {
+        const top = lineYs[i];
+        const bottom = lineYs[j - 1];
+        const next = base + Math.abs((top + bottom) / 2 - anchorYs[k]) + 0.05 * (top - bottom);
+        if (next < cost[j][k + 1]) { cost[j][k + 1] = next; from[j][k + 1] = i; }
+      }
+    }
+  }
+  const out = new Array(n).fill(0);
+  let i = n;
+  for (let k = m; k > 0; k -= 1) {
+    const start = from[i][k];
+    for (let line = start; line < i; line += 1) out[line] = k - 1;
+    i = start;
+  }
+  return out;
+}
+
+/**
+ * A run drawn across a column's edge, cut in two there: where capitals meet a
+ * capitalised word (`EXEMPLESRemplacement`) or a word runs into a number
+ * (`Paul8 RUE DES EXEMPLES`), or else at the start of the word nearest the
+ * edge, a house number first (`SAS EXEMPLE rue …`). The edge's place in the
+ * text is estimated from the run's width, evenly per character — capitals are
+ * wider, so the estimate runs late, and a
+ * cut further than a quarter of the run from it is no cut.
+ * @param {object} run
+ * @param {number} edge
+ * @returns {?Array<object>} The two runs, or null.
+ */
+function cutOverflow(run, edge) {
+  const value = String(run.text ?? '');
+  const width = run.x1 - run.x;
+  if (!(width > 0) || value.length < 2) return null;
+  const at = ((edge - run.x) / width) * value.length;
+  const near = (list) => list.reduce((best, i) => (best === null || Math.abs(i - at) < Math.abs(best - at) ? i : best), null);
+  const turns = [];
+  const starts = [];
+  for (let i = 1; i < value.length; i += 1) {
+    if (value[i - 1] === ' ' && value[i] !== ' ') starts.push(i);
+    if ((/[A-Z0-9]/.test(value[i - 1]) && /[A-ZÉ]/.test(value[i]) && /[a-zàâçéèêëîïôûùüœ]/.test(value[i + 1] ?? ''))
+      || (/[a-zàâçéèêëîïôûùüœ]/.test(value[i - 1]) && /\d/.test(value[i]))) turns.push(i);
+  }
+  const fits = (i) => i !== null && Math.abs(i - at) <= value.length / 4;
+  // A site starts with its house number: a word that starts with a digit is
+  // the likelier edge than the nearest word (`Paul 8 RUE`, not `RUE`).
+  const digits = starts.filter((i) => /\d/.test(value[i]));
+  const cut = [near(turns), near(digits), near(starts)].find(fits) ?? null;
+  if (cut === null) return null;
+  return [{ ...run, x1: edge, text: value.slice(0, cut).trim() }, { ...run, x: edge, text: value.slice(cut).trim() }];
+}
+
+/**
+ * An applicant cell's lines, a name cut after a word that needs the next one
+ * joined to it (`Commune de` / `Limoges`): the applicant is the first line,
+ * the name of a person or a company, and a contact's first name under it is
+ * never joined.
+ * @param {?Array<string>} cellLines
+ * @returns {Array<string>}
+ */
+function limogesApplicantLines(cellLines) {
+  const out = [];
+  for (const line of (cellLines ?? []).map((value) => text(value)).filter(Boolean)) {
+    // i18n-ignore-next-line — French connectives, matched on
+    if (out.length && /\b(?:de|du|des|d['’]|la|le|les|et|&)$/i.test(out.at(-1))) out[out.length - 1] = `${out.at(-1)} ${line}`;
+    else out.push(line);
+  }
+  return out;
+}
+
+/**
+ * Limoges's list of the dossiers filed over a month or two, an Excel sheet:
+ * number, applicant, site, works and filing day, every cell centred on its
+ * row ({@link centredRows}), the header on the first page only.
+ *
+ * TWO PRINTINGS. The list of 1-25 September 2026 holds the five columns on
+ * one page; the July-August one was printed two pages wide, Excel's way: the
+ * number, applicant and site of every row down seventeen pages, then the
+ * works and the filing day of the same rows down seventeen more, at the same
+ * heights. A page with no number is such a second half; the k-th of them
+ * finishes the k-th page with numbers, its rows matched by height.
+ *
+ * A NUMBER MAY WRAP, its step on the line under it (`PC 87 085 21C0042` /
+ * `M03`): the two lines are one cell, centred like the others, so the row's
+ * middle is between them. A SITE MAY OVERFLOW into the works, drawn as one run
+ * (`12 AVENUE DES EXEMPLESRemplacement de menuiserie…`, two rows of 114):
+ * cut where the capitals end, at the column's edge.
+ *
+ * @param {?{pages: Array<{runs: Array<object>}>}} document
+ * @returns {Array<object>} Rows of {@link PERMIT_LIST_FIELDS}, raw.
+ */
+export function readLimogesList(document) {
+  const numbered = [];
+  const halves = [];
+  let numberColumns = null;
+  let restColumns = null;
+  for (const page of document?.pages ?? []) {
+    const runs = page.runs ?? [];
+    const heads = runs.filter((run) => Object.hasOwn(LIMOGES_HEADERS, fold(run.text)));
+    const bottom = heads.length ? Math.min(...heads.map((run) => run.y)) : Infinity;
+    if (heads.length) {
+      const columns = heads.map((run) => ({ field: LIMOGES_HEADERS[fold(run.text)], x: run.x })).sort((a, b) => a.x - b.x);
+      if (columns.some((column) => column.field === 'dossier')) numberColumns = columns;
+      else restColumns = columns;
+    }
+    const body = runs.filter((run) => run.y < bottom - 1);
+    const numbers = body.filter((run) => LIMOGES_LIST_NUMBER_RE.test(text(run.text) ?? '')).sort((a, b) => b.y - a.y);
+    const anchors = numbers.map((run) => {
+      const step = body.find((other) => Math.abs(other.x - run.x) < 3 && run.y - other.y > 0
+        && run.y - other.y < 1.6 * (run.size || 11) && /^[MT]\d{1,2}$/i.test(text(other.text) ?? ''));
+      return step
+        ? { y: (run.y + step.y) / 2, text: `${text(run.text)} ${text(step.text)}`, runs: [run, step] }
+        : { y: run.y, text: text(run.text), runs: [run] };
+    });
+    if (anchors.length && numberColumns) numbered.push({ body, anchors, columns: numberColumns });
+    else if (!anchors.length && restColumns && body.length) halves.push({ body, columns: restColumns });
+  }
+  const rows = [];
+  numbered.forEach((page, k) => {
+    const cells = page.anchors.map(() => ({}));
+    const numberRuns = new Set(page.anchors.flatMap((anchor) => anchor.runs));
+    const fill = (body, columns) => {
+      const columnOf = (run) => {
+        let found = columns[0];
+        for (const column of columns) if (column.x <= run.x + 3) found = column;
+        return found.field;
+      };
+      const pieces = body.flatMap((run) => {
+        const next = columns.find((column) => column.x > run.x + 3);
+        return (next && run.x1 > next.x + 3 ? cutOverflow(run, next.x) : null) ?? [run];
+      });
+      const byField = {};
+      for (const run of pieces) {
+        if (numberRuns.has(run)) continue;
+        const field = columnOf(run);
+        if (field !== 'dossier') (byField[field] ??= []).push(run);
+      }
+      for (const [field, fieldRuns] of Object.entries(byField)) {
+        const fieldLines = [];
+        for (const run of [...fieldRuns].sort((a, b) => (b.y - a.y) || (a.x - b.x))) {
+          const line = fieldLines.at(-1);
+          if (line && Math.abs(line.y - run.y) < 1) line.text = `${line.text} ${run.text}`;
+          else fieldLines.push({ y: run.y, text: run.text });
+        }
+        const owners = centredRows(fieldLines.map((line) => line.y), page.anchors.map((anchor) => anchor.y));
+        fieldLines.forEach((line, i) => { (cells[owners[i]][field] ??= []).push(line.text); });
+      }
+    };
+    fill(page.body, page.columns);
+    // The second half only when it is one: as many pages, and its filing days
+    // level with this page's numbers.
+    const half = halves.length === numbered.length ? halves[k] : null;
+    const level = half?.body.filter((run) => page.anchors.some((anchor) => Math.abs(anchor.y - run.y) < 1)).length ?? 0;
+    if (half && level >= page.anchors.length / 2) fill(half.body, half.columns);
+    page.anchors.forEach((anchor, i) => {
+      const value = (field) => joined(cells[i][field]);
+      rows.push({
+        board: PERMIT_LIST_BOARDS.filings,
+        dossier: limogesDossier(anchor.text),
+        label: null,
+        purpose: value('purpose'),
+        applicant: gridApplicant(limogesApplicantLines(cells[i].applicant)),
+        address: value('address'),
+        postcode: null,
+        locality: null,
+        filedOn: listDay(value('filedOn')),
+        verdict: null,
+        decidedOn: null,
+        postedOn: null,
+        landArea: null,
+        housing: null,
+        lots: null,
+        floorArea: null,
+        parcels: null,
+      });
+    });
+  });
+  return rows;
+}
+
 /**
  * How a layout's files are turned into text, where it differs from the
  * default (`extractPdfText`'s options): Annecy's, printed from Firefox, draw
@@ -2174,6 +2568,7 @@ export const PERMIT_LIST_READERS = Object.freeze({
   'larochelle-filings': readLaRochelleFilings,
   // One file per decision: the file's title, handed in, gives the number.
   'larochelle-decision': readLaRochelleDecision,
+  limoges: readLimogesList,
   // The page's header says which of its two reports it is.
   clermont: (document) => [
     ...readBandTable(document, CLERMONT_DECISIONS),

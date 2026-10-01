@@ -486,3 +486,72 @@ test('a Liferay city reads each space\'s files once, a decision titled by its da
   const kept = await fsp.readFile(path.join(dir, (await fsp.readdir(dir))[0]), 'utf8');
   assert.ok(!kept.includes('DUPONT'), 'the title, which names the applicant, is never stored');
 });
+
+test('an Arcade city reads its decisions off the search and each list of filings once', async () => {
+  const dir = await tempDir();
+  const city = Object.freeze({
+    key: 'arc', insee: '87085', label: 'Arc — actes', page: 'https://arc.example/arcade/',
+    source: Object.freeze({ kind: 'arcade', base: 'https://arc.example' }),
+    lists: Object.freeze([]),
+  });
+  const param = (code, value) => ({ propertyTypeCode: code, value });
+  const act = (id, title, shelf, published) => ({
+    id,
+    parameters: [param('ACTE_TITLE', title), param('ACTE_CRAP_PLCL_URBA', shelf),
+      param('ACTE_DATE_ACT', published), param('ACTE_CRAP_DATE_PUB', published)],
+  });
+  const search = {
+    content: [
+      act(30, 'DP2601030_DECISION_SIGNEE', 'Déclarations préalables de travaux délivrées', '20260928000000'),
+      act(20, 'LISTE DU 01.09.26 AU 25.09.26', 'Autorisations déposées', '20260925000000'),
+      act(10, 'PC2500001_DECISION_SIGNEE', 'Permis de construire délivrés', '20260615000000'),
+    ],
+    page: { number: 0, totalPages: 1 },
+  };
+  const list = (() => {
+    const t = (x, y, words) => `BT /F1 11 Tf 1 0 0 1 ${x} ${y} Tm (${words}) Tj ET`;
+    const content = [
+      t(52.8, 529.6, 'Num\xe9ro'), t(147.9, 529.6, 'Demandeur'), t(236.6, 529.6, 'Adresse travaux'),
+      t(373.5, 529.6, 'Nature des travaux'), t(723.2, 529.6, 'D\xe9pos\xe9 le'),
+      t(52.8, 500.5, 'DP 87 085 2601030'), t(147.9, 500.5, 'SCI EXEMPLE'), t(236.6, 500.5, '8 RUE DES EXEMPLES'),
+      t(373.5, 500.5, 'Pergola'), t(723.2, 500.5, '01/09/2026'),
+    ].join('\n');
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Contents 4 0 R >>',
+      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+      '<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >>',
+    ];
+    let out = '%PDF-1.7\n';
+    objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+    return new Uint8Array(Buffer.from(`${out}trailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1'));
+  })();
+  const calls = [];
+  const http = {
+    async fetch(url) {
+      calls.push(url);
+      const ok = (payload) => ({ ok: true, status: 200, payload, body: { cancel: async () => {} }, headers: { get: () => null } });
+      const { pathname, searchParams } = new URL(url);
+      if (pathname === '/public/api/entities/search/findBySpecification') {
+        return searchParams.get('filter') === 'parent.id = 20'
+          ? ok(JSON.stringify({ content: [{ mimeType: 'application/pdf', contentId: 'c-20' }] }))
+          : ok(JSON.stringify(search));
+      }
+      if (pathname === '/arcade/api/entities/content/c-20') return ok(list);
+      return { ok: false, status: 404 };
+    },
+    text: async (r) => r.payload,
+    bytes: async (r) => r.payload,
+  };
+  const answer = await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
+  assert.deepEqual(answer.boards.decisions.map((cells) => [cells[0], cells[8], cells[9], cells[10]]),
+    [['DP 087085 26 01030', 'Décision signée', '2026-09-28', '2026-09-28']], 'the June decision is before the window');
+  assert.deepEqual(answer.boards.filings.map((cells) => [cells[0], cells[4], cells[7]]),
+    [['DP 087085 26 01030', '8 RUE DES EXEMPLES', '2026-09-01']]);
+  assert.equal(calls.length, 3, 'one search page, the list\'s files, its PDF');
+  calls.length = 0;
+  const again = await readPermitCity(city, http, { dir, months: 2, day: '2026-10-01' });
+  assert.equal(calls.length, 1, 'a list already read is not asked for again');
+  assert.equal(again.boards.filings.length, 1);
+});

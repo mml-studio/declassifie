@@ -28335,7 +28335,8 @@ function adsFranceProxy() {
    * list is megabytes of PDF where a board is kilobytes of JSON.
    */
   const permitListsHttp = {
-    fetch: (url, init = {}) => (/\.pdf$|\/showFile\.jsp$/i.test(new URL(url).pathname)
+    // Limoges's files are served by content id, with no extension.
+    fetch: (url, init = {}) => (/\.pdf$|\/showFile\.jsp$|\/api\/entities\/content\//i.test(new URL(url).pathname)
       ? permitListPdfFetch(url, init) : cartdsFetch(url, init)),
     text: cartdsText,
     bytes: async (response, maxBytes) => {

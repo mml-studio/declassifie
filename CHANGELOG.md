@@ -72,6 +72,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of filed dossiers since May, 889 rows, and the arrêté it posts for every
   decision, read for its verdict — 785 dossiers on 2026-10-01, 32 of them
   refused.
+- **Limoges now shows its permits days after the fact**: every decision it
+  posts as an act on its « Arcade » portal, 642 since 15 June 2026, read off
+  the act's title and days without opening the scanned arrêté, and its lists
+  of the dossiers filed in July, August and September, 399 rows with their
+  address. A decision whose filing is on a list is drawn at its address (281
+  on 2026-10-01). The verdict is not read: the shelf says « délivrés », but 5
+  of 27 arrêtés read by OCR were a refusal, an opposition or a withdrawal, so
+  the card says « Décision signée » until Sitadel says more.
 - **Montpellier and 27 communes of its métropole now show the permits they
   granted**, from the files the métropole exports every night: every
   favourable decision since 2006, on its cadastral parcel, the ones that

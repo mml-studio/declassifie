@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles and La Rochelle publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4875,6 +4875,36 @@ after the signature in the median — and the title, which names the
 applicant, is never stored. A four-digit counter is padded to Sitadel's five
 (`DP 17300 26 1032` → `0173002601032`). The file proxy is disallowed by
 `robots.txt` and read by the project's decision (`robots: 'overridden'`).
+
+**Limoges** posts every act on DigiContent's « Arcade Portail »
+(`actesreglementaires.limoges.fr`), whose public JSON search
+(`/public/api/entities/search/findBySpecification`, filter `entityType.code =
+ACTE,parameters.ACTE_TYPE = Urbanisme`, 200 a page, newest first) answers
+without a key: 647 urbanism acts from 15 June to 1 October 2026. A decision is
+one act whose arrêté is a 600-dpi scan with no text, so it is read off the
+act alone (`limogesDecisionRow`): the title is the number
+(`PC2600135_DECISION_SIGNEE`, `DP_ARRÊTÉ_2600984 ÉTAT`; three titles without
+their year are left out), `ACTE_DATE_ACT` the signature and
+`ACTE_CRAP_DATE_PUB` the posting — 47 of September's acts carry no signature
+day and keep the posting only. The verdict is not published: the shelves say
+« délivrés », but 5 of 27 arrêtés read by OCR on 2026-10-01 were a refused
+permit, three oppositions and a withdrawal, so the row says « Décision
+signée », off the ladder (state `depose`), and a Sitadel twin's grant wins
+the merge. The lists of filings are two more acts (`LISTE DU 01.09.26 AU
+25.09.26`, `AFFICHAGE JUILLET-AOUT 26`), one PDF each, fetched through the
+act's files (`parent.id`) and `/arcade/api/entities/content/<id>`, read once
+and kept under the act's address. They are Excel sheets whose cells are
+centred on their row: `readLimogesList` gives each column's lines to the rows
+by `centredRows`, a partition into consecutive runs each centred on its
+number — the nearest number fails on a description of fourteen lines — and
+joins the July-August file, printed two pages wide, half to half by height.
+All 399 numbers come out, 396 with their address (the three others print
+none). The decision and its filing fold on the number, the filing giving the
+address, the works and the day it was filed: 760 dossiers over the twelve
+months, 396 placeable; a decision on a dossier filed before July has no
+address yet and is not drawn. A scan reads one search page and the lists not
+yet read (three requests on 2026-10-01); the daily sweep reads four pages.
+No `robots.txt` (the portal answers 404).
 
 **Montpellier and 27 communes of its métropole** publish no list a reader
 could follow, but the métropole exports every favourable decision since 2006

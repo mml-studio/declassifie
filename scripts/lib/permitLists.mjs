@@ -27,6 +27,13 @@ import { extractPdfText } from '../../src/data/pdfText.js';
 import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
 import {
+  arcadeActs,
+  arcadeActUrl,
+  arcadeContentUrl,
+  arcadeFileContent,
+  arcadeFilesUrl,
+  arcadeIsList,
+  arcadeSearchUrl,
   digilorDocuments,
   digilorIndexBody,
   digilorIndexUrl,
@@ -34,6 +41,7 @@ import {
   readAixTables,
   driveFileUrl,
   laRochelleDecisionTitle,
+  limogesDecisionRow,
   liferayTreeUrl,
   parseLiferayTree,
   driveFolderUrl,
@@ -354,6 +362,74 @@ async function readLiferayCity(city, http, { dir, allows, months, day, maxFiles 
   };
 }
 
+/** An Arcade search page is 200 acts; Limoges posted 647 in three and a half months of 2026. */
+const ARCADE_MAX_PAGES = 25;
+
+/**
+ * An Arcade city (Limoges, Trap 8 of `permitListsFeed.js`): its urbanism acts
+ * newest first, a page of 200 at a time, until one reaches before the
+ * reading's months. A decision is its act's title and days, read without its
+ * file — a scan. A list of filings is an act whose one PDF is a table: its
+ * files asked for once, the PDF read once and kept under the act's address,
+ * at most `maxFiles` new ones a reading. ALL OR NONE for the search pages: a
+ * page that did not answer would read as weeks without a decision.
+ */
+async function readArcadeCity(city, http, { dir, allows, months, day, maxFiles }) {
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const acts = [];
+  for (let page = 0; page < ARCADE_MAX_PAGES; page += 1) {
+    const url = arcadeSearchUrl(city, { page });
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response?.ok) return null;
+    let answer = null;
+    try { answer = arcadeActs(JSON.parse((await http.text(response, PAGE_MAX_BYTES)) ?? '')); } catch { answer = null; }
+    if (!answer) return null;
+    acts.push(...answer.acts);
+    if (answer.last || answer.acts.some((act) => act.publishedOn && act.publishedOn < since)) break;
+  }
+  const recent = acts.filter((act) => !act.publishedOn || act.publishedOn >= since);
+  const boards = {};
+  for (const row of keptRows(recent.map(limogesDecisionRow).filter(Boolean), 'decisions')) {
+    (boards[row.board] ??= []).push(row.cells);
+  }
+  let fetched = 0;
+  let failed = 0;
+  let skipped = 0;
+  let reused = 0;
+  for (const act of recent.filter(arcadeIsList)) {
+    const list = { board: 'filings', layout: 'limoges', url: arcadeActUrl(city, act.id), published: act.publishedOn };
+    const kept = await readEdition(dir, list.url);
+    let answer = kept ? { rows: kept.rows, reused: true } : null;
+    if (kept) reused += 1;
+    else if (fetched >= maxFiles) { skipped += 1; continue; } else {
+      fetched += 1;
+      const filesUrl = arcadeFilesUrl(city, act.id);
+      const files = allows(new URL(filesUrl).pathname)
+        ? await http.fetch(filesUrl, { headers: { Accept: 'application/json' } }) : null;
+      let contentId = null;
+      try { contentId = files?.ok ? arcadeFileContent(JSON.parse((await http.text(files, PAGE_MAX_BYTES)) ?? '')) : null; } catch { contentId = null; }
+      const fileUrl = contentId ? arcadeContentUrl(city, contentId) : null;
+      const response = fileUrl && allows(new URL(fileUrl).pathname) ? await http.fetch(fileUrl) : null;
+      const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
+      answer = bytes ? await keepFile(dir, list, bytes) : null;
+    }
+    if (!answer) { failed += 1; continue; }
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+  }
+  return {
+    boards,
+    lists: [{
+      url: city.source.base, acts: recent.length, decisions: boards.decisions?.length ?? 0,
+      files: recent.filter(arcadeIsList).length, fetched, reused, skipped,
+    }],
+    failed,
+    skipped,
+    incomplete: failed > 0 || skipped > 0,
+  };
+}
+
 /**
  * Aix's page, both tables read at once (`readAixTables`). The window is the
  * page's, two months recomputed at each request; the archive keeps the rest.
@@ -501,6 +577,7 @@ export async function readPermitCity(city, http, {
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'drive') return readDriveCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'liferay') return readLiferayCity(city, http, { dir, allows, months, day, maxFiles });
+  if (city.source?.kind === 'arcade') return readArcadeCity(city, http, { dir, allows, months, day, maxFiles });
   const pageUrl = city.source?.kind === 'typo3' ? city.source.api : city.page;
   if (!allows(new URL(pageUrl).pathname)) return null;
   const response = await http.fetch(pageUrl, {

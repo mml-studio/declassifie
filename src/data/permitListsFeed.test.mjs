@@ -51,6 +51,15 @@ import {
   webdelibLists,
   webdelibMonths,
   webdelibMonthUrl,
+  LIMOGES_VERDICT,
+  arcadeActs,
+  arcadeFileContent,
+  arcadeIsList,
+  arcadeSearchUrl,
+  centredRows,
+  limogesDecisionRow,
+  limogesDossier,
+  readLimogesList,
 } from './permitListsFeed.js';
 import { SITADEL_FILES, mergeRegisters, normaliseSitadelRow } from './adsFeed.js';
 import { COMMUNE_CODE_PATTERN } from './communeCode.js';
@@ -984,4 +993,123 @@ test('a Liferay space answers its files as JSON, folders and stray nodes left ou
     { nope: true },
   ]), [{ title: '2026-10-01 PC 17300 26 00078 X', url: href }]);
   assert.equal(parseLiferayTree({ error: true }), null);
+});
+
+// --- Limoges: an Arcade portal, decisions by title, centred lists ------------
+
+const LIMOGES = PERMIT_LISTS.find((city) => city.key === 'limoges');
+
+test('Limoges\'s numbers read alike from a list and from an act\'s title', () => {
+  assert.equal(limogesDossier('DP 87 085 2601030'), 'DP 087085 26 01030');
+  assert.equal(limogesDossier('PC 87 085 07C0325 M04'), 'PC 087085 07 C0325 M04');
+  assert.equal(limogesDossier('PC2600135_DECISION_SIGNEE'), 'PC 087085 26 00135');
+  assert.equal(limogesDossier('PC2600099DECISION_SIGNE'), 'PC 087085 26 00099');
+  assert.equal(limogesDossier('PA24A0002M01-DECISION_SIGNEE'), 'PA 087085 24 A0002 M01');
+  assert.equal(limogesDossier('DP_ARRÊTÉ_2600984 ÉTAT'), 'DP 087085 26 00984');
+  assert.equal(limogesDossier('DP 2600604 DECISION SIGNEE'), 'DP 087085 26 00604');
+  assert.equal(limogesDossier('DP00782M02_DECISION_SIGNEE'), null, 'a title without its year is no number');
+  assert.equal(limogesDossier('LISTE DU 01.09.26 AU 25.09.26'), null);
+  assert.deepEqual(permitListDossier(limogesDossier('PC24C0181_DECISION_SIGNEE')), { kind: 'PC', digits: '08708524C0181' });
+});
+
+test('an Arcade page gives its acts, a decision read off its title and a list told apart', () => {
+  const param = (code, value) => ({ propertyTypeCode: code, value });
+  const act = (id, title, shelf, signed, published) => ({
+    id,
+    parameters: [param('ACTE_TITLE', title), param('ACTE_CRAP_PLCL_URBA', shelf),
+      param('ACTE_DATE_ACT', signed), param('ACTE_CRAP_DATE_PUB', published)],
+  });
+  const page = arcadeActs({
+    content: [
+      act(3, 'PC2600135_DECISION_SIGNEE', 'Permis de construire délivrés', '20260928000000', '20261001000000'),
+      act(2, 'LISTE DU 01.09.26 AU 25.09.26', 'Autorisations déposées', '20260925000000', '20260925000000'),
+      act(1, 'DP 2600604 DECISION SIGNEE', null, '00260605000000', '20260626000000'),
+      { id: 'x', parameters: [] },
+    ],
+    page: { number: 0, totalPages: 4 },
+  });
+  assert.equal(page.last, false);
+  assert.deepEqual(page.acts.map((item) => [item.id, item.actOn, item.publishedOn, arcadeIsList(item)]), [
+    [3, '2026-09-28', '2026-10-01', false], [2, '2026-09-25', '2026-09-25', true], [1, null, '2026-06-26', false],
+  ]);
+  const row = limogesDecisionRow(page.acts[0]);
+  assert.deepEqual([row.board, row.dossier, row.verdict, row.decidedOn, row.postedOn], ['decisions', 'PC 087085 26 00135', LIMOGES_VERDICT, '2026-09-28', '2026-10-01']);
+  assert.equal(limogesDecisionRow(page.acts[1]), null, 'a list is no decision');
+  assert.equal(arcadeActs({ error: 'nope' }), null);
+  assert.equal(arcadeFileContent({ content: [{ mimeType: 'image/png', contentId: 'a' }, { mimeType: 'application/pdf', contentId: 'b-1' }] }), 'b-1');
+  const url = new URL(arcadeSearchUrl(LIMOGES, { page: 2 }));
+  assert.equal(url.searchParams.get('filter'), 'entityType.code = ACTE,parameters.ACTE_TYPE = Urbanisme');
+  assert.equal(url.searchParams.get('page'), '2');
+});
+
+test('a Limoges decision stays off the ladder: the shelf says granted, the arrêtés do not all', () => {
+  const [row] = [limogesDecisionRow({ title: 'DP2601013-DÉCISION_SIGNEE', actOn: '2026-09-28', publishedOn: '2026-10-01' })];
+  const permit = normalisePermitListRow(LIMOGES, row.board, row);
+  assert.deepEqual([permit.state, permit.stateLabel, permit.decidedOn], ['depose', 'Décision signée', '2026-09-28']);
+});
+
+test('lines go to the row their cell is centred on, a tall cell and an emptied row both refused', () => {
+  // A cell of fourteen lines reaching past the rows above and below it.
+  const tall = [500.5, 471.5, 456.9, 427.9, 413.4, 398.8, 369.8, 355.3, 340.8, 326.2, 311.7, 297.2, 268.1, 253.6, 239.1, 224.6, 195.5, 181.0, 151.9, 137.4];
+  const owners = centredRows(tall, [500.5, 464.3, 304.5, 144.7]);
+  assert.deepEqual(owners, [0, 1, 1, ...new Array(15).fill(2), 3, 3]);
+  // A cell half a line off its middle must not empty the row above it.
+  const off = centredRows([507.8, 464.3, 435.2, 420.7, 406.2, 384.3, 369.8, 355.3, 340.8], [507.8, 464.3, 420.7, 355.3]);
+  assert.deepEqual(off, [0, 1, 2, 2, 2, 3, 3, 3, 3]);
+});
+
+/** A Limoges list page: its header, then rows whose cells are centred on their number. */
+function limogesPage(rows, { header = true } = {}) {
+  const r = (t, x, y) => run(t, x, y, { x1: x + t.length * 5.4, size: 11 });
+  return {
+    runs: [
+      ...(header ? [r('Numéro', 52.8, 529.6), r('Demandeur', 147.9, 529.6), r('Adresse travaux', 236.6, 529.6),
+        r('Nature des travaux', 373.5, 529.6), r('Déposé le', 723.2, 529.6)] : []),
+      ...rows.flatMap((row) => row.map(([t, x, y, x1]) => (x1 ? run(t, x, y, { x1, size: 11 }) : r(t, x, y)))),
+    ],
+  };
+}
+
+test('a Limoges list reads centred rows, a wrapped number and a site run into the works', () => {
+  const page = limogesPage([
+    [['DP 87 085 2601030', 52.8, 500.5], ['SCI EXEMPLE', 147.9, 507.8], ['SCI EXEMPLE', 147.9, 493.3],
+      ['8 RUE DES EXEMPLES', 236.6, 500.5], ['Pergola', 373.5, 500.5], ['01/09/2026', 723.2, 500.5]],
+    // A description of five lines, its middle on the number.
+    [['Commune de', 147.9, 471.5], ['Limoges', 147.9, 457], ['DP 87 085 2601031', 52.8, 464.3],
+      ['1 RUE DU MODÈLE', 236.6, 464.3], ['Ligne un', 373.5, 493.3], ['Ligne deux', 373.5, 478.8],
+      ['Ligne trois', 373.5, 464.3], ['Ligne quatre', 373.5, 449.8], ['Ligne cinq', 373.5, 435.2], ['02/09/2026', 723.2, 464.3]],
+    // A site drawn into the works' column as one run.
+    [['DP 87 085 2601032', 52.8, 413.4], ['DUPONT Jean', 147.9, 413.4],
+      ['40 AVENUE DES EXEMPLESRemplacement de menuiserie', 236.6, 413.4, 520], ['03/09/2026', 723.2, 413.4]],
+    // A number wrapped, its step on the next line, its cells between the two.
+    [['PC 87 085 21C0042', 52.8, 384.3], ['M03', 52.8, 369.8], ['OFFICE EXEMPLE', 147.9, 377.1],
+      ['1-3-5 RUE EXEMPLE', 236.6, 377.1], ['Mise en conformité', 373.5, 377.1], ['11/09/2026', 723.2, 377.1]],
+  ]);
+  const rows = readLimogesList({ pages: [page] });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.purpose, row.filedOn]), [
+    ['DP 087085 26 01030', '8 RUE DES EXEMPLES', 'Pergola', '2026-09-01'],
+    ['DP 087085 26 01031', '1 RUE DU MODÈLE', 'Ligne un Ligne deux Ligne trois Ligne quatre Ligne cinq', '2026-09-02'],
+    ['DP 087085 26 01032', '40 AVENUE DES EXEMPLES', 'Remplacement de menuiserie', '2026-09-03'],
+    ['PC 087085 21 C0042 M03', '1-3-5 RUE EXEMPLE', 'Mise en conformité', '2026-09-11'],
+  ]);
+  assert.equal(rows[1].applicant, 'Commune de Limoges');
+  assert.equal(scrubPermitListRow(rows[2])[3], null, 'a person is never kept');
+});
+
+test('a Limoges list printed two pages wide joins each half to its numbers by height', () => {
+  const r = (t, x, y) => run(t, x, y, { x1: x + t.length * 4, size: 8 });
+  const numbers = { runs: [r('Numéro', 20, 763.1), r('Demandeur', 118, 763.1), r('Adresse travaux', 228, 763.1),
+    r('DP 87 085 2600770', 20, 720.2), r('SARL EXEMPLE', 118, 720.2), r('12 RUE EXEMPLE', 228, 720.2),
+    r('DP 87 085 2600771', 20, 677.4), r('SAS MODÈLE', 118, 677.4), r('PLACE DU MODÈLE', 228, 677.4)] };
+  const second = { runs: [r('DP 87 085 2600772', 20, 720.2), r('SCI TROIS', 118, 720.2), r('3 RUE EXEMPLE', 228, 720.2)] };
+  const works = { runs: [r('Nature des travaux', 20, 763.1), r('Déposé le', 499.5, 763.1),
+    r('Changement de gouttières', 20, 720.2), r('01/07/2026', 499.5, 720.2),
+    r('Mobilier urbain', 20, 677.4), r('02/07/2026', 499.5, 677.4)] };
+  const more = { runs: [r('Piscine', 20, 720.2), r('03/07/2026', 499.5, 720.2)] };
+  const rows = readLimogesList({ pages: [numbers, second, works, more] });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.purpose, row.filedOn]), [
+    ['DP 087085 26 00770', '12 RUE EXEMPLE', 'Changement de gouttières', '2026-07-01'],
+    ['DP 087085 26 00771', 'PLACE DU MODÈLE', 'Mobilier urbain', '2026-07-02'],
+    ['DP 087085 26 00772', '3 RUE EXEMPLE', 'Piscine', '2026-07-03'],
+  ]);
 });
