@@ -94,7 +94,9 @@ import { foldToCommune } from './communeCode.js';
 import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, formatDossier, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
-import { CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsVerdictState } from './cartdsFeed.js';
+import {
+  CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsVerdictState,
+} from './cartdsFeed.js';
 
 /** Trim a value to a non-empty string, or null. */
 function text(value) {
@@ -195,10 +197,36 @@ export const PERMIT_LISTS = Object.freeze([
       // i18n-ignore-start — the titles of the city's own documents, matched on
       // A list of filed dossiers holds every one still open (« déposés avant
       // le … »): the newest of each family says everything the older ones did.
-      Object.freeze({ board: 'filings', layout: 'beziers-filings', title: /^d[ée]p[ôo]t\s+(PC|DP|PA|PD)\b/i, latest: true }),
-      Object.freeze({ board: 'decisions', layout: 'beziers-decisions', title: /^(PC|DP|PA|PD)\s+d[ée]cid[ée]e?s\b/i }),
+      Object.freeze({ board: 'filings', layout: 'grid', title: /^d[ée]p[ôo]t\s+(PC|DP|PA|PD)\b/i, latest: true }),
+      Object.freeze({ board: 'decisions', layout: 'grid', title: /^(PC|DP|PA|PD)\s+d[ée]cid[ée]e?s\b/i }),
       // i18n-ignore-end
     ]),
+  }),
+  Object.freeze({
+    key: 'aix',
+    insee: '13001',
+    underReview: true,
+    label: 'Ville d’Aix-en-Provence — dossiers d’urbanisme déposés et délivrés', // i18n-ignore-line — the publisher and its lists
+    page: 'https://sig2aix.mairie-aixenprovence.fr/arcopolepro/resources/jsp/aixenprovence/urbanisme/ADS/view.jsp',
+    // Esri's ArcOpole application, one page holding both tables.
+    source: Object.freeze({ kind: 'arcopole' }),
+    lists: Object.freeze([]),
+  }),
+  Object.freeze({
+    key: 'argenteuil',
+    insee: '95018',
+    label: 'Ville d’Argenteuil — autorisations d’urbanisme déposées et décidées', // i18n-ignore-line — the publisher and its lists
+    page: 'https://datahall.mydigilor.fr/web/',
+    source: Object.freeze({
+      kind: 'digilor',
+      base: 'https://datahall.mydigilor.fr',
+      app: 133,
+      // « URBANISME / DÉV. DURABLE », and its filings' and decisions' shelves.
+      category: 1882,
+      filings: 2170,
+      decisions: 2172,
+    }),
+    lists: Object.freeze([Object.freeze({ layout: 'grid' })]),
   }),
 ]);
 
@@ -391,7 +419,7 @@ export function permitListLinks(city, html) {
  *   Béziers    `DP 34032 26 T0848` — five digits, as at Tours — and
  *              `PC 34032 25T0035` on some lines, the counter stuck to the year
  */
-const DOSSIER_RE = /^(PC|DP|PA|PD|CU)\s+(\d{3}\s?\d{3}|\d{5})\s+(\d{2})\s*([A-Z]?\d{4,5})(P0)?(?:\s*([MT]\d{1,2}))?$/i;
+const DOSSIER_RE = /^(PC|DP|PA|PD|CU)\s+(\d{3}\s?\d{3}|\d{5})\s+(\d{2})\s*([A-Z]?\d{4,5})(P0)?(?:\s*([MTP]\d{1,2}))?$/i;
 
 /** The first line of a number a narrow column wraps: `DP 34032 26`. */
 const DOSSIER_HEAD_RE = /^(PC|DP|PA|PD|CU)\s+(\d{3}\s?\d{3}|\d{5})\s+\d{2}(?=\s|[A-Z]|$)/i;
@@ -1048,8 +1076,12 @@ function joined(cellLines) {
   return text((cellLines ?? []).join(' '));
 }
 
-/** Béziers's weekly lists of filed dossiers, one per family (`Dépôt DP (51)`). */
-const BEZIERS_FILINGS = Object.freeze({
+/**
+ * A grid of filed dossiers: Béziers's weekly lists, one per family (`Dépôt DP
+ * (51)`), and Argenteuil's sheets, one per dossier — the same export, the
+ * same five headers.
+ */
+const GRID_FILINGS = Object.freeze({
   board: PERMIT_LIST_BOARDS.filings,
   columns: Object.freeze([
     ['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'],
@@ -1077,8 +1109,8 @@ const BEZIERS_FILINGS = Object.freeze({
   },
 });
 
-/** Béziers's weekly lists of decided dossiers, one per family (`DP décidées (25)`). */
-const BEZIERS_DECISIONS = Object.freeze({
+/** A grid of decisions: Béziers's (`DP décidées (25)`) and Argenteuil's. */
+const GRID_DECISIONS = Object.freeze({
   board: PERMIT_LIST_BOARDS.decisions,
   columns: Object.freeze([
     ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'], ['verdict', 'DECISION'],
@@ -1108,13 +1140,191 @@ const BEZIERS_DECISIONS = Object.freeze({
   },
 });
 
+/**
+ * A list's parcel cell as the cadastre parcels it names: `AC 0080, AB 0123`
+ * at Aix — the section, the number on four digits, a comma between. The
+ * three strays of 736 references read on 2026-10-01 are read too: `KD 275p`
+ * (part of a parcel, the surveyor's mark kept), `A 2036` (a one-letter
+ * section) and `001BX 0101` (the commune's own number in front, which
+ * `cartdsParcelIdus` folds away). Anything else is no parcel.
+ *
+ * @param {?string} cell
+ * @returns {Array<{prefix: ?string, section: string, numero: string, label: string}>}
+ */
+export function listParcels(cell) {
+  const out = [];
+  for (const piece of String(cell ?? '').split(/[,;]/)) {
+    const label = piece.replace(/\s+/g, ' ').trim().toUpperCase();
+    const match = /^(?:(\d{3}))?\s*([A-Z]{1,2})\s+0*(\d{1,4})(P)?$/.exec(label);
+    if (!match) continue;
+    out.push({ prefix: match[1] ?? null, section: match[2], numero: `${match[3]}${match[4] ? 'P' : ''}`, label });
+  }
+  return out;
+}
+
+// --- Aix-en-Provence: two HTML tables --------------------------------------
+
+/**
+ * A number as Aix writes it, with the commune's code the list leaves out:
+ * `PC2600200` → `PC 013001 26 00200`, `PC24J0209 M01` → `PC 013001 24 J0209
+ * M01`. Up to 2024 the counter was `J` and four digits, and Sitadel keeps the
+ * `J` (`01300124J0180`). `P01` after a number is a PROROGATION here, not
+ * Marseille's original. `AT` — a works permit for a building open to the
+ * public — is not a family the layer draws.
+ *
+ * @param {object} city
+ * @param {?string} raw
+ * @returns {?string}
+ */
+export function aixDossier(city, raw) {
+  const match = /^(PC|DP|PA|PD|CU)\s*(\d{2})\s*([A-Z]?\d{4,5})(?:\s*([MTP]\d{1,2}))?$/i.exec(text(raw) ?? '');
+  if (!match) return null;
+  const [, kind, year, counter, suffix] = match;
+  return `${kind.toUpperCase()} 0${city.insee} ${year} ${counter.toUpperCase()}${suffix ? ` ${suffix.toUpperCase()}` : ''}`;
+}
+
+/** A cell of Aix's tables: tags out, `-` for nothing. */
+function htmlCell(value) {
+  const plain = text(decodeEntities(String(value ?? '').replace(/<[^>]*>/g, ' ')));
+  return plain === '-' ? null : plain;
+}
+
+/** `2026-09-30 00:00:00.0` → `2026-09-30`. */
+function isoDay(value) {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value ?? ''));
+  return match ? match[1] : null;
+}
+
+/** `13100 AIX-EN-PROVENCE` at the end of a site, set apart. */
+function sitePostcode(value) {
+  const match = /^(.*?)\s*\b(\d{5})\s+([^\d]*?)\s*$/.exec(String(value ?? '').trim());
+  return match
+    ? { address: text(match[1]), postcode: match[2], locality: text(match[3]) }
+    : { address: text(value), postcode: null, locality: null };
+}
+
+/**
+ * Aix's two lists, read off the one page that carries them both.
+ *
+ * NOT A FILE. The city's ArcOpole application answers a page whose two
+ * tables are the lists — « Liste des Dossiers Déposés » and « … Délivrés » —
+ * every dossier filed in the last two months and still undecided, and every
+ * decision of the same two months, refusals included (52 of 312 on
+ * 2026-10-01). The window is recomputed at each request, so the page keeps no
+ * history. Each table is found by the legend over it: the tables' own ids are
+ * the other way round.
+ *
+ * @param {object} city
+ * @param {string} html
+ * @returns {?{filings: Array<object>, decisions: Array<object>}} Null when
+ *   either table is missing.
+ */
+export function readAixTables(city, html) {
+  const source = String(html ?? '');
+  const tables = {};
+  const legends = [...source.matchAll(/<legend[^>]*>([\s\S]*?)<\/legend>/gi)];
+  legends.forEach((legend, i) => {
+    const words = fold(htmlCell(legend[1]) ?? '');
+    // i18n-ignore-next-line — the page's own legends, matched on
+    const board = /DOSSIERS DEPOSES/.test(words) ? 'filings' : /DOSSIERS DELIVRES/.test(words) ? 'decisions' : null;
+    if (!board) return;
+    const part = source.slice(legend.index, legends[i + 1]?.index ?? source.length);
+    const heads = [...part.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)].map((match) => fold(htmlCell(match[1]) ?? ''));
+    const rows = [];
+    for (const tr of part.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...tr[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => htmlCell(match[1]));
+      if (cells.length !== heads.length) continue;
+      rows.push(Object.fromEntries(heads.map((head, k) => [head, cells[k]])));
+    }
+    tables[board] = rows;
+  });
+  if (!tables.filings || !tables.decisions) return null;
+  const row = (board, cells) => {
+    const site = sitePostcode(cells['ADRESSE DU TERRAIN']);
+    const decided = board === 'decisions';
+    // i18n-ignore-start — the page's own column names
+    return {
+      board,
+      dossier: aixDossier(city, cells.DOSSIER),
+      label: null,
+      purpose: cells.TRAVAUX ?? cells['OBJET / DESTINATION'] ?? null,
+      applicant: cells.DEMANDEUR ?? null,
+      address: site.address,
+      postcode: site.postcode,
+      locality: site.locality,
+      filedOn: decided ? null : isoDay(cells.DEPOT),
+      verdict: decided ? cells.NATURE ?? null : null,
+      decidedOn: decided ? isoDay(cells.DELIVRANCE) : null,
+      postedOn: null,
+      landArea: null,
+      housing: number(cells['LOG.']) ? cells['LOG.'] : null,
+      lots: null,
+      floorArea: number(String(cells.SHON ?? '').replace(',', '.')) ? String(number(String(cells.SHON).replace(',', '.'))) : null,
+      parcels: cells.PARCELLE ?? null,
+    };
+    // i18n-ignore-end
+  };
+  return {
+    filings: tables.filings.map((cells) => row('filings', cells)).filter((item) => item.dossier),
+    decisions: tables.decisions.map((cells) => row('decisions', cells)).filter((item) => item.dossier),
+  };
+}
+
+// --- Argenteuil: Digilor Datahall, one PDF per dossier ---------------------
+
+/**
+ * The body that asks a Datahall for every document it holds: the app sends
+ * this JSON as the raw body of a POST, and the server reads it whatever the
+ * content type says. One answer, no paging — Argenteuil's was 10.2 MB, 10 611
+ * documents back to April 2022.
+ * @param {object} city A city whose `source.kind` is `digilor`.
+ */
+export function digilorIndexBody(city) {
+  return JSON.stringify({ controller: 'DocumentController', action: 'getAll', data: { idApp: city.source.app } });
+}
+
+/** @param {object} city @returns {string} */
+export function digilorIndexUrl(city) {
+  return `${city.source.base}/web/server/index.php`;
+}
+
+/**
+ * The permit files of a Datahall index, newest first: the documents of the
+ * city's urbanism category whose sub-category is the filings' or the
+ * decisions', first shown on or after `since`. Selected by the ids, never by
+ * the titles, which are typed by hand (`Décison`, `Déppot`) and name the
+ * applicant. Since May 2023 one file holds one dossier.
+ *
+ * @param {object} city
+ * @param {*} index The parsed answer.
+ * @param {string} since `YYYY-MM-DD`.
+ * @returns {?Array<{board: string, url: string, published: ?string}>} Null for
+ *   an answer that is not an index.
+ */
+export function digilorDocuments(city, index, since) {
+  if (!Array.isArray(index)) return null;
+  const { category, filings, decisions } = city.source;
+  const out = [];
+  for (const doc of index) {
+    if (Number(doc?.id_cat) !== category) continue;
+    const sub = Number(doc.id_sscat);
+    const board = sub === filings ? 'filings' : sub === decisions ? 'decisions' : null;
+    const published = isoDay(doc.aff_deb);
+    const file = String(doc.url_uiid ?? '').replace(/^(?:\.\.\/bo\/|bo\/|\.\/)/, '');
+    if (!board || !file || !published || published < since) continue;
+    out.push({ board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published });
+  }
+  return out.sort((a, b) => b.published.localeCompare(a.published));
+}
+
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
   register: readRegisterList,
   decisions: readDecisionTable,
   lyon: readLyonList,
-  'beziers-filings': (document) => readGridTable(document, BEZIERS_FILINGS),
-  'beziers-decisions': (document) => readGridTable(document, BEZIERS_DECISIONS),
+  // A page says by its header which grid it is: Argenteuil posted two filing
+  // sheets among its decisions in 2026, and its own title is what is right.
+  grid: (document) => [...readGridTable(document, GRID_FILINGS), ...readGridTable(document, GRID_DECISIONS)],
 });
 
 // --- Keeping and normalising -----------------------------------------------
@@ -1127,6 +1337,7 @@ export const PERMIT_LIST_READERS = Object.freeze({
 export const PERMIT_LIST_FIELDS = Object.freeze([
   'dossier', 'label', 'purpose', 'applicant', 'address', 'postcode', 'locality',
   'filedOn', 'verdict', 'decidedOn', 'postedOn', 'landArea', 'housing', 'lots', 'floorArea',
+  'parcels',
 ]);
 
 /** Where the applicant sits in the stored cells. */
@@ -1162,9 +1373,12 @@ export function scrubPermitListRow(input) {
  * The words counted on 2026-10-01: Marseille's `Accord Tacite`, `Favorable
  * avec Reserves`, `Favorable`; Nîmes's same three and `Defavorable`, `Rejet
  * tacite`, `retiré`, `Dossier irrecevable`; Béziers's `Favorable avec
- * prescriptions`. Cart@DS's reader takes every one but `retiré`, a dossier
- * its applicant withdrew — closed, like `Retrait` — and Lyon's `Délivré`,
- * the word of the section a decision is listed under, which lists grants.
+ * prescriptions`; Argenteuil's `Tacite` (four rows of 2026, a tacit grant)
+ * and `Rapporté` (two, a decision taken back). Cart@DS's reader takes every
+ * one but `retiré` and `Rapporté` — closed, like `Retrait` — `Tacite`, and
+ * Lyon's `Délivré`, the word of the section a decision is listed under,
+ * which lists grants. `Sursis à statuer` is no decision on the merits and
+ * keeps its own words.
  *
  * @param {?string} verdict
  * @returns {?string} `accorde`, `refuse`, `annule`, or null.
@@ -1174,8 +1388,8 @@ export function permitListVerdictState(verdict) {
   if (state) return state;
   const value = String(verdict ?? '').trim();
   // i18n-ignore-start — the publishers' own verdicts, matched on
-  if (/^retir[ée]/i.test(value)) return 'annule';
-  if (/^d[ée]livr[ée]/i.test(value)) return 'accorde';
+  if (/^retir[ée]|^rapport[ée]/i.test(value)) return 'annule';
+  if (/^d[ée]livr[ée]|^tacite$/i.test(value)) return 'accorde';
   // i18n-ignore-end
   return null;
 }
@@ -1280,6 +1494,7 @@ export function normalisePermitListRow(city, board, input, { current = false } =
     stateLabel = stateFrench('instruction');
   }
   const housing = number(row.housing);
+  const parcels = listParcels(row.parcels);
   return {
     id: `permit-list:${city.key}:${kind}${digits}`,
     dossier: formatDossier(kind, digits),
@@ -1302,8 +1517,8 @@ export function normalisePermitListRow(city, board, input, { current = false } =
     commune: null,
     communeCode: city.insee,
     cadastreCommune: city.insee,
-    parcels: [],
-    parcelIdus: [],
+    parcels: parcels.map((parcel) => parcel.label),
+    parcelIdus: cartdsParcelIdus(parcels, city.insee),
     landAreaM2: number(row.landArea),
     housing: housing && housing > 0 ? housing : null,
     surfaceCreatedM2: number(row.floorArea),

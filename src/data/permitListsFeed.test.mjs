@@ -22,8 +22,14 @@ import {
   registerDecision,
   registerSite,
   scrubPermitListRow,
+  aixDossier,
+  digilorDocuments,
+  digilorIndexBody,
+  digilorIndexUrl,
+  listParcels,
   lyonSite,
   parseWebdelibActs,
+  readAixTables,
   readLyonList,
   webdelibFileUrl,
   webdelibLists,
@@ -492,7 +498,7 @@ function beziersFilingsPage(n, { header = true } = {}) {
 }
 
 test('a Béziers grid reads every row, the header kept from page to page', () => {
-  const rows = PERMIT_LIST_READERS['beziers-filings']({
+  const rows = PERMIT_LIST_READERS.grid({
     pages: [beziersFilingsPage(1), beziersFilingsPage(2, { header: false }), beziersFilingsPage(3, { header: false })],
   });
   assert.equal(rows.length, 6);
@@ -538,7 +544,7 @@ test('a Béziers grid of decisions reads a two-line header and an optional colum
     run('213 Chemin Exemple', 592.2, 368.6, { x1: 700.5, size: 11 }), run('34500 BEZIERS', 592.2, 356.1, { x1: 675.5, size: 11 }),
     run('32 m²', 780, 368.6, { x1: 805, size: 11 }),
   ] };
-  const [row] = PERMIT_LIST_READERS['beziers-decisions']({ pages: [page] });
+  const [row] = PERMIT_LIST_READERS.grid({ pages: [page] });
   assert.deepEqual([row.board, row.dossier, row.verdict, row.decidedOn, row.purpose, row.address, row.floorArea],
     ['decisions', 'DP 34032 26 T0807', 'Favorable avec prescriptions', '2026-09-10', 'Piscine', '213 Chemin Exemple', '32']);
 });
@@ -595,4 +601,91 @@ test('the new numbers key as Sitadel writes them', () => {
   assert.deepEqual(permitListDossier('DP 34032 26 T0848'), { kind: 'DP', digits: '03403226T0848' });
   assert.deepEqual(permitListDossier('PC 34032 25T0035'), { kind: 'PC', digits: '03403225T0035' });
   assert.deepEqual(permitListDossier('PC 34032 24 T0205 T02'), { kind: 'PC', digits: '03403224T0205T02' });
+});
+
+// --- Aix: two HTML tables ----------------------------------------------------
+
+test('Aix\'s numbers get the commune they leave out, its J and its prorogation kept', () => {
+  const aix = PERMIT_LISTS.find((city) => city.key === 'aix');
+  assert.equal(aixDossier(aix, 'PC2600200'), 'PC 013001 26 00200');
+  assert.equal(aixDossier(aix, 'PC24J0209 M01'), 'PC 013001 24 J0209 M01');
+  assert.equal(aixDossier(aix, 'PC2500054 P01'), 'PC 013001 25 00054 P01');
+  assert.equal(aixDossier(aix, 'AT26J0195'), null);
+  assert.deepEqual(permitListDossier(aixDossier(aix, 'PC24J0180')), { kind: 'PC', digits: '01300124J0180' });
+  assert.deepEqual(permitListDossier(aixDossier(aix, 'PC2500054 P01')), { kind: 'PC', digits: '0130012500054P01' });
+});
+
+test('a parcel cell gives every parcel it names, and nothing else', () => {
+  assert.deepEqual(listParcels('AC 0080, AB 0123').map((parcel) => [parcel.section, parcel.numero]), [['AC', '80'], ['AB', '123']]);
+  assert.deepEqual(listParcels('KD 275p, A 2036, 001BX 0101').map((parcel) => [parcel.prefix, parcel.section, parcel.numero]),
+    [[null, 'KD', '275P'], [null, 'A', '2036'], ['001', 'BX', '101']]);
+  assert.deepEqual(listParcels('0PK32 3000, 00 0128, -'), []);
+  assert.deepEqual(listParcels(null), []);
+});
+
+test('Aix\'s page gives its two lists by their legends, the ids the other way round', () => {
+  const aix = PERMIT_LISTS.find((city) => city.key === 'aix');
+  const head = (words) => `<thead><tr>${words.map((word) => `<th style="text-align: center">${word}</th>`).join('')}</tr></thead>`;
+  const cell = (value) => `<td style="text-align: center">${value}</a></td>`;
+  const html = `
+    <fieldset><legend>Ville d'Aix en Provence <br>Direction</legend></fieldset>
+    <fieldset><legend>Liste des Dossiers Déposés</legend><table id="example2">
+      ${head(['Dossier', 'Demandeur', 'Adresse du terrain', 'Objet / Destination', 'Travaux', 'Parcelle', 'Dépot', 'SHOB', 'SHON', 'Log.'])}
+      <tbody><tr>${['DP2600975', 'SAS EXEMPLE', '6-8 RUE EXEMPLE    13100 AIX-EN-PROVENCE', 'commerce', 'Devanture', 'AB 0142', '2026-09-30 00:00:00.0', '-', '0', '-'].map(cell).join('')}</tr>
+      <tr>${['AT26J0195', 'SAS EXEMPLE', '1 RUE EXEMPLE    13100 AIX', '-', 'ERP', '-', '2026-09-29 00:00:00.0', '-', '-', '-'].map(cell).join('')}</tr></tbody></table></fieldset>
+    <fieldset><legend>Liste des Dossiers Délivrés</legend><table id="example">
+      ${head(['Dossier', 'Demandeur', 'Adresse du terrain', 'Objet / Destination', 'Travaux', 'Parcelle', 'SHOB', 'SHON', 'Log.', 'Délivrance', 'Nature'])}
+      <tbody><tr>${['PC24J0209 M01', 'DUPONT Jean', ' CHEMIN EXEMPLE    13090 AIX EN PROVENCE', 'Habitation', 'Maison', 'KD 275p, KD 0276', '-', '73,72', '1', '2026-08-24 00:00:00.0', 'Défavorable'].map(cell).join('')}</tr></tbody></table></fieldset>`;
+  const tables = readAixTables(aix, html);
+  assert.equal(tables.filings.length, 1);
+  assert.deepEqual(tables.filings[0], {
+    board: 'filings', dossier: 'DP 013001 26 00975', label: null, purpose: 'Devanture', applicant: 'SAS EXEMPLE',
+    address: '6-8 RUE EXEMPLE', postcode: '13100', locality: 'AIX-EN-PROVENCE', filedOn: '2026-09-30',
+    verdict: null, decidedOn: null, postedOn: null, landArea: null, housing: null, lots: null, floorArea: null,
+    parcels: 'AB 0142',
+  });
+  const [refused] = tables.decisions;
+  assert.deepEqual([refused.dossier, refused.verdict, refused.decidedOn, refused.address, refused.postcode, refused.floorArea, refused.housing],
+    ['PC 013001 24 J0209 M01', 'Défavorable', '2026-08-24', 'CHEMIN EXEMPLE', '13090', '73.72', '1']);
+  const permit = normalisePermitListRow(aix, 'decisions', refused);
+  assert.equal(permit.state, 'refuse');
+  assert.equal(permit.applicant, null);
+  assert.deepEqual(permit.parcelIdus.map((ref) => [ref.idu, ref.provisional]),
+    [['13001000KD0275', true], ['13001000KD0276', false]]);
+  const filed = normalisePermitListRow(aix, 'filings', tables.filings[0], { current: true });
+  assert.deepEqual([filed.state, filed.parcelIdus[0].idu, filed.key], ['instruction', '13001000AB0142', 'DAU|0130012600975']);
+  assert.equal(readAixTables(aix, '<legend>Liste des Dossiers Déposés</legend><table></table>'), null);
+});
+
+// --- Argenteuil: Digilor Datahall --------------------------------------------
+
+test('a Datahall index gives the permit files by their shelves, never by their titles', () => {
+  const argenteuil = PERMIT_LISTS.find((city) => city.key === 'argenteuil');
+  assert.equal(digilorIndexUrl(argenteuil), 'https://datahall.mydigilor.fr/web/server/index.php');
+  assert.deepEqual(JSON.parse(digilorIndexBody(argenteuil)),
+    { controller: 'DocumentController', action: 'getAll', data: { idApp: 133 } });
+  const doc = (id, cat, sub, day, title = 'Décison DP DUPONT') => ({
+    id, id_cat: cat, id_sscat: sub, nom_affichage: title, aff_deb: day, url_uiid: `./upload/133/${id}_a b.pdf`,
+  });
+  const files = digilorDocuments(argenteuil, [
+    doc(1, 1882, 2172, '2026-09-25'), doc(2, 1882, 2170, '2026-09-29', 'Déppot PC'), doc(3, 1882, 2166, '2026-09-29'),
+    doc(4, 1700, 2172, '2026-09-29'), doc(5, 1882, 2172, '2026-07-31'), doc(6, 1882, 0, '2026-09-30'),
+  ], '2026-08-01');
+  assert.deepEqual(files, [
+    { board: 'filings', url: 'https://datahall.mydigilor.fr/web/server/get_file.php?file=upload%2F133%2F2_a%20b.pdf', published: '2026-09-29' },
+    { board: 'decisions', url: 'https://datahall.mydigilor.fr/web/server/get_file.php?file=upload%2F133%2F1_a%20b.pdf', published: '2026-09-25' },
+  ]);
+  assert.equal(digilorDocuments(argenteuil, { error: 'x' }, '2026-08-01'), null);
+});
+
+test('Argenteuil\'s words are read on the ladder', () => {
+  assert.equal(permitListVerdictState('Tacite'), 'accorde');
+  assert.equal(permitListVerdictState('Rapporté'), 'annule');
+  assert.equal(permitListVerdictState('RETRAIT'), 'annule');
+  assert.equal(permitListVerdictState('Sursis à statuer'), null);
+  const argenteuil = PERMIT_LISTS.find((city) => city.key === 'argenteuil');
+  assert.deepEqual(permitListDossier('DP 95018 26 o0413'), { kind: 'DP', digits: '09501826O0413' });
+  assert.equal(normalisePermitListRow(argenteuil, 'decisions', {
+    dossier: 'PC 95018 18 O0015 M03', verdict: 'Favorable avec prescriptions', decidedOn: '2026-09-25',
+  }).key, 'DAU|09501818O0015M03');
 });

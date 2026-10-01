@@ -28431,7 +28431,10 @@ function adsFranceProxy() {
     // the list under review until it is decided, and on the list of decisions
     // after, and the archive holds both.
     const { permits: dossiers, folded } = foldCartdsDossiers(rows);
-    const placed = await placePermitListAddresses(city.insee, dossiers);
+    // The parcel first where the list names one (Aix), the address for the
+    // rest — the order every other register here follows.
+    const ground = await placeOnGround(dossiers, { chaseDivisions: false });
+    const placed = await placePermitListAddresses(city.insee, ground.permits);
     const standing = placed.permits.filter((permit) => permit.lon !== null && permit.lat !== null);
     return {
       permits: standing,
@@ -28440,10 +28443,13 @@ function adsFranceProxy() {
         ok: true,
         live: Boolean(live) && placed.complete,
         count: dossiers.length,
+        onParcel: ground.cadastre?.placed ?? 0,
         geocoded: placed.geocoded,
         unplaced: dossiers.length - standing.length,
         folded,
         lists: live?.lists ?? null,
+        // Files a reading left for later (Argenteuil's backlog) or could not read.
+        incomplete: Boolean(live?.incomplete),
         archive: {
           since: archive.firstDay,
           through: archive.lastDay,

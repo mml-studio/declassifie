@@ -50,6 +50,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   948 dossiers in the two months to 2026-10-01, and at Béziers every filing
   still open and every week's decisions, refusals included, 587 dossiers. The
   server reads a year of them once and the new ones every day.
+- **Aix-en-Provence and Argenteuil now show their permits days after the
+  fact**, 0.26 million more inhabitants. Aix's page lists every dossier filed
+  in the last two months and still undecided and every decision of those two
+  months, refusals included — 476 dossiers on 2026-10-01, 457 of them drawn
+  on their cadastral parcel. Argenteuil posts one sheet per dossier, about
+  1 400 a year, filings and decisions: 62 of its 476 decisions of 2026 are
+  refusals.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

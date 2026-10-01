@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the PDF lists Marseille, Nîmes, Lyon and Béziers publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence and Argenteuil publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4769,6 +4769,23 @@ placed by address, 27 merged with Sitadel; Béziers: 587, 554 placed. One of
 Lyon's files, written by Acrobat PDFMaker, declares a two-byte codespace for
 one-byte fonts; `pdfText.js` now reads a simple font one byte a code, as the
 PDF standard says, whatever its ToUnicode map declares.
+
+**Aix-en-Provence and Argenteuil publish theirs in two more ways.** Aix's
+ArcOpole application answers one page with two HTML tables, found by their
+legends — the dossiers filed in the last two months and still undecided, and
+the decisions of the same two months, refusals included (52 of 312 on
+2026-10-01). The numbers leave the commune out (`PC2600200`, `PC24J0209
+M01`), so `013001` is put back; a `P01` after a number is a prorogation. Each
+row names its parcels (`AC 0080, AB 0123`), and 457 of the 476 dossiers stand
+on one; `AT` rows (works permits for public buildings) are not drawn.
+Argenteuil posts one PDF per dossier on Digilor Datahall, whose open JSON
+index (a POST of `{"controller":"DocumentController","action":"getAll",…}`,
+10 MB, every document since 2022) is filtered on the urbanism shelves' ids;
+the sheets are the same grid as Béziers's (`readGridTable`), and the numbers
+(`DP 95018 26 o0413`) key as Sitadel's `09501826O0413`. A scan fetches at most
+60 files it has not read, the sweep 400, so a year's backlog is read over a
+few days; a scanned sheet is kept as empty and not fetched again. The
+dossiers of both cities go through the cadastre first, the BAN for the rest.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

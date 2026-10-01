@@ -279,3 +279,101 @@ test('an overridden robots.txt is not asked for', async () => {
   assert.equal(verdict.allows('/'), true);
   assert.deepEqual(http.calls, []);
 });
+
+// --- Aix (ArcOpole) and Argenteuil (Digilor) ----------------------------------
+
+const AIX = Object.freeze({
+  key: 'aix', insee: '13001', underReview: true, label: 'Aix — listes',
+  page: 'https://aix.example/arcopolepro/view.jsp', source: Object.freeze({ kind: 'arcopole' }), lists: Object.freeze([]),
+});
+
+test('Aix\'s page is read in one request, both tables at once', async () => {
+  const row = (cells) => `<tr>${cells.map((value) => `<td>${value}</a></td>`).join('')}</tr>`;
+  const html = `<legend>Liste des Dossiers Déposés</legend><table><tr><th>Dossier</th><th>Demandeur</th><th>Adresse du terrain</th><th>Objet / Destination</th><th>Travaux</th><th>Parcelle</th><th>Dépot</th><th>SHOB</th><th>SHON</th><th>Log.</th></tr>
+    ${row(['DP2600975', 'DUPONT Jean', '1 RUE EXEMPLE    13100 AIX', '-', 'Clôture', 'AB 0142', '2026-09-30 00:00:00.0', '-', '-', '-'])}</table>
+    <legend>Liste des Dossiers Délivrés</legend><table><tr><th>Dossier</th><th>Demandeur</th><th>Adresse du terrain</th><th>Objet / Destination</th><th>Travaux</th><th>Parcelle</th><th>SHOB</th><th>SHON</th><th>Log.</th><th>Délivrance</th><th>Nature</th></tr></table>`;
+  const http = fakeHttp({ pages: { [AIX.page]: html } });
+  const answer = await readPermitCity(AIX, http, {});
+  assert.deepEqual(answer.lists.map((list) => [list.board, list.rows]), [['filings', 1], ['decisions', 0]]);
+  assert.equal(answer.boards.filings[0][0], 'DP 013001 26 00975');
+  assert.equal(answer.boards.filings[0][3], null, 'a person never reaches the archive');
+  assert.equal(await readPermitCity(AIX, fakeHttp({ pages: { [AIX.page]: '<html>maintenance</html>' } }), {}), null);
+});
+
+const ARGENTEUIL = Object.freeze({
+  key: 'arg', insee: '95018', label: 'Argenteuil — listes', page: 'https://dh.example/web/',
+  source: Object.freeze({ kind: 'digilor', base: 'https://dh.example', app: 133, category: 1882, filings: 2170, decisions: 2172 }),
+  lists: Object.freeze([Object.freeze({ layout: 'grid' })]),
+});
+
+/** A one-dossier filing sheet as Argenteuil posts it, glyphs 500 wide. */
+function sheetPdf(number) {
+  const text = (x, y, words) => `BT /F1 11 Tf 1 0 0 1 ${x} ${y} Tm (${words}) Tj ET`;
+  const content = [
+    text(28.3, 390.7, 'Date de d\xe9p\xf4t'), text(153.7, 390.7, 'Num\xe9ro de dossier'), text(278.8, 390.7, 'P\xe9titionnaire'),
+    text(408.8, 390.7, 'Adresse du projet'), text(573.8, 390.7, 'Description du projet'),
+    text(28.3, 314.9, '29/09/2026'), text(153.7, 314.9, number), text(278.8, 314.9, 'SCI EXEMPLE'),
+    text(408.8, 314.9, '1 rue Exemple'), text(408.8, 302.2, '95100 Argenteuil'), text(573.8, 314.9, 'Pose d\x92une cl\xf4ture'),
+  ].join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+    `<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 255 /Widths [${Array(224).fill(500).join(' ')}] >>`,
+  ];
+  let out = '%PDF-1.7\n';
+  objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  out += 'trailer\n<< /Root 1 0 R >>\n%%EOF\n';
+  return new Uint8Array(Buffer.from(out, 'latin1'));
+}
+
+function datahallHttp({ index, files = {} }) {
+  const calls = [];
+  const response = (status, payload, type = 'text/html') => ({
+    ok: status >= 200 && status < 300, status, payload, body: { cancel: async () => {} },
+    headers: { get: (name) => (name.toLowerCase() === 'content-type' ? type : null) },
+  });
+  return {
+    calls,
+    async fetch(url, init = {}) {
+      const { pathname, searchParams } = new URL(url);
+      calls.push({ path: pathname, method: init.method ?? 'GET', body: init.body ?? null, file: searchParams.get('file') });
+      if (pathname.endsWith('/index.php')) return response(200, JSON.stringify(index));
+      const file = files[searchParams.get('file')];
+      return file ? response(200, file, 'application/pdf') : response(404, '');
+    },
+    text: async (r) => (typeof r.payload === 'string' ? r.payload : null),
+    bytes: async (r) => (r.payload instanceof Uint8Array ? r.payload : null),
+  };
+}
+
+test('a Datahall city reads its index, then each new file once, a few at a time', async () => {
+  const dir = await tempDir();
+  const doc = (id, day) => ({ id, id_cat: 1882, id_sscat: 2170, aff_deb: day, url_uiid: `./upload/133/${id}.pdf` });
+  const index = [doc(1, '2026-09-29'), doc(2, '2026-09-28'), doc(3, '2026-09-27')];
+  const files = {
+    'upload/133/1.pdf': sheetPdf('DP 95018 26 o0413'),
+    'upload/133/2.pdf': sheetPdf('PC 95018 26 o0099'),
+    // A scan: a PDF with no text, kept as empty and never fetched again.
+    'upload/133/3.pdf': new Uint8Array(Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1')),
+  };
+  const http = datahallHttp({ index, files });
+  const first = await readPermitCity(ARGENTEUIL, http, { dir, months: 2, day: '2026-10-01', maxFiles: 2 });
+  assert.deepEqual(http.calls[0], {
+    path: '/web/server/index.php', method: 'POST',
+    body: '{"controller":"DocumentController","action":"getAll","data":{"idApp":133}}', file: null,
+  });
+  assert.deepEqual(first.boards.filings.map((cells) => cells[0]), ['DP 95018 26 o0413', 'PC 95018 26 o0099']);
+  assert.deepEqual([first.skipped, first.incomplete], [1, true]);
+
+  const again = datahallHttp({ index, files });
+  const second = await readPermitCity(ARGENTEUIL, again, { dir, months: 2, day: '2026-10-01', maxFiles: 2 });
+  assert.deepEqual(again.calls.map((call) => call.file), [null, 'upload/133/3.pdf']);
+  assert.deepEqual([second.boards.filings.length, second.skipped, second.lists[0].empty], [2, 0, 1]);
+
+  const third = datahallHttp({ index, files });
+  await readPermitCity(ARGENTEUIL, third, { dir, months: 2, day: '2026-10-01', maxFiles: 2 });
+  assert.deepEqual(third.calls.map((call) => call.file), [null], 'every file is on disk now, the scan too');
+  assert.equal(await readPermitCity(ARGENTEUIL, datahallHttp({ index: { error: 'no' } }), { months: 2, day: '2026-10-01' }), null);
+});
