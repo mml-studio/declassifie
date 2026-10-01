@@ -17,6 +17,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Conches-en-Ouche, the Pays de Fayence, Bergerac and Mouleydier,
   Porto-Vecchio, Châtillon and Soultz-Haut-Rhin. A dossier filed and not yet
   decided reads « Déposé » (“Filed”); a person's name never appears.
+- **Saint-Étienne, Dijon, Nancy, Toulon and four communes of the Val-de-Marne
+  now show the permits they post themselves**, 65 more communes and 1.1
+  million more inhabitants: the 34 communes of Saint-Étienne Métropole's
+  board, the 22 of Dijon Métropole, Nancy and three neighbours, Toulon,
+  Champigny-sur-Marne, Joinville-le-Pont, Charenton-le-Pont and
+  Maisons-Alfort. 4 218 postings on 2026-10-01, 98.8 % of them on their
+  cadastral parcel. Joinville's board had been left out on 2026-09-30 because
+  its host, shared with the three other Val-de-Marne communes, sends an
+  incomplete certificate chain; the server now supplies the missing
+  intermediate itself, as a browser does.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at

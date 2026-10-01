@@ -62,7 +62,8 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
       seen.set(code, instance.key);
     }
   }
-  assert.equal(seen.size, 129);
+  // 129 communes on 2026-09-30, 65 more on 2026-10-01.
+  assert.equal(seen.size, 194);
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
   assert.equal(cartdsInstanceFor('75056'), null);

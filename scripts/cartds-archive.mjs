@@ -25,6 +25,7 @@ import {
   CARTDS_USER_AGENT,
   createCartdsArchiveStore,
   sweepCartdsArchive,
+  trustCartdsIntermediates,
   writeCartdsSweepStamp,
 } from './lib/cartdsArchive.mjs';
 
@@ -71,6 +72,8 @@ if (keys && instances.length !== keys.size) {
   console.error(`Unknown instance: ${[...keys].filter((key) => !known.has(key)).join(', ')}`);
   process.exit(2);
 }
+
+trustCartdsIntermediates(instances);
 
 const http = {
   async fetch(url, init = {}) {
