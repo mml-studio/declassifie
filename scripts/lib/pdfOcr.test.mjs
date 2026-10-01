@@ -6,7 +6,40 @@ import assert from 'node:assert/strict';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createPdfOcr, pdfOcrAvailable } from './pdfOcr.mjs';
+import { createPdfOcr, pdfOcrAvailable, ocrTsvPage, rotatePgm } from './pdfOcr.mjs';
+
+test('positioned OCR converts pixels to PDF points and ignores a tall table border', () => {
+  const tsv = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n'
+    + '1\t1\t0\t0\t0\t0\t0\t0\t2000\t1000\t-1\t\n'
+    + '5\t1\t1\t1\t1\t1\t100\t100\t40\t20\t95\tDate\n'
+    + '5\t1\t1\t1\t1\t2\t145\t104\t30\t16\t95\tde\n'
+    + '5\t1\t1\t1\t1\t3\t180\t100\t60\t20\t95\tdépôt\n'
+    + '5\t1\t1\t1\t1\t4\t80\t100\t2\t100\t20\t|\n';
+  const page = ocrTsvPage(tsv);
+  assert.equal(page.width, 720);
+  assert.equal(page.height, 360);
+  assert.equal(page.runs[0].x, 36);
+  assert.equal(page.runs[0].y, 316.8);
+  assert.ok(page.runs.every((r) => r.y === page.runs[0].y));
+  assert.equal(ocrTsvPage('bad TSV'), null);
+});
+
+test('sideways eight-bit grey tables rotate without changing pixels', () => {
+  const pgm = Buffer.concat([Buffer.from('P5\n2 3\n255\n'), Buffer.from([1, 2, 3, 4, 5, 6])]);
+  assert.deepEqual(rotatePgm(pgm, 270), Buffer.concat([Buffer.from('P5\n3 2\n255\n'), Buffer.from([2, 4, 6, 1, 3, 5])]));
+  assert.deepEqual(rotatePgm(pgm, 90), Buffer.concat([Buffer.from('P5\n3 2\n255\n'), Buffer.from([5, 3, 1, 6, 4, 2])]));
+  assert.throws(() => rotatePgm(pgm.subarray(0, -1), 270), /Truncated/);
+});
+
+test('positioned mode requests TSV and returns words to the list readers', async () => {
+  const tsv = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n'
+    + '1\t1\t0\t0\t0\t0\t0\t0\t1000\t2000\t-1\t\n'
+    + '5\t1\t1\t1\t1\t1\t100\t100\t40\t20\t95\tDP\n';
+  const { run, calls } = fakePrograms([tsv]);
+  const answer = await createPdfOcr({ run })(new Uint8Array([1]), { positioned: true });
+  assert.equal(answer.document.pages[0].runs[0].text, 'DP');
+  assert.equal(calls.find(([file]) => file === 'tesseract').at(-1), 'tsv');
+});
 
 /** Programs that answer as poppler and Tesseract would, for a PDF of `pages`. */
 function fakePrograms(pages, { failOn = null } = {}) {

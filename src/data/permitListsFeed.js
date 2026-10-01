@@ -132,6 +132,9 @@ import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, formatDossier, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 import {
+  MUNICIPAL_PERMIT_SOURCES, readMunicipalNotice, readBalmaTable, readWattrelosTable, saintPriestGridSpec,
+} from './municipalPermitsFeed.js';
+import {
   CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
 
@@ -393,6 +396,7 @@ export const PERMIT_LISTS = Object.freeze([
       Object.freeze({ board: 'decisions', layout: 'lille-bulletin', link: /^BO VDL\b/i }),
     ]),
   }),
+  ...MUNICIPAL_PERMIT_SOURCES,
 ]);
 
 /**
@@ -3051,6 +3055,10 @@ export const PERMIT_LIST_TEXT = Object.freeze({
 
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
+  'municipal-notice': readMunicipalNotice,
+  'balma-table': readBalmaTable,
+  'wattrelos-table': readWattrelosTable,
+  'saint-priest-table': (document, context) => readGridTable(document, saintPriestGridSpec(context)),
   register: readRegisterList,
   decisions: readDecisionTable,
   lyon: readLyonList,

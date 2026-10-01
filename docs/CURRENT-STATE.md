@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + Métropole Nice Côte d'Azur's e-permis board (38 communes, daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 190 Cart@DS *affichage réglementaire* boards (1 429 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + Métropole Nice Côte d'Azur's e-permis board (38 communes, daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4954,6 +4954,38 @@ of them in a container held to one CPU of an i5-6500T, gave the same 55
 decisions as the Mac's 5.5, at 2.1 s a page read whole and 1.8 s a page on
 average for bulletins heavy in decisions; the OCR layer adds 111 MB to the
 image.
+
+**Six more municipal boards, since 2026-10-01:** Saint-Priest (69290),
+Wattrelos (59650), Lambersart (59328), Achères (78005), Balma (31044) and
+Anzin (59014), in `src/data/municipalPermitsFeed.js`. These are six communes,
+not coverage of their whole metropolitan authorities. They use the same
+permit-list archive, dossier folding and cadastral/BAN placement as the
+thirteen existing publishers.
+
+Saint-Priest's DematDOC JSON index supplies its newest aggregate filing and
+decision lists. The decision list holds 109 rows on 2026-10-01; its filing
+PDFs render blank, so the reader reports a failure without inventing filings.
+Balma's document library category 163 links regular tables mixing filings
+and decisions; their clipping rectangles separate the centred cells, leaving
+applicant columns unread. Achères and Anzin publish individual PDF notices;
+their titles supply abbreviated dossier numbers and project addresses.
+Numbers retain their municipality, counter letters, modifications and
+transfers. Notices read labelled project fields, never applicant fields.
+
+Wattrelos and Lambersart use paginated Drupal boards. The daily sweep follows
+up to 25 and 40 pages respectively and honours their ten-second crawl delay.
+Visitors read a scrubbed snapshot without contacting these slow boards.
+Scans are read only in the sweep, through positioned Tesseract TSV words;
+Wattrelos's sideways filing tables are rotated in memory before OCR. The
+decision's heading/first operative article gives its verdict; an unreadable
+verdict stays “Decision signed”, never an inferred grant. Title-derived
+records awaiting OCR are marked incomplete and retried on the next sweep.
+Only scrubbed rows are cached, never raw titles or OCR text. Municipal
+sweeps read at most 40 new files, newest first, and progressively catch up
+their twelve-month backlog. Broken PDFs or pages preserve successful rows.
+Saint-Priest, Lambersart's files and Anzin's `/documents/` are read by the
+user's integration request of 2026-10-01, with `robots: 'overridden'` as for
+the existing Lyon and Lille sources.
 
 **Montpellier and 27 communes of its métropole** publish no list a reader
 could follow, but the métropole exports every favourable decision since 2006

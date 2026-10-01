@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin now show
+  their published planning permits**, including prior declarations, refusals
+  and withdrawals. Municipal PDF lists and individual notices join the daily
+  archive; scanned documents are read by OCR during the sweep. Saint-Priest's
+  blank filing lists and broken document links are reported as incomplete
+  coverage, while readable documents remain available.
 - **Five communes of the Grand Reims now show their permits days after the
   fact**: Bétheny, Cormicy, Hermonville, Taissy and Witry-lès-Reims, from the
   urban community's own Cart@DS board, which the platform scan could not see

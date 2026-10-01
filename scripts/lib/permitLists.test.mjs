@@ -15,6 +15,7 @@ import {
 } from './permitLists.mjs';
 import { createCartdsArchiveStore } from './cartdsArchive.mjs';
 import { PERMIT_LIST_ROWS } from '../../src/data/permitListsFeed.js';
+import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
 
 const CITY = Object.freeze({
   key: 'ville',
@@ -24,6 +25,63 @@ const CITY = Object.freeze({
   lists: Object.freeze([Object.freeze({ board: 'filings', layout: 'register', link: /registre_dossiers/i })]),
 });
 const SHUT = Object.freeze({ ...CITY, key: 'shut', page: 'https://shut.example/urbanisme' });
+
+test('municipal scans await OCR, retry once in the sweep, and cache only scrubbed fields', async () => {
+  const dir = await tempDir();
+  const city = MUNICIPAL_PERMIT_SOURCES.find((c) => c.key === 'acheres');
+  const url = new URL('/files/notice.pdf', city.page).href;
+  const http = fakeHttp({ pages: { [city.page]: '<a href="/files/notice.pdf">AFF 2026.09.25 – DP 26A0077 – 2 RUE EXEMPLE – ACCORD</a>' },
+    files: { [url]: { bytes: Buffer.from('%PDF-1.7\nscanned') } } });
+  const first = await readPermitCity(city, http, { dir });
+  assert.equal(first.pendingOcr, 1);
+  assert.equal(first.boards.decisions.length, 1);
+  let calls = 0;
+  const ocr = async (bytes, opts) => {
+    calls += 1; assert.equal(opts.positioned, true);
+    return { document: { pages: [{ runs: [
+      { text: 'DP 078005 26 A0077', x: 30, y: 700 },
+      { text: 'ARTICLE 1 : La demande est refusée', x: 30, y: 680 },
+    ] }] } };
+  };
+  const swept = await readPermitCity(city, http, { dir, ocr, background: true });
+  assert.equal(swept.pendingOcr, 0);
+  assert.equal(calls, 1);
+  assert.ok(swept.boards.decisions[0].includes('Refus'));
+  await readPermitCity(city, http, { dir, ocr, background: true });
+  assert.equal(calls, 1, 'an already read immutable PDF is not read again');
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /ARTICLE|scanned|title/);
+});
+
+test('a Drupal board is paginated by the sweep; visitors use its snapshot without requests', async () => {
+  const dir = await tempDir();
+  const city = MUNICIPAL_PERMIT_SOURCES.find((c) => c.key === 'wattrelos');
+  const next = new URL(city.page); next.searchParams.set('page', '1');
+  const item = (id) => `<li class="kiosque__item"><h3>PC 26-${id} Extension 15 rue Exemple</h3><a href="/files/${id}.pdf">PDF</a></li>`;
+  const http = fakeHttp({ pages: { [city.page]: `${item(47)}<a href="${next.href.replaceAll('&', '&amp;')}" rel="next">Next</a>`, [next.href]: item(48) },
+    files: { [new URL('/files/47.pdf', city.page).href]: { bytes: Buffer.from('%PDF-1.7\nscan') }, [new URL('/files/48.pdf', city.page).href]: { bytes: Buffer.from('%PDF-1.7\nscan') } } });
+  assert.equal(await readPermitCity(city, http, { dir }), null);
+  assert.equal(http.calls.length, 0);
+  const answer = await readPermitCity(city, http, { dir, background: true, maxFiles: 1 });
+  assert.equal(answer.skipped, 1);
+  assert.equal(answer.incomplete, true);
+  const before = http.calls.length;
+  const visitor = await readPermitCity(city, http, { dir });
+  assert.equal(visitor.boards.decisions.length, 1);
+  assert.equal(http.calls.length, before);
+  const second = await readPermitCity(city, http, { dir, background: true, maxFiles: 1 });
+  assert.equal(second.boards.decisions.length, 2, 'the backlog progresses with cached files');
+});
+
+test('broken PDFs and HTML challenges preserve the other municipal files', async () => {
+  const city = MUNICIPAL_PERMIT_SOURCES.find((c) => c.key === 'acheres');
+  const files = { '/good.pdf': { bytes: Buffer.from('%PDF-1.7\nscan') }, '/bad.pdf': { bytes: Buffer.from('<html>challenge</html>') }, '/missing.pdf': 404 };
+  const http = fakeHttp({ pages: { [city.page]: Object.keys(files).map((href, i) => `<a href="${href}">DP 078 005 26A00${80 + i} – 2 RUE EXEMPLE</a>`).join('') },
+    files: Object.fromEntries(Object.entries(files).map(([url, answer]) => [new URL(url, city.page).href, answer])) });
+  const answer = await readPermitCity(city, http);
+  assert.equal(answer.boards.filings.length, 1);
+  assert.equal(answer.failed, 2);
+  assert.equal(answer.incomplete, true);
+});
 
 /** A one-page register: the six headers and one record, WinAnsi text. */
 function registerPdf(number = 'DP 030189 26 01093', applicant = 'DUPONT Jean') {
