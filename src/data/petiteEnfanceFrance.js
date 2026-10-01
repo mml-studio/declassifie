@@ -80,7 +80,6 @@ import {
   PE_BANDS,
   PE_BOX_STEP_DEG,
   PE_GEO_SOURCE,
-  PE_MAX_BOX_DEG,
   PE_BAND_RATIOS,
   PE_MODES,
   peBandName,
@@ -89,6 +88,16 @@ import {
   peScaleLabel,
 } from './petiteEnfanceFeed.js';
 import { pickAt } from './pickAt.js';
+import {
+  bandAlphas,
+  bandWeights,
+  fadeBand,
+  fadeInstances,
+  fadingColorMaterial,
+  levelVisible,
+  quantizeFade,
+  watchZoomFade,
+} from './zoomFade.js';
 import { formatDecimal, formatNumber } from '../i18n/format.js';
 import messages from './petiteEnfanceFrance.i18n.js';
 import { serverFailureMessage } from '../i18n/serverMessages.js';
@@ -112,19 +121,16 @@ const DEPARTEMENTS_URL = new URL(
 
 // --- Activation / load gating ----------------------------------------------
 /**
- * View LATITUDE span (degrees) at or above which the choropleth answers.
+ * View latitude span (degrees) below which the TERRITORIES are drawn.
  *
  * It used to be 9,5° — the height of metropolitan France — because below it
  * the dots took over. What is below it now is real geometry, and the ceiling
  * is how much of it a view can hold: measured on the ground, a 0,9° box holds
  * about 1 450 communes, which is the same order as the parcel batches this
  * app already draws. So the choropleth answers everything above that and the
- * territories take over below it.
- *
- * The exit threshold is lower than the entry one so a camera resting on the
- * boundary does not swap the whole map back and forth on sub-pixel drift.
+ * territories take over below it — now across a band rather than on a line,
+ * see {@link PE_NATIONAL_BAND}.
  */
-export const NATIONAL_ENTER_SPAN_DEG = PE_MAX_BOX_DEG;
 export const NATIONAL_EXIT_SPAN_DEG = 0.9;
 /**
  * View latitude span below which communes are cut out of their EPCI's wash.
@@ -132,8 +138,72 @@ export const NATIONAL_EXIT_SPAN_DEG = 0.9;
  * 0,45° is about 50 km of France — a metropolitan area and its ring — which
  * is the first zoom at which "which commune" is a question a reader can act
  * on, and comfortably inside the regime that is already drawing territory.
+ * The coarse end of {@link PE_COMMUNE_BAND}.
  */
 export const COMMUNE_SPAN_DEG = 0.45;
+
+/**
+ * ── Fade on zoom: the three scales are ONE statistic ────────────────────────
+ * Every level this layer draws is the CNAF's own `txcouv_pe_*` — places per
+ * 100 children under three — for ONE reference year, discovered once per
+ * build, and banded against ONE national rate (`peBand`, ratios
+ * {@link PE_BAND_RATIOS}) in ONE proxy pass (`refreshPeCoverage`). The colour
+ * is anchored on the national figure precisely so that "an area would change
+ * colour as you zoomed without anything changing about it" cannot happen.
+ * That is the case fade on zoom exists for: the département fill can dim while
+ * the EPCI wash comes in over it, and both mean the same thing for as long as
+ * the camera rests between them. Each band's two levels are drawn at the
+ * alphas `bandAlphas` gives them, multiplied into each band's own alpha
+ * (`BAND_ALPHA`, `TERRITORY_ALPHA`) — one factor for every band of a level,
+ * so the extremes still outweigh the middle at every point of the fade.
+ */
+
+/**
+ * Département choropleth → territories, in degrees of view latitude.
+ *
+ * The coarse end is where the territories start loading today, 0,9°, and it
+ * is also the most the contour proxy can be asked for with room to spare: the
+ * box is snapped OUTWARD to {@link PE_BOX_STEP_DEG}, so a 0,9° view asks for
+ * at most 0,9 + 2 × 0,1 = 1,1°, under the 1,3° (`PE_MAX_BOX_DEG`) the proxy
+ * refuses above, and holds the ~1 450 communes measured for that span, under
+ * the 2 400 one answer may carry. The old exit at 1,3° could snap to 1,5° and
+ * be refused; the band never asks that. The fine end is 0,6 × 0,9 = 0,54°:
+ * a ratio of 1,67, a little under one zoom level, so the hand-over is one
+ * gesture and not a crawl. The choropleth stays drawn down to it, which costs
+ * nothing — it is the ~35 KB national rollup over 112 bundled polygons,
+ * already in hand. The band replaces the old 0,9° / 1,3° hysteresis: inside
+ * it both levels are drawn, so a camera resting on an edge flips nothing a
+ * reader can see.
+ */
+export const PE_NATIONAL_BAND = fadeBand(0.54, NATIONAL_EXIT_SPAN_DEG);
+
+/**
+ * EPCI wash → commune cut-outs, in degrees of view latitude.
+ *
+ * The coarse end is the 0,45° where the cut-outs start today, the fine end
+ * 0,6 × 0,45 = 0,27° (ratio 1,67, the same gesture as the band above). The
+ * commune grain costs no fetch at all — the same contour answer carries both
+ * grains — so the band costs only drawing: inside it, the ground of every
+ * commune the CNAF publishes is drawn twice, once in its EPCI's colour fading
+ * out and once in its own fading in. Those are only the communes of more than
+ * 10 000 inhabitants (1 061 in France) that fall in the view, against the
+ * ~1 450 rings of the whole wash at the outer band's edge. Outside the band
+ * the ground is drawn once, as before. The two bands do not overlap
+ * (0,45 < 0,54), so the EPCI level, which sits between them, is drawn at the
+ * product of its two alphas, of which at most one is below 1 at any span.
+ */
+export const PE_COMMUNE_BAND = fadeBand(0.27, COMMUNE_SPAN_DEG);
+
+/** The two bands as the zoom-fade diagnostics report them. */
+const FADE_BANDS_REPORT = Object.freeze({
+  'departements-epci': Object.freeze({
+    fine: PE_NATIONAL_BAND.fine, coarse: PE_NATIONAL_BAND.coarse, unit: 'deg-lat',
+  }),
+  'epci-communes': Object.freeze({
+    fine: PE_COMMUNE_BAND.fine, coarse: PE_COMMUNE_BAND.coarse, unit: 'deg-lat',
+  }),
+});
+
 /** Box answers kept in the browser between views, LRU. */
 export const PE_BOX_CACHE = 6;
 const CAMERA_DEBOUNCE_MS = 450;
@@ -240,7 +310,16 @@ let _overlayHost = DEFAULT_OVERLAY_HOST;
 
 // --- Runtime state ----------------------------------------------------------
 let _viewer = null;
+/**
+ * The territories of the DOMINANT grain of the drawing on screen: what the
+ * legend counts, what a harness reads, what a callout anchors on.
+ */
 let _records = new Map();
+/**
+ * Every territory the drawing on screen can answer a click for — both grains
+ * inside the commune band, where a fading commune is still a commune.
+ */
+let _pickRecords = new Map();
 let _enabled = false;
 let _clickHandler = null;
 let _cameraChangedAttached = false;
@@ -249,15 +328,42 @@ let _selectedId = null;
 let _count = 0;
 let _lastUpdate = null;
 let _loading = false;
+let _loadingNational = false;
+let _loadingLocal = false;
 let _error = null;
 let _status = 'idle';
+/**
+ * The DOMINANT level at the last settled view: `national` while the
+ * département fill outweighs the territories, `local` once they outweigh it.
+ * It owns the legend, the status line and the card; it no longer decides
+ * what is loaded — {@link pePlanLevels} does.
+ */
 let _regime = 'national';
+/** Inside the local regime, the dominant grain: `epci` or `com`. */
+let _grain = 'epci';
+/** What the last settled view loads. See {@link pePlanLevels}. */
+let _plan = null;
 let _requestGeneration = 0;
 
 let _national = null;
 let _nationalPromise = null;
 let _nationalError = null;
+/** The rollup the département entities were last painted with. */
+let _paintedNational = null;
+/** The département entities carry a fill (the national level can be drawn). */
 let _nationalPainted = false;
+/** Whether the département entities are shown, as the fade last decided. */
+let _depShown = false;
+/** Codes the rollup paints; the rest are absence and stay hidden. */
+let _depPaintedCodes = new Set();
+/**
+ * The weight every département fill is multiplied by, read by the entities'
+ * colour callbacks. Already on the `FADE_STEPS` grid.
+ */
+let _nationalWeight = 1;
+/** One fading material per band, shared by every département in it. */
+const _depMaterials = new Map();
+let _depHighlightMaterial = null;
 let _depDataSource = null;
 let _depEntities = new Map();
 let _depMeta = new Map();
@@ -278,13 +384,23 @@ const _contourPromises = new Map();
 let _contourError = null;
 let _visibleDeps = [];
 let _dropped = 0;
-/** The box+grain currently drawn, so a camera nudge is not a rebuild. */
-let _drawKey = null;
-/** One `GroundPrimitive` per band colour — never one per territory. */
-let _fills = [];
-let _outlines = null;
+/**
+ * The territory drawing on screen, and the one being built to replace it.
+ * See {@link drawLocal} for the shape; the pending one is built hidden and
+ * promoted by the frame callback once every primitive in it is ready.
+ */
+let _local = null;
+let _pendingLocal = null;
 let _selectionFill = null;
 let _selectionOutline = null;
+/** The two selection primitives with their `[id, colour]` lists, for the fade. */
+let _selectionBatches = [];
+/** `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
+/** What the last frame drew each level at, for the harness. */
+let _levelAlphas = {
+  departements: 0, epci: 0, epciUnderCommunes: 0, communes: 0,
+};
 
 // --- Colour and size --------------------------------------------------------
 
@@ -367,15 +483,68 @@ export function peViewSpanDeg(viewer) {
   return Number.isFinite(lat) ? lat : Infinity;
 }
 
-/** Which regime the camera is in, with hysteresis at the boundary. */
-function updateRegime(viewer) {
-  const span = peViewSpanDeg(viewer);
-  if (_regime === 'national') {
-    if (span < NATIONAL_EXIT_SPAN_DEG) _regime = 'local';
-  } else if (span >= NATIONAL_ENTER_SPAN_DEG) {
-    _regime = 'national';
+/**
+ * What one settled view loads, and which level owns the legend.
+ *
+ * A level is loaded wherever its zoom weight is above zero — on the
+ * `FADE_STEPS` grid, so a sliver of weight at a band's far end loads nothing
+ * a reader could see — and dropped only where it is zero. Inside the commune
+ * band both grains are drawn; `under` is the EPCI colour on the ground of the
+ * communes that are cut out, `over` their own colour on it.
+ *
+ * The dominant level is the heavier of each band's two, decided here, on the
+ * settled view, exactly as the regime was before — ties go to the coarser.
+ *
+ * @param {number} span View latitude span, degrees (Infinity past the limb).
+ * @param {{hasBox?: boolean}} [options] `hasBox`: the view has a rectangle to
+ *   ask the contour proxy about; without one the territories cannot load.
+ * @returns {{national: boolean, local: boolean, under: boolean, over: boolean,
+ *   regime: string, grain: string}}
+ */
+export function pePlanLevels(span, { hasBox = true } = {}) {
+  const outer = bandWeights(span, PE_NATIONAL_BAND);
+  const inner = bandWeights(span, PE_COMMUNE_BAND);
+  const local = Boolean(hasBox) && levelVisible(true, outer.fine);
+  const national = !local || levelVisible(true, outer.coarse);
+  const under = local && levelVisible(true, inner.coarse);
+  const over = local && levelVisible(true, inner.fine);
+  // i18n-ignore-start — regime and grain KEYS.
+  return {
+    national,
+    local,
+    under,
+    over,
+    regime: local && outer.fine > outer.coarse ? 'local' : 'national',
+    grain: over && (!under || inner.fine > inner.coarse) ? 'com' : 'epci',
+  };
+  // i18n-ignore-end
+}
+
+/**
+ * The id one geometry instance carries.
+ *
+ * One OBJECT per instance, not the territory's id string: an EPCI is drawn
+ * as all of its member communes, and `getGeometryInstanceAttributes` answers
+ * only the first instance of a repeated id — fading by it would fade one
+ * commune of thirty. The object resolves to the territory id everywhere a
+ * pick is read: `.id` for `resolvePickId` and the pick registry, `toString()`
+ * for anything that prints it.
+ */
+class PeInstanceId {
+  constructor(id, part) {
+    this.id = id;
+    this.part = part;
   }
-  return _regime;
+
+  toString() {
+    return this.id;
+  }
+}
+
+/** The territory id a pick carries, whether a string or a {@link PeInstanceId}. */
+export function peTerritoryIdOf(pickedId) {
+  if (typeof pickedId === 'string') return pickedId;
+  return typeof pickedId?.id === 'string' ? pickedId.id : null;
 }
 
 /**
@@ -577,31 +746,43 @@ export function selectPeLabelCohort(entries, limit = PE_FR_LABEL_COHORT_LIMIT) {
 
 function highlightSelectedDepartement() {
   if (!_selectedId?.startsWith('dep:')) return;
-  const highlight = new Cesium.ColorMaterialProperty(
+  // It fades with the level it highlights: a cyan département left at full
+  // strength over territories that have taken over would be a lid.
+  _depHighlightMaterial ??= fadingColorMaterial(
     Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(0.42),
+    () => _nationalWeight,
   );
   for (const entity of _depEntities.get(_selectedId.slice(4)) || []) {
-    if (entity.polygon) entity.polygon.material = highlight;
+    if (entity.polygon) entity.polygon.material = _depHighlightMaterial;
   }
 }
 
+/**
+ * Close a département's card when the territories take the legend over. The
+ * département may still be drawn, fading, so its band fill is put back too.
+ */
 function dropDepartementSelection() {
   if (_selectedId?.startsWith?.('dep:')) {
     _selectedId = null;
     _overlayHost.clearSource(PE_FR_OVERLAY_SOURCE_ID);
+    repaintDepartements();
   }
 }
 
 function clearSelection() {
-  if (_selectedId?.startsWith?.('dep:')) repaintDepartements();
-  else clearSelectionPrimitives();
+  const departement = _selectedId?.startsWith?.('dep:');
+  // Forgotten BEFORE the repaint: `repaintDepartements` re-applies the
+  // highlight of whatever is still selected, and used to put the cyan straight
+  // back on the département being deselected.
   _selectedId = null;
+  if (departement) repaintDepartements();
+  else clearSelectionPrimitives();
   _overlayHost.clearSource(PE_FR_OVERLAY_SOURCE_ID);
   governorRequestRender('petite-enfance-fr-deselect');
 }
 
 function selectArea(id) {
-  const record = _records.get(id);
+  const record = _pickRecords.get(id) || _records.get(id);
   if (!record) return;
   if (_selectedId && _selectedId !== id) clearSelection();
   _selectedId = id;
@@ -647,12 +828,14 @@ function installClickHandler(viewer) {
   _clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   _clickHandler.setInputAction((movement) => {
     const picked = pickAt(viewer.scene, movement.position);
-    const id = picked?.id;
-    if (typeof id === 'string' && _records.has(id)) {
+    const id = peTerritoryIdOf(picked?.id);
+    if (id && _pickRecords.has(id)) {
       selectArea(id);
       return;
     }
-    if (_regime === 'national') {
+    // Wherever the département level is drawn — inside the band too, where
+    // both levels are on screen and either can be the one under the cursor.
+    if (_depShown) {
       const code = pickedDepartementCode(picked);
       if (code && _depEntities.has(code)) {
         selectDepartement(code);
@@ -703,38 +886,61 @@ async function ensureDepartementShapes() {
   return _depShapesPromise;
 }
 
+/**
+ * Give every département its band's fill, as a FADING material.
+ *
+ * One material per band, kept for the life of the module, whose colour is
+ * re-read each frame from `_nationalWeight` — 112 polygons, which the shared
+ * fade's entity adapter is sized for. A repaint that hands an entity the
+ * object it already has changes nothing, so painting again is free and only a
+ * band that actually moved costs a ground-batch rebuild. Visibility is the
+ * fade's call ({@link setDepartementsShown}), not this function's.
+ */
 function repaintDepartements() {
   if (!_national) return;
-  const materials = new Map();
   const painted = new Set();
   for (const row of _national.departements || []) {
     const color = peBandColor(row.band);
     if (!color) continue;
-    let material = materials.get(row.band);
+    let material = _depMaterials.get(row.band);
     if (!material) {
-      material = new Cesium.ColorMaterialProperty(
+      material = fadingColorMaterial(
         Cesium.Color.fromCssColorString(color).withAlpha(peBandAlpha(row.band)),
+        () => _nationalWeight,
       );
-      materials.set(row.band, material);
+      _depMaterials.set(row.band, material);
     }
     const parts = _depEntities.get(row.code);
     if (!parts) continue;
     painted.add(row.code);
     for (const entity of parts) {
       if (!entity.polygon) continue;
-      entity.polygon.material = material;
-      entity.show = true;
+      if (entity.polygon.material !== material) entity.polygon.material = material;
     }
   }
   // A département the CNAF does not cover is drawn as absence rather than as
   // one end of the diverging ramp — which would be the worst possible default,
   // because both ends of this ramp are strong claims.
-  for (const [code, parts] of _depEntities) {
-    if (painted.has(code)) continue;
-    for (const entity of parts) entity.show = false;
-  }
+  _depPaintedCodes = painted;
+  applyDepartementShow();
   highlightSelectedDepartement();
   _viewer?.scene?.requestRender?.();
+}
+
+/** Write `_depShown` onto the entities — at a transition, never per frame. */
+function applyDepartementShow() {
+  for (const [code, parts] of _depEntities) {
+    const show = _depShown && _depPaintedCodes.has(code);
+    for (const entity of parts) {
+      if (entity.show !== show) entity.show = show;
+    }
+  }
+}
+
+function setDepartementsShown(show) {
+  if (show === _depShown) return;
+  _depShown = show;
+  applyDepartementShow();
 }
 
 function publishDepartementOverlay() {
@@ -794,45 +1000,66 @@ async function ensureNational() {
 }
 
 function hideDepartements() {
-  for (const parts of _depEntities.values()) {
-    for (const entity of parts) entity.show = false;
-  }
+  _depShown = false;
+  applyDepartementShow();
   _overlayHost.clearSource(PE_FR_LABEL_SOURCE_ID);
 }
 
-async function loadNational({ force = false } = {}) {
-  _error = null;
-  clearAreas();
-  if (force) {
-    _national = null;
-    _nationalPainted = false;
-  }
-  _loading = !_national;
-  const generation = _requestGeneration;
+/** `_loading` describes the level that owns the status line. */
+function syncLoading() {
+  _loading = _regime === 'national' ? _loadingNational : _loadingLocal;
+}
+
+/**
+ * Load and paint the département level.
+ *
+ * It does NOT clear the territories any more: they stay drawn until the
+ * départements are, and the frame callback drops them once their weight is
+ * zero. A first paint plays the level's arrival ramp; a repaint of a level
+ * already on screen (the six-hourly refresh) is a same-level swap and plays
+ * none.
+ */
+async function loadNational(generation) {
+  // i18n-ignore-next-line — a regime key, compared.
+  const owns = () => _regime === 'national';
+  _loadingNational = !_national;
+  syncLoading();
   try {
     await ensureDepartementShapes();
   } catch (error) {
     console.warn('[Data:PetiteEnfance-FR] département polygons failed:', error?.message || error);
-    _error = messages().errors.departementShapes;
-    _status = 'error';
-    _loading = false;
+    _loadingNational = false;
+    syncLoading();
+    if (owns()) {
+      _error = messages().errors.departementShapes;
+      _status = 'error';
+    }
     return;
   }
   await ensureNational();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'national') return;
-  _loading = false;
+  if (generation !== _requestGeneration || !_enabled || !_plan?.national) return;
+  _loadingNational = false;
+  syncLoading();
   if (!_national) {
-    _error = _nationalError || 'national rollup unavailable';
-    _status = 'error';
+    if (owns()) {
+      _error = _nationalError || 'national rollup unavailable';
+      _status = 'error';
+    }
     return;
   }
-  _count = _national.painted || 0;
-  _lastUpdate = Number(_national.fetchedAt) || Date.now();
-  _status = _count > 0 ? 'ready' : 'empty';
-  if (_nationalPainted) return;
-  _nationalPainted = true;
-  repaintDepartements();
+  if (owns()) {
+    _error = null;
+    _count = _national.painted || 0;
+    _lastUpdate = Number(_national.fetchedAt) || Date.now();
+    _status = _count > 0 ? 'ready' : 'empty';
+  }
   publishDepartementOverlay();
+  if (_paintedNational === _national) return;
+  const first = !_nationalPainted;
+  _paintedNational = _national;
+  repaintDepartements();
+  _nationalPainted = true;
+  if (first) _fade?.arrive('national');
   governorRequestRender('petite-enfance-fr-national');
 }
 
@@ -1034,6 +1261,76 @@ export function buildPeTerritoryRecords({
   return { records, epci, communes, unmatched, unrated };
 }
 
+/**
+ * The pieces of ground one view draws, sorted by the weight each follows.
+ *
+ * Built from {@link buildPeTerritoryRecords} at one grain or both — its one
+ * rule (every piece of ground to the finest scale published for it, and to
+ * exactly one) is untouched at either grain. Inside the commune band both
+ * grains are drawn, and a piece of ground then belongs to one of three
+ * groups, decided by comparing which territory owns each ring at each grain:
+ *
+ *   local  ground the SAME territory owns at both grains — the EPCI wash
+ *          outside the cut-outs. Drawn once, at the territories' weight.
+ *   under  ground an EPCI owns only at the coarse grain: the communes the
+ *          CNAF publishes, and Paris, Lyon and Marseille whole. Drawn in the
+ *          EPCI's colour, fading out across the band.
+ *   over   the same ground at the fine grain: each commune or arrondissement
+ *          in its own colour, or in its EPCI's where the CNAF did not publish
+ *          it. Fading in across the band.
+ *
+ * Outside the band only one grain is built and every piece is `local`, so
+ * the drawing is exactly the one this layer drew before it faded, one
+ * primitive per band colour. Rings are compared by identity: both grains
+ * hand on the very arrays the contour pack carries.
+ *
+ * @param {object} input
+ * @param {Array<object>} input.packs
+ * @param {Array<object>|Map<string,object>} input.areas
+ * @param {boolean} [input.under] Build the coarse grain (EPCI wash whole).
+ * @param {boolean} [input.over] Build the fine grain (communes cut out).
+ * @param {?number} [input.national]
+ * @param {?number} [input.year]
+ * @param {number} [input.limit]
+ * @returns {{groups: {local: Array<{record: object, parts: Array}>, under: Array<object>,
+ *   over: Array<object>}, coarse: ?object, fine: ?object}}
+ */
+export function buildPeTerritoryLevels({
+  packs, areas, under = true, over = false, national = null, year = null, limit = MAX_RENDERED_AREAS,
+} = {}) {
+  const byId = areas instanceof Map ? areas : indexPeAreas(areas);
+  const coarse = under
+    ? buildPeTerritoryRecords({ packs, areas: byId, withCommunes: false, national, year, limit })
+    : null;
+  const fine = over
+    ? buildPeTerritoryRecords({ packs, areas: byId, withCommunes: true, national, year, limit })
+    : null;
+  const groups = { local: [], under: [], over: [] };
+  if (!coarse || !fine) {
+    for (const record of (coarse || fine)?.records || []) groups.local.push({ record, parts: record.parts });
+    return { groups, coarse, fine };
+  }
+  const owner = (built) => {
+    const map = new Map();
+    for (const record of built.records) for (const part of record.parts) map.set(part, record.id);
+    return map;
+  };
+  const fineOwner = owner(fine);
+  const coarseOwner = owner(coarse);
+  for (const record of coarse.records) {
+    const shared = [];
+    const leaving = [];
+    for (const part of record.parts) (fineOwner.get(part) === record.id ? shared : leaving).push(part);
+    if (shared.length) groups.local.push({ record, parts: shared });
+    if (leaving.length) groups.under.push({ record, parts: leaving });
+  }
+  for (const record of fine.records) {
+    const arriving = record.parts.filter((part) => coarseOwner.get(part) !== record.id);
+    if (arriving.length) groups.over.push({ record, parts: arriving });
+  }
+  return { groups, coarse, fine };
+}
+
 /** Flat `[lon, lat, …]` to Cartesian positions. */
 function ringPositions(flat) {
   if (!Array.isArray(flat) || flat.length < 8) return null;
@@ -1085,30 +1382,16 @@ function buildOutlinePrimitive(instances) {
   });
 }
 
+function removePrimitive(primitive) {
+  if (primitive && _viewer?.scene?.primitives) _viewer.scene.primitives.remove(primitive);
+}
+
 function clearSelectionPrimitives() {
-  const primitives = _viewer?.scene?.primitives;
-  for (const primitive of [_selectionFill, _selectionOutline]) {
-    if (primitive && primitives) primitives.remove(primitive);
-  }
+  removePrimitive(_selectionFill);
+  removePrimitive(_selectionOutline);
   _selectionFill = null;
   _selectionOutline = null;
-}
-
-/** Show or hide every drawn territory, without rebuilding any of them. */
-function showTerritories(show) {
-  for (const primitive of [..._fills, _outlines, _selectionFill, _selectionOutline]) {
-    if (primitive) primitive.show = show;
-  }
-}
-
-function clearTerritoryPrimitives() {
-  const primitives = _viewer?.scene?.primitives;
-  clearSelectionPrimitives();
-  for (const primitive of [..._fills, _outlines]) {
-    if (primitive && primitives) primitives.remove(primitive);
-  }
-  _fills = [];
-  _outlines = null;
+  _selectionBatches = [];
 }
 
 /**
@@ -1124,96 +1407,305 @@ function clearTerritoryPrimitives() {
  * neighbours' boxes — a highlight with straight cuts through it belonging to
  * the commune next door. Measured on `cadastre-fr` in September 2026, which is
  * where this rule was written down.
+ *
+ * It fades with the level the territory belongs to, like everything else the
+ * territories draw (see {@link selectionAlpha}).
  */
 function drawSelectionPrimitives(record) {
   clearSelectionPrimitives();
   if (!record?.parts?.length || !_viewer?.scene?.primitives) return;
   const color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+  const fillColor = color.withAlpha(SELECTED_FILL_ALPHA);
   const fills = [];
   const outlines = [];
-  for (const part of record.parts) {
+  const fillEntries = [];
+  const outlineEntries = [];
+  record.parts.forEach((part, index) => {
     const positions = ringPositions(part);
-    if (!positions) continue;
-    fills.push(fillInstance(record.id, positions, color.withAlpha(SELECTED_FILL_ALPHA)));
-    outlines.push(outlineInstance(record.id, positions, color, SELECTED_OUTLINE_WIDTH_PX));
-  }
+    if (!positions) return;
+    const fillId = new PeInstanceId(record.id, index);
+    const outlineId = new PeInstanceId(record.id, index);
+    fills.push(fillInstance(fillId, positions, fillColor));
+    outlines.push(outlineInstance(outlineId, positions, color, SELECTED_OUTLINE_WIDTH_PX));
+    fillEntries.push([fillId, fillColor]);
+    outlineEntries.push([outlineId, color]);
+  });
   _selectionFill = buildFillPrimitive(fills);
   _selectionOutline = buildOutlinePrimitive(outlines);
-  for (const primitive of [_selectionFill, _selectionOutline]) {
+  for (const [primitive, entries] of [[_selectionFill, fillEntries], [_selectionOutline, outlineEntries]]) {
     if (!primitive) continue;
     primitive.show = _enabled;
     _viewer.scene.primitives.add(primitive);
+    _selectionBatches.push({ primitive, entries });
   }
+}
+
+/** Every primitive a territory drawing holds, fills and outlines. */
+function drawingPrimitives(drawing) {
+  if (!drawing) return [];
+  return [
+    ...drawing.groups.local, ...drawing.groups.under, ...drawing.groups.over, ...drawing.outlines,
+  ].map((batch) => batch.primitive);
+}
+
+function removeDrawing(drawing) {
+  for (const primitive of drawingPrimitives(drawing)) removePrimitive(primitive);
 }
 
 /**
- * Draw the territories currently in view.
+ * Build the territory drawing for one view, HIDDEN, as the pending drawing.
  *
- * ONE primitive per band colour, never one per territory and never one batch
- * carrying several colours — the first is the frame-rate cost batching exists
- * to avoid and the second draws the wrong shapes outright. See
- * `drawSelectionPrimitives` for the whole of why.
+ * ONE primitive per band colour and per group, never one per territory and
+ * never one batch carrying several colours — the first is the frame-rate
+ * cost batching exists to avoid and the second draws the wrong shapes
+ * outright (see {@link drawSelectionPrimitives} for the whole of why). The
+ * groups are what {@link buildPeTerritoryLevels} sorted; outside the commune
+ * band there is only `local`, and this is the drawing the layer always drew.
+ *
+ * Every instance carries its own {@link PeInstanceId} so `fadeInstances` can
+ * reach each ring of an EPCI, and the fade's `[id, colour]` list is kept in
+ * instance order, which makes the first look-up pass linear.
+ *
+ * The drawing on screen stays until this one is built; the frame callback
+ * then swaps them (`promotePendingLocal`). Clearing first, as this used to,
+ * showed bare ground for the length of every build.
+ *
+ * @returns {object} The drawing: `{key, under, over, groups, outlines, records, pickRecords}`.
  */
-function drawTerritories(records) {
-  clearTerritoryPrimitives();
-  _records.clear();
-  if (!records.length || !_viewer?.scene?.primitives) return;
+function drawLocal(levels, { key, under, over, grain }) {
+  const dominant = (grain === 'com' ? levels.fine : levels.coarse) || levels.fine || levels.coarse;
+  const records = new Map((dominant?.records || []).map((record) => [record.id, record]));
+  // Both grains answer a click: a commune fading in is still a commune. The
+  // dominant grain's record wins where an id is in both, because its parts
+  // are the ground the card and the highlight describe.
+  const pickRecords = new Map();
+  for (const built of [levels.coarse, levels.fine]) {
+    for (const record of built?.records || []) pickRecords.set(record.id, record);
+  }
+  for (const [id, record] of records) pickRecords.set(id, record);
 
-  /** @type {Map<string, Array<object>>} band colour → its fill instances. */
-  const fillsByColor = new Map();
-  const outlineInstances = [];
+  const drawing = {
+    key,
+    under,
+    over,
+    groups: { local: [], under: [], over: [] },
+    outlines: [],
+    records,
+    pickRecords,
+  };
+  if (!_viewer?.scene?.primitives) return drawing;
+
   const outlineColor = Cesium.Color
     .fromCssColorString(COMMUNE_OUTLINE_COLOR).withAlpha(COMMUNE_OUTLINE_ALPHA);
-
-  for (const record of records) {
-    _records.set(record.id, record);
-    const color = Cesium.Color.fromCssColorString(record.color).withAlpha(record.alpha);
-    const key = `${record.color}|${record.alpha}`;
-    let bucket = fillsByColor.get(key);
-    if (!bucket) {
-      bucket = [];
-      fillsByColor.set(key, bucket);
-    }
-    for (const part of record.parts) {
-      const positions = ringPositions(part);
-      if (!positions) continue;
-      bucket.push(fillInstance(record.id, positions, color));
-      // Only the commune grain is outlined — the EPCI's member communes share
-      // one wash and must not read as thirty separate areas.
-      if (record.scale === 'com') {
-        outlineInstances.push(outlineInstance(
-          record.id, positions, outlineColor, COMMUNE_OUTLINE_WIDTH_PX,
-        ));
+  let serial = 0;
+  for (const group of ['local', 'under', 'over']) {
+    /** @type {Map<string, {instances: Array, entries: Array}>} band colour → batch. */
+    const byColor = new Map();
+    const outline = { instances: [], entries: [] };
+    for (const { record, parts } of levels.groups[group]) {
+      const color = Cesium.Color.fromCssColorString(record.color).withAlpha(record.alpha);
+      const colorKey = `${record.color}|${record.alpha}`;
+      let batch = byColor.get(colorKey);
+      if (!batch) {
+        batch = { instances: [], entries: [] };
+        byColor.set(colorKey, batch);
+      }
+      for (const part of parts) {
+        const positions = ringPositions(part);
+        if (!positions) continue;
+        const id = new PeInstanceId(record.id, serial);
+        serial += 1;
+        batch.instances.push(fillInstance(id, positions, color));
+        batch.entries.push([id, color]);
+        // Only the commune grain is outlined — the EPCI's member communes
+        // share one wash and must not read as thirty separate areas.
+        if (record.scale === 'com') {
+          const outlineId = new PeInstanceId(record.id, serial);
+          serial += 1;
+          outline.instances.push(outlineInstance(outlineId, positions, outlineColor, COMMUNE_OUTLINE_WIDTH_PX));
+          outline.entries.push([outlineId, outlineColor]);
+        }
       }
     }
-  }
-
-  for (const instances of fillsByColor.values()) {
-    const primitive = buildFillPrimitive(instances);
-    if (!primitive) continue;
-    primitive.show = _enabled;
-    _fills.push(primitive);
-    _viewer.scene.primitives.add(primitive);
-  }
-  _outlines = buildOutlinePrimitive(outlineInstances);
-  if (_outlines) {
-    _outlines.show = _enabled;
-    _viewer.scene.primitives.add(_outlines);
+    for (const batch of byColor.values()) {
+      const primitive = buildFillPrimitive(batch.instances);
+      if (!primitive) continue;
+      primitive.show = false;
+      _viewer.scene.primitives.add(primitive);
+      drawing.groups[group].push({ primitive, entries: batch.entries });
+    }
+    const outlinePrimitive = buildOutlinePrimitive(outline.instances);
+    if (outlinePrimitive) {
+      outlinePrimitive.show = false;
+      _viewer.scene.primitives.add(outlinePrimitive);
+      drawing.outlines.push({ primitive: outlinePrimitive, entries: outline.entries, group });
+    }
   }
   governorRequestRender('petite-enfance-fr-territories');
+  return drawing;
 }
 
-function clearAreas() {
+/** Whether every primitive of a drawing is built (an empty drawing is). */
+function localDrawingReady(drawing) {
+  return drawingPrimitives(drawing).every((primitive) => primitive.ready === true);
+}
+
+function discardPendingLocal() {
+  if (!_pendingLocal) return;
+  removeDrawing(_pendingLocal);
+  _pendingLocal = null;
+}
+
+/**
+ * Put the drawing that has finished building in place of the one on screen,
+ * and start the arrival ramp of whatever it brings that was not drawn before:
+ * the territories themselves, or one grain of them. A drawing that replaces
+ * one of the same grains (a pan) is a same-level swap and ramps nothing.
+ */
+function promotePendingLocal() {
+  const next = _pendingLocal;
+  _pendingLocal = null;
+  const previous = _local;
+  // The card belongs to the drawing it was opened on, as it always has.
   if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
-  clearTerritoryPrimitives();
-  _drawKey = null;
-  _records.clear();
-  _count = 0;
+  removeDrawing(previous);
+  _local = next;
+  _records = next.records;
+  _pickRecords = next.pickRecords;
+  if (!previous) _fade?.arrive('local');
+  else {
+    if (next.over && !previous.over) _fade?.arrive('cut-outs');
+    if (next.under && !previous.under) _fade?.arrive('epci-under');
+  }
+}
+
+/** Drop the territories: the view no longer wants them and they are at zero. */
+function dropLocal() {
+  discardPendingLocal();
+  if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
+  removeDrawing(_local);
+  _local = null;
+  _records = new Map();
+  _pickRecords = new Map();
+}
+
+/** Reset the local regime's status counts. */
+function clearLocalStats() {
   _inView = 0;
   _communesShown = 0;
   _unpainted = 0;
   _dropped = 0;
   _visibleDeps = [];
+}
+
+// --- The fade ---------------------------------------------------------------
+
+/** Write one weight into one batch, hiding it at zero. */
+function writeBatch(batch, weight) {
+  const show = levelVisible(_enabled, weight);
+  if (batch.primitive.show !== show) batch.primitive.show = show;
+  if (show) fadeInstances(batch.primitive, batch.entries, weight);
+}
+
+/** The weight the selected territory's highlight is drawn at. */
+function selectionAlpha(alphas) {
+  const record = _selectedId ? _pickRecords.get(_selectedId) : null;
+  if (!record) return alphas.epci;
+  // i18n-ignore-next-line — a scale KEY.
+  if (record.scale === 'com') return _local?.groups.over.length ? alphas.communes : alphas.epci;
+  return alphas.epci;
+}
+
+/**
+ * Per frame: promote a territory drawing that finished building, then draw
+ * every level at the alpha its band gives it.
+ *
+ *   départements          outer band, coarse end
+ *   EPCI wash             outer band, fine end
+ *   EPCI under cut-outs   outer fine × inner coarse
+ *   communes (+outlines)  outer fine × inner fine
+ *
+ * Nothing here fetches or builds. A département colour is a callback the
+ * entity layer reads BEFORE this runs, so a changed département weight asks
+ * for one more frame to land; a pending drawing or selection asks for frames
+ * until it is built, because a ground primitive turns `ready` in an
+ * after-render callback that requests none.
+ */
+function onFadeFrame(scale, now) {
+  if (_pendingLocal && localDrawingReady(_pendingLocal)) promotePendingLocal();
+  const span = scale?.latSpan;
+  const arrival = (key) => _fade?.arrival(key, now) ?? 1;
+  const outer = bandAlphas(span, PE_NATIONAL_BAND, {
+    fineReady: Boolean(_local),
+    coarseReady: _nationalPainted,
+    fineArrival: arrival('local'),
+    coarseArrival: arrival('national'),
+  });
+  const inner = bandAlphas(span, PE_COMMUNE_BAND, {
+    fineReady: Boolean(_local?.over),
+    coarseReady: Boolean(_local?.under),
+    fineArrival: arrival('cut-outs'),
+    coarseArrival: arrival('epci-under'),
+  });
+  const alphas = {
+    departements: outer.coarse,
+    epci: outer.fine,
+    epciUnderCommunes: outer.fine * inner.coarse,
+    communes: outer.fine * inner.fine,
+  };
+
+  const weight = quantizeFade(alphas.departements);
+  if (weight !== _nationalWeight) {
+    _nationalWeight = weight;
+    governorRequestRender('petite-enfance-fr-fade');
+  }
+  setDepartementsShown(_nationalPainted && levelVisible(_enabled, alphas.departements));
+
+  if (_local) {
+    for (const batch of _local.groups.local) writeBatch(batch, alphas.epci);
+    for (const batch of _local.groups.under) writeBatch(batch, alphas.epciUnderCommunes);
+    for (const batch of _local.groups.over) writeBatch(batch, alphas.communes);
+    for (const batch of _local.outlines) {
+      writeBatch(batch, batch.group === 'over' ? alphas.communes : alphas.epci);
+    }
+  }
+  if (_selectionBatches.length) {
+    const highlight = selectionAlpha(alphas);
+    for (const batch of _selectionBatches) writeBatch(batch, highlight);
+  }
+
+  // A level at zero that the view no longer asks for is dropped, not kept
+  // invisible: an invisible primitive still costs its draw call.
+  if (_local && _plan && !_plan.local && !levelVisible(true, alphas.epci)) dropLocal();
+
+  let building = Boolean(_pendingLocal);
+  for (const batch of _selectionBatches) if (batch.primitive.ready !== true) building = true;
+  if (building) governorRequestRender('petite-enfance-fr-pending');
+
+  _levelAlphas = alphas;
+  _fade?.report({
+    levels: alphas,
+    // i18n-ignore-next-line — level KEYS.
+    dominant: _regime === 'national' ? 'departements' : (_grain === 'com' ? 'communes' : 'epci'),
+    bands: FADE_BANDS_REPORT,
+    pending: Boolean(_pendingLocal),
+  });
+}
+
+// --- Loading ----------------------------------------------------------------
+
+/** The status counts of one built view, applied when the territories own the row. */
+function applyLocalStats(stats) {
+  if (!stats) return;
+  _count = stats.count;
+  _inView = stats.inView;
+  _communesShown = stats.communes;
+  _unpainted = stats.unpainted;
+  _visibleDeps = stats.visibleDeps;
+  _dropped = stats.dropped;
+  _lastUpdate = stats.lastUpdate;
+  _error = stats.error;
+  _status = _count > 0 ? 'ready' : 'empty';
 }
 
 /**
@@ -1223,100 +1715,163 @@ function clearAreas() {
  * for the ones on screen. A département whose outlines fail to arrive leaves
  * its ground unfilled and says so on the row — it is never filled from a
  * neighbour's pack, and the rest of the view is still drawn.
+ *
+ * It no longer hides the départements: they stay drawn until the territories
+ * are, and fade as the band says once both are on screen.
  */
-async function loadLocal(box, span, { force = false } = {}) {
-  hideDepartements();
-  _nationalPainted = false;
-  dropDepartementSelection();
-  // `_error` is NOT cleared here. It describes the drawing that is on screen,
-  // and a settle that changes nothing must not quietly retract the sentence
-  // explaining a département whose outlines never arrived. Every path below
-  // sets it, including to null.
-  if (force) {
-    _pack = null;
-    _contourPacks.clear();
-    _contourError = null;
-    _drawKey = null;
-  }
-  _loading = !_pack;
-  const generation = ++_requestGeneration;
+async function loadLocal(box, plan, generation) {
+  // i18n-ignore-next-line — a regime key, compared.
+  const owns = () => _regime === 'local';
+  _loadingLocal = !_pack;
+  syncLoading();
   await ensurePack();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'local') return;
+  if (generation !== _requestGeneration || !_enabled || !_plan?.local) return;
   if (!_pack) {
-    _loading = false;
-    _error = _packError || 'area pack unavailable';
-    _status = 'error';
+    _loadingLocal = false;
+    syncLoading();
+    if (owns()) {
+      _error = _packError || 'area pack unavailable';
+      _status = 'error';
+    }
     return;
   }
   if (!_areaIndex.size) _areaIndex = indexPeAreas(_pack.areas);
 
-  const withCommunes = Number.isFinite(span) && span <= COMMUNE_SPAN_DEG;
-  // A camera settle that lands on the same snapped box, at the same grain, is
-  // the same drawing — rebuilding it would re-tessellate every polygon and
-  // drop the card the operator is reading, once per nudge of the mouse.
-  const drawKey = `${boxKey(box)}|${withCommunes ? 'com' : 'epci'}`;
-  if (!force && drawKey === _drawKey && _records.size) {
-    _loading = false;
-    _status = 'ready';
+  // A grain the drawing on screen still shows is built again, even where the
+  // view no longer asks for it, so a jump across the commune band crossfades
+  // on the arrival ramp instead of swapping: the grain on its way out is the
+  // one that covers until the other is drawn.
+  const under = plan.under || Boolean(_local?.under && levelVisible(true, _levelAlphas.epciUnderCommunes));
+  const over = plan.over || Boolean(_local?.over && levelVisible(true, _levelAlphas.communes));
+  const snapped = boxKey(box);
+  // A camera settle on the same snapped box, with every grain the view needs
+  // already drawn, is the same drawing — rebuilding it would re-tessellate
+  // every polygon and drop the card the operator is reading, once per nudge.
+  const covers = (drawing) => drawing?.key === snapped
+    && (!under || drawing.under) && (!over || drawing.over);
+  if (covers(_local) || covers(_pendingLocal)) {
+    // A build for a box the camera has already come back from is not needed.
+    if (covers(_local)) discardPendingLocal();
+    _loadingLocal = false;
+    syncLoading();
+    if (owns()) applyLocalStats((_pendingLocal || _local).stats);
     return;
   }
 
-  _loading = !_contourPacks.has(boxKey(box));
+  _loadingLocal = !_contourPacks.has(snapped);
+  syncLoading();
   const pack = await ensureContours(box);
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'local') return;
-  _loading = false;
+  if (generation !== _requestGeneration || !_enabled || !_plan?.local) return;
+  _loadingLocal = false;
+  syncLoading();
   if (!pack) {
     // The rates are still in hand and the choropleth above is untouched; what
-    // failed is the geometry, and the row says exactly that.
-    clearAreas();
-    _error = _contourError
-      ? messages().errors.communeContoursWhy(_contourError)
-      : messages().errors.communeContours;
-    _status = 'error';
+    // failed is the geometry, and the row says exactly that. The territories
+    // drawn for another box are dropped, so the départements cover the view
+    // if they are drawn.
+    dropLocal();
+    if (owns()) {
+      clearLocalStats();
+      _count = 0;
+      _error = _contourError
+        ? messages().errors.communeContoursWhy(_contourError)
+        : messages().errors.communeContours;
+      _status = 'error';
+    }
     return;
   }
 
-  const { records, epci, communes, unmatched, unrated } = buildPeTerritoryRecords({
+  const levels = buildPeTerritoryLevels({
     packs: [pack],
     areas: _areaIndex,
-    withCommunes,
+    under,
+    over,
     national: _pack.national ?? null,
     year: _pack.year ?? null,
   });
-  clearSelection();
-  drawTerritories(records);
-  _drawKey = drawKey;
-  _count = records.length;
-  _inView = epci + communes;
-  _communesShown = communes;
-  _unpainted = unmatched + unrated;
-  _visibleDeps = Array.isArray(pack.departements) ? pack.departements : [];
-  _dropped = Number(pack.dropped) || 0;
-  _lastUpdate = Number(_pack.fetchedAt) || Date.now();
-  // A département whose outlines never arrived is ground with no shape, which
-  // looks exactly like ground with no rate and means something else entirely.
-  _error = pack.unavailable?.length
-    ? messages().errors.someContours(pack.unavailable.join(', '))
-    : null;
-  _status = _count > 0 ? 'ready' : 'empty';
+  // i18n-ignore-next-line — a grain KEY.
+  const dominant = (plan.grain === 'com' ? levels.fine : levels.coarse) || levels.fine || levels.coarse;
+  discardPendingLocal();
+  const drawing = drawLocal(levels, {
+    key: snapped, under, over, grain: plan.grain,
+  });
+  drawing.stats = {
+    count: dominant.records.length,
+    inView: dominant.epci + dominant.communes,
+    communes: dominant.communes,
+    unpainted: dominant.unmatched + dominant.unrated,
+    visibleDeps: Array.isArray(pack.departements) ? pack.departements : [],
+    dropped: Number(pack.dropped) || 0,
+    lastUpdate: Number(_pack.fetchedAt) || Date.now(),
+    // A département whose outlines never arrived is ground with no shape,
+    // which looks exactly like ground with no rate and means something else
+    // entirely.
+    error: pack.unavailable?.length
+      ? messages().errors.someContours(pack.unavailable.join(', '))
+      : null,
+  };
+  _pendingLocal = drawing;
+  if (owns()) applyLocalStats(drawing.stats);
+  _fade?.frame();
 }
 
+/**
+ * Read one settled view: plan the levels it needs, load each of them, and
+ * leave the per-frame fade to show them.
+ *
+ * Loading stays here, on the settle; the frame callback only weighs what is
+ * already drawn. Both levels of a band load at once inside it, and a level
+ * the view no longer needs is dropped by the frame callback once its weight
+ * reaches zero — after the level replacing it is on screen.
+ */
 async function loadViewport({ force = false } = {}) {
   if (!_enabled || !_viewer) return;
   // Whatever this call concludes — records, a zoom-in verdict or a failure —
   // it concludes it about the view the camera is showing right now. See
   // `cameraSettle.js`: an arrival on any other view has to be read afresh.
   markViewportRead(_viewer, PE_FR_LAYER_ID);
-  const regime = updateRegime(_viewer);
-  const box = regime === 'national' ? null : peContourBox(_viewer);
-  // A camera inside the local regime that gives no usable rectangle has
-  // nothing to filter against; the choropleth is the honest fallback.
-  if (regime === 'national' || !box) {
-    _regime = 'national';
-    await loadNational({ force });
-    return;
+  const span = peViewSpanDeg(_viewer);
+  // A camera that gives no usable rectangle has nothing to filter against;
+  // the choropleth is the honest fallback.
+  const box = peContourBox(_viewer);
+  const plan = pePlanLevels(span, { hasBox: Boolean(box) });
+  _plan = plan;
+  _regime = plan.regime;
+  _grain = plan.grain;
+  const generation = ++_requestGeneration;
+  if (force) {
+    // Refetch, but keep what is drawn: it covers until the new answer is.
+    _national = null;
+    _pack = null;
+    _areaIndex = new Map();
+    _contourPacks.clear();
+    _contourError = null;
+    if (_local) _local.key = null;
+    discardPendingLocal();
   }
-  await loadLocal(box, peViewSpanDeg(_viewer), { force });
+  // `_error` is NOT cleared here. It describes the drawing that is on screen,
+  // and a settle that changes nothing must not quietly retract the sentence
+  // explaining a département whose outlines never arrived. The level that
+  // owns the row sets it, including to null.
+  // i18n-ignore-next-line — a regime key, compared.
+  if (_regime === 'national') {
+    if (_national) {
+      _count = _national.painted || 0;
+      _status = _count > 0 ? 'ready' : 'empty';
+      _error = null;
+    }
+  } else {
+    dropDepartementSelection();
+    if (!_local && !_pendingLocal) clearLocalStats();
+  }
+  publishDepartementOverlay();
+  if (!plan.local) discardPendingLocal();
+  syncLoading();
+  const tasks = [];
+  if (plan.national) tasks.push(loadNational(generation));
+  if (plan.local) tasks.push(loadLocal(box, plan, generation));
+  _fade?.frame();
+  await Promise.all(tasks);
 }
 
 function onCameraChanged() {
@@ -1445,7 +2000,10 @@ const petiteEnfanceFranceLayer = {
     _error = null;
     _status = 'idle';
     _regime = 'national';
+    _grain = 'epci';
+    _plan = null;
     _nationalPainted = false;
+    _paintedNational = null;
 
     _overlayHost.setVisible(PE_FR_OVERLAY_SOURCE_ID, false);
     _overlayHost.setVisible(PE_FR_LABEL_SOURCE_ID, false);
@@ -1454,12 +2012,15 @@ const petiteEnfanceFranceLayer = {
   enable(viewer) {
     _enabled = true;
     _error = null;
-    showTerritories(true);
     if (_depDataSource) _depDataSource.show = true;
+    // Which level is drawn, and how strongly, is the fade's call per frame.
+    _fade = watchZoomFade(viewer, PE_FR_LAYER_ID, onFadeFrame);
     _overlayHost.setVisible(PE_FR_OVERLAY_SOURCE_ID, true);
     _overlayHost.setVisible(PE_FR_LABEL_SOURCE_ID, true);
     installClickHandler(viewer);
-    registerPickOwner(PE_FR_LAYER_ID, (pickedId) => _records.has(pickedId));
+    // Resolved through `resolvePickId`, so an instance id object arrives here
+    // as its territory id string.
+    registerPickOwner(PE_FR_LAYER_ID, (pickedId) => _pickRecords.has(pickedId));
 
     if (!_cameraChangedAttached) {
       viewer.camera.changed.addEventListener(onCameraChanged);
@@ -1473,14 +2034,21 @@ const petiteEnfanceFranceLayer = {
 
   disable(viewer) {
     _enabled = false;
+    _fade?.release();
+    _fade = null;
     _requestGeneration += 1;
     _regime = 'national';
+    _grain = 'epci';
+    _plan = null;
     _nationalPainted = false;
+    _paintedNational = null;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
 
     clearSelection();
-    clearAreas();
+    dropLocal();
+    clearLocalStats();
+    _count = 0;
     hideDepartements();
     if (_depDataSource) _depDataSource.show = false;
     _overlayHost.setVisible(PE_FR_OVERLAY_SOURCE_ID, false);
@@ -1558,8 +2126,21 @@ const petiteEnfanceFranceLayer = {
       // One entry per FILL primitive, so a harness can assert the batching
       // rule (one colour per primitive, never one primitive per territory)
       // without reaching into Cesium's scene graph for the colours.
-      fills: _fills.length,
-      outlines: _outlines ? 1 : 0,
+      grain: _grain,
+      fills: _local
+        ? _local.groups.local.length + _local.groups.under.length + _local.groups.over.length
+        : 0,
+      outlines: _local ? _local.outlines.length : 0,
+      // Inside the commune band the ground of the cut-out communes is drawn
+      // twice, once per grain: `under` and `over` count those batches, and
+      // `territories` below stays the dominant grain, which tiles.
+      groups: _local
+        ? {
+          local: _local.groups.local.length, under: _local.groups.under.length, over: _local.groups.over.length,
+        }
+        : { local: 0, under: 0, over: 0 },
+      levels: { ..._levelAlphas },
+      pending: Boolean(_pendingLocal),
       selectionPrimitives: (_selectionFill ? 1 : 0) + (_selectionOutline ? 1 : 0),
       territories: [..._records.values()].map((record) => ({
         id: record.id,
@@ -1631,19 +2212,27 @@ const petiteEnfanceFranceLayer = {
       document.removeEventListener('keydown', onKeyDown);
       unregisterPickOwner(PE_FR_LAYER_ID);
     }
-    clearTerritoryPrimitives();
+    clearSelectionPrimitives();
+    dropLocal();
     if (_depDataSource) {
       viewer.dataSources?.remove?.(_depDataSource, true);
       _depDataSource = null;
     }
     _depEntities.clear();
+    _depMaterials.clear();
+    _depHighlightMaterial = null;
+    _depPaintedCodes = new Set();
+    _depShown = false;
+    _nationalPainted = false;
+    _paintedNational = null;
     _depMeta = new Map();
     _depShapesPromise = null;
     _contourPacks.clear();
     _contourPromises.clear();
     _contourError = null;
     _areaIndex = new Map();
-    _records.clear();
+    _records = new Map();
+    _pickRecords = new Map();
     _viewer = null;
   },
 };
@@ -1655,6 +2244,7 @@ export function _setPeStateForTest({
 } = {}) {
   _viewer = viewer || null;
   _records = new Map((records || []).map((record) => [record.id, record]));
+  _pickRecords = new Map(_records);
   _selectedId = null;
   _overlayHost = overlayHost || DEFAULT_OVERLAY_HOST;
   _status = status || 'ready';
@@ -1697,9 +2287,71 @@ export function _clearPeSelectionForTest() {
   _visibleDeps = [];
   _unpainted = 0;
   _dropped = 0;
-  _drawKey = null;
+  _local = null;
+  _pendingLocal = null;
+  _records = new Map();
+  _pickRecords = new Map();
+  _plan = null;
+  _grain = 'epci';
+  _paintedNational = null;
+  _depShown = false;
+  _depPaintedCodes = new Set();
+  _nationalWeight = 1;
   _regime = 'local';
   _enabled = false;
+}
+
+/**
+ * Seed the levels the fade weighs, with stand-ins for the Cesium objects:
+ * département entities are `{show, polygon}`, primitives `{ready, show}`.
+ * `local` and `pending` are drawings as {@link drawLocal} returns them; a
+ * missing field defaults to empty.
+ */
+export function _setPeLevelsForTest({
+  viewer, plan = null, regime = 'national', grain = 'epci', nationalPainted = false,
+  depEntities = [], depShown = false, local = null, pending = null, selectedId = null,
+} = {}) {
+  const drawing = (input) => (input
+    ? {
+      key: null,
+      under: false,
+      over: false,
+      records: new Map(),
+      pickRecords: new Map(),
+      ...input,
+      groups: { local: [], under: [], over: [], ...input.groups },
+      outlines: input.outlines || [],
+    }
+    : null);
+  _viewer = viewer || null;
+  _enabled = true;
+  _plan = plan;
+  _regime = regime;
+  _grain = grain;
+  _nationalPainted = nationalPainted;
+  _depEntities = new Map(depEntities);
+  _depPaintedCodes = new Set(_depEntities.keys());
+  _depShown = depShown;
+  _local = drawing(local);
+  _pendingLocal = drawing(pending);
+  _records = _local?.records || new Map();
+  _pickRecords = _local?.pickRecords || new Map();
+  _selectedId = selectedId;
+}
+
+/**
+ * One production fade frame at a given view span, with arrival ramps taken
+ * as finished; returns what it decided.
+ */
+export function _peFadeFrameForTest(latSpan) {
+  onFadeFrame({ latSpan }, 0);
+  return {
+    levels: { ..._levelAlphas },
+    departementsShown: _depShown,
+    nationalWeight: _nationalWeight,
+    local: _local,
+    pending: _pendingLocal,
+  };
 }
 
 /** Row-control legend, for tests that do not construct a viewer. */
