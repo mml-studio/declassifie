@@ -41,12 +41,12 @@ import {
   POWER_GRID_NATIONAL_WIDTH_PX,
   hydratePowerGridNationalPack,
   powerGridNationalBand,
-  powerGridStrokeIds,
 } from './powerGridNational.js';
 import { applyViewGate, cameraViewBox } from './viewGate.js';
 import { boxesIntersect, focusedViewBox } from './viewportBox.js';
 import { pickAt } from './pickAt.js';
 import { formatDecimal, formatInteger, formatNumber } from '../i18n/format.js';
+import { coverAlphas, fadeInstances, quantizeFade, watchZoomFade } from './zoomFade.js';
 import messages from './powerGrid.i18n.js';
 
 /**
@@ -749,12 +749,28 @@ let _nationalBand = null;
  */
 let _nationalHideTarget = new Set();
 /**
- * The ids a viewport answer just brought, waiting for ITS batches to finish
- * building before the national ones stand down — hiding first would blank
- * those routes for the few hundred milliseconds Cesium's workers take.
- * @type {?Set<string>}
+ * A viewport answer's stroke batches, building HIDDEN behind the ones on
+ * screen — see `stageStrokes`. Null while nothing is building.
+ * @type {?{primitives: Array<object>, manifest: Array<object>, ids: Set<string>,
+ *   overheadIds: Array<string>, casing: ?object, overhead: ?object}}
  */
-let _pendingNationalHide = null;
+let _stagedStrokes = null;
+/** Stop the frame pump of the staged batches. */
+let _stagePumpStop = null;
+/** OSM way ids the viewport batches ON SCREEN draw. */
+let _drawnWayIds = new Set();
+/** way id → `{tierId, underground}` in the national pack, for the hand-over. */
+let _nationalWayIndex = new Map();
+/** The shared per-frame read, for the arrival ramp — see `onFadeFrame`. */
+let _fadeHandle = null;
+/**
+ * The ways a viewport answer is taking over from the pack, crossfading — see
+ * `startArrival`. Null when none is.
+ * @type {?{ids: Array<string>, viewport: Map<object, Array>, national: Map<object, Array>, written: {fine: number, coarse: number}}}
+ */
+let _arrival = null;
+/** What the last fade report said, so a still frame reports nothing. */
+const _fadeReported = { viewport: -1, national: -1, arriving: -1, drawn: -1 };
 /** Whether `_nationalHideTarget` has changes some batch has not applied yet. */
 let _nationalHideDirty = false;
 
@@ -846,6 +862,19 @@ function clearStrokePrimitives() {
   }
   _strokePrimitives = [];
   _batchManifest = [];
+  _drawnWayIds = new Set();
+}
+
+/** Prefix of a viewport casing instance — an alias of its stroke's id. */
+const VIEWPORT_CASING_PREFIX = 'power-grid:casing:';
+/** casing instance id → the stroke it sits under, for the batches on screen. */
+let _strokeAliases = new Map();
+
+/** A built set with nothing in it — the shape `buildStrokeBatches` returns. */
+function emptyStrokeBatches() {
+  return {
+    primitives: [], manifest: [], ids: new Set(), overheadIds: [], casing: null, overhead: null, colors: new Map(),
+  };
 }
 
 /**
@@ -880,19 +909,30 @@ function clearStrokePrimitives() {
  * shader never declares the `v_width` varying that material reads, so the
  * primitive fails to link.
  *
+ * BUILT HIDDEN, beside the batches on screen: see `stageStrokes`. Every
+ * instance carries an id — the casing an alias of its stroke's, as in the
+ * national batches — because the arrival crossfade writes each way's colour.
+ *
  * @param {object} payload Projected `/api/power-grid` document.
+ * @returns {{primitives: Array<object>, manifest: Array<object>, ids: Set<string>,
+ *   overheadIds: Array<string>, casing: ?object, overhead: ?object,
+ *   colors: Map<string, {casingId: string, casing: Cesium.Color, coreId: string, core: Cesium.Color}>}}
  */
-function buildStrokes(payload) {
-  clearStrokePrimitives();
-  if (!_viewer) return;
+function buildStrokeBatches(payload) {
+  const built = emptyStrokeBatches();
+  if (!_viewer?.scene?.groundPrimitives) return built;
   if (_groundLinesSupported === null) {
     _groundLinesSupported = Cesium.GroundPolylinePrimitive.isSupported(_viewer.scene);
     if (!_groundLinesSupported) {
       console.warn('[Data:Power Grid] GroundPolylinePrimitive unsupported — routes disabled');
     }
   }
-  if (!_groundLinesSupported) return;
+  if (!_groundLinesSupported) return built;
 
+  const aliases = new Map();
+  const wayIds = built.ids;
+  const colors = built.colors;
+  const overheadWays = built.overheadIds;
   const strokes = Array.isArray(payload?.strokes) ? payload.strokes : [];
   const voltages = Array.isArray(payload?.voltages) ? payload.voltages : [];
   const casing = [];
@@ -915,10 +955,13 @@ function buildStrokes(payload) {
     const id = `power-grid:stroke:${stroke.id || i}`;
     const positions = Cesium.Cartesian3.fromDegreesArray(coords);
     const under = tierUnderStroke(tier, POWER_GRID_CASING_PX);
-    // The casing carries NO id: it is the same object as the core drawn wider,
-    // and giving it one would put two pick answers on one stroke — the second
-    // of which has no record behind it.
+    // The casing is the same object as the core drawn wider. It carries an id
+    // of its own so its colour can be written, and that id is an ALIAS of the
+    // stroke's (`_strokeAliases`): a click on the dark edge selects the line,
+    // never a second record.
+    const casingId = `${VIEWPORT_CASING_PREFIX}${stroke.id || i}`;
     casing.push(new Cesium.GeometryInstance({
+      id: casingId,
       geometry: new Cesium.GroundPolylineGeometry({
         positions,
         width: tier.widthPx + under.extraPx,
@@ -926,6 +969,8 @@ function buildStrokes(payload) {
       attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(under.color) },
     }));
     casingIds.push(id);
+    aliases.set(casingId, id);
+    const coreColor = Cesium.Color.fromCssColorString(tierColor(tier)).withAlpha(tierStrokeAlpha(tier));
     const instance = new Cesium.GeometryInstance({
       id,
       geometry: new Cesium.GroundPolylineGeometry({
@@ -933,12 +978,14 @@ function buildStrokes(payload) {
         width: tier.widthPx,
       }),
       attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-          Cesium.Color.fromCssColorString(tierColor(tier)).withAlpha(tierStrokeAlpha(tier)),
-        ),
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(coreColor),
       },
     });
     _records.set(id, { id, kind: 'stroke', stroke, tierId: tier.id });
+    if (stroke.id) {
+      wayIds.add(stroke.id);
+      colors.set(stroke.id, { casingId, casing: under.color, coreId: id, core: coreColor });
+    }
     if (stroke.u) {
       const bucket = underground.get(tier.id);
       if (bucket) bucket.push(instance);
@@ -950,8 +997,10 @@ function buildStrokes(payload) {
       overhead.push(instance);
       overheadIds.push(id);
       overheadWidths.set(tier.id, tier.widthPx);
+      if (stroke.id) overheadWays.push(stroke.id);
     }
   }
+  _strokeAliases = aliases;
 
   if (casing.length) {
     // FIRST into the collection, so the coloured cores draw over their own
@@ -962,9 +1011,11 @@ function buildStrokes(payload) {
       geometryInstances: casing,
       classificationType: _classificationType,
       appearance: new Cesium.PolylineColorAppearance({ translucent: true }),
+      show: false,
     }));
-    _strokePrimitives.push(primitive);
-    _batchManifest.push({
+    built.casing = primitive;
+    built.primitives.push(primitive);
+    built.manifest.push({
       primitive,
       tierId: null,
       underground: false,
@@ -986,9 +1037,11 @@ function buildStrokes(payload) {
       geometryInstances: overhead,
       classificationType: _classificationType,
       appearance: new Cesium.PolylineColorAppearance({ translucent: true }),
+      show: false,
     }));
-    _strokePrimitives.push(primitive);
-    _batchManifest.push({
+    built.overhead = primitive;
+    built.primitives.push(primitive);
+    built.manifest.push({
       primitive,
       tierId: null,
       underground: false,
@@ -1012,9 +1065,10 @@ function buildStrokes(payload) {
           dashLength: UNDERGROUND_DASH_LENGTH,
         }),
       }),
+      show: false,
     }));
-    _strokePrimitives.push(primitive);
-    _batchManifest.push({
+    built.primitives.push(primitive);
+    built.manifest.push({
       primitive,
       tierId,
       underground: true,
@@ -1024,7 +1078,276 @@ function buildStrokes(payload) {
       strokeIds: undergroundIds.get(tierId) || [],
     });
   }
+  return built;
+}
+
+/**
+ * Stage a viewport answer's strokes: build them hidden, and leave the batches
+ * on screen where they are until every new one is ready (`commitStagedStrokes`).
+ *
+ * A PAN USED TO FLICKER EVERY ROUTE IT KEPT. The answer's batches were taken
+ * off the globe the moment the next answer landed, the national pack's
+ * simplified ways came back over the gap for the few hundred milliseconds
+ * Cesium's workers take, and then the exact ways replaced them again — exact,
+ * simplified, exact, on every line of the screen. Now the old batches stand
+ * until the new ones can take their place in one frame (`zoomFade.js` rule:
+ * a same-level redraw swaps, it does not fade).
+ * @param {object} payload
+ */
+function stageStrokes(payload) {
+  discardStagedStrokes();
+  const built = buildStrokeBatches(payload);
+  if (!built.primitives.length) {
+    commitStrokes(built);
+    return;
+  }
+  _stagedStrokes = built;
+  pumpStagedStrokes();
+}
+
+/** Take a staged set that will never be shown off the globe. */
+function discardStagedStrokes() {
+  _stagePumpStop?.();
+  _stagePumpStop = null;
+  if (!_stagedStrokes) return;
+  for (const primitive of _stagedStrokes.primitives) _viewer?.scene?.groundPrimitives?.remove?.(primitive);
+  _stagedStrokes = null;
+}
+
+/** Frames a staged set is pumped for while it builds, at most. */
+const STAGE_FRAME_CAP = 240;
+
+/**
+ * Keep rendering while the staged batches build: the globe renders on demand,
+ * and nothing else asks for the frame in which they could be swapped in.
+ * Bounded; at the cap the set is swapped in as it is.
+ */
+function pumpStagedStrokes() {
+  _stagePumpStop?.();
+  _stagePumpStop = null;
+  const scene = _viewer?.scene;
+  if (!scene?.postRender?.addEventListener) return;
+  let framesLeft = STAGE_FRAME_CAP;
+  const stop = scene.postRender.addEventListener(() => {
+    framesLeft -= 1;
+    if (!_stagedStrokes || framesLeft <= 0) {
+      stop();
+      if (_stagePumpStop === stop) _stagePumpStop = null;
+      if (_stagedStrokes) {
+        _stagedStrokes.gaveUp = true;
+        governorRequestRender('power-grid-stage');
+      }
+      return;
+    }
+    governorRequestRender('power-grid-stage');
+  });
+  _stagePumpStop = stop;
+  governorRequestRender('power-grid-stage');
+}
+
+/** Whether every staged batch is ready — or the pump gave up on one. */
+function stagedStrokesReady() {
+  return Boolean(_stagedStrokes)
+    && (_stagedStrokes.gaveUp === true || _stagedStrokes.primitives.every((primitive) => primitive.ready));
+}
+
+/** Swap the staged set in, if it is ready. Runs before the frame is drawn. */
+function commitStagedStrokes() {
+  if (!stagedStrokesReady()) return false;
+  const built = _stagedStrokes;
+  _stagedStrokes = null;
+  _stagePumpStop?.();
+  _stagePumpStop = null;
+  commitStrokes(built);
+  return true;
+}
+
+/**
+ * Put a built set on screen in ONE frame: the old batches leave, the new ones
+ * show, and the national pack stands down for exactly the ways they draw.
+ *
+ * THE WAYS NEWLY DRAWN EXACT CROSSFADE, the rest swap. Where a way was the
+ * pack's — simplified to 50 m, drawn at the pack's widths — and is now the
+ * answer's, the two are the same mapped route at two simplifications. Faded
+ * into each other AT REST they would be a blur, one line drawn twice up to
+ * 50 m apart; that is why there is no zoom band at 120 km. Handed over in one
+ * frame, the line visibly jumps. So the new way plays a 260 ms arrival over
+ * the old one, which steps down in the same proportion and is then hidden
+ * (`startArrival`). Underground cables swap: their dashed batches carry one
+ * colour per material, not per way.
+ * @param {ReturnType<typeof buildStrokeBatches>} built
+ */
+function commitStrokes(built) {
+  finishArrival();
+  const previous = _drawnWayIds;
+  for (const primitive of _strokePrimitives) _viewer?.scene?.groundPrimitives?.remove?.(primitive);
+  _strokePrimitives = built.primitives;
+  _batchManifest = built.manifest;
+  _drawnWayIds = built.ids;
   for (const primitive of _strokePrimitives) primitive.show = _enabled;
+  if (_strokePrimitives.length) restackGroundPrimitives();
+  const incoming = built.overheadIds.filter((id) => !previous.has(id) && nationalDrawsWay(id));
+  const crossing = new Set(incoming);
+  setNationalHideTarget(new Set([...built.ids].filter((id) => !crossing.has(id))));
+  if (incoming.length && _fadeHandle) startArrival(incoming, built);
+  else if (incoming.length) setNationalHideTarget(new Set(built.ids));
+  syncNationalHidden();
+  governorRequestRender('power-grid-commit');
+}
+
+/**
+ * Whether the pack draws this way right now, overhead, in a built batch — the
+ * only ways an answer can cross over from.
+ * @param {string} id OSM way id.
+ * @returns {boolean}
+ */
+function nationalDrawsWay(id) {
+  const where = _nationalWayIndex.get(id);
+  if (!where || where.underground || !_enabled) return false;
+  if (!_nationalBand?.strokeTiers?.includes(where.tierId)) return false;
+  const batch = _nationalBatches.get(where.tierId);
+  if (!batch?.casing?.ready || !batch?.overhead?.ready) return false;
+  return !batch.hidden.has(id);
+}
+
+/** A band's casing and core colours in the pack, in the dress the map wears. */
+function nationalWayColors(tierId) {
+  const tier = powerTierById(tierId);
+  return {
+    casing: tierUnderStroke(tier, POWER_GRID_NATIONAL_CASING_PX).color,
+    core: Cesium.Color.fromCssColorString(tierColor(tier)).withAlpha(tierStrokeAlpha(tier)),
+  };
+}
+
+/**
+ * Start the crossfade of the ways an answer takes over from the pack: each
+ * exact way comes in over its simplified self in `zoomFade`'s arrival ramp
+ * (260 ms), the simplified one steps down in the same proportion, and is then
+ * hidden — the cover rule of `zoomFade.coverAlphas` with a hard target. A
+ * colour attribute per way and per batch, written only while the ramp runs:
+ * for a dense box of 2,200 strokes about 1,500 overhead ways, four instances
+ * each, for the dozen frames of the ramp.
+ * @param {Array<string>} ids Overhead way ids newly drawn exact.
+ * @param {ReturnType<typeof buildStrokeBatches>} built
+ */
+function startArrival(ids, built) {
+  const casing = [];
+  const core = [];
+  const national = new Map();
+  const colorsByTier = new Map();
+  const push = (primitive, entry) => {
+    if (!primitive) return;
+    const list = national.get(primitive);
+    if (list) list.push(entry);
+    else national.set(primitive, [entry]);
+  };
+  for (const id of ids) {
+    const own = built.colors.get(id);
+    if (own) {
+      casing.push([own.casingId, own.casing]);
+      core.push([own.coreId, own.core]);
+    }
+    const where = _nationalWayIndex.get(id);
+    const batch = where ? _nationalBatches.get(where.tierId) : null;
+    if (!batch) continue;
+    let colors = colorsByTier.get(where.tierId);
+    if (!colors) {
+      colors = nationalWayColors(where.tierId);
+      colorsByTier.set(where.tierId, colors);
+    }
+    push(batch.casing, [`${NATIONAL_CASING_PREFIX}${id}`, colors.casing]);
+    push(batch.overhead, [`${NATIONAL_STROKE_PREFIX}${id}`, colors.core]);
+  }
+  const viewport = new Map();
+  if (built.casing) viewport.set(built.casing, casing);
+  if (built.overhead) viewport.set(built.overhead, core);
+  _arrival = { ids, viewport, national, written: { fine: -1, coarse: -1 } };
+  // Before the first frame draws the new batches: the arriving ways start at 0.
+  writeArrival(0, 1);
+  _fadeHandle?.arrive('viewport');
+}
+
+/** Write one instance list, unless its primitive has been rebuilt away. */
+function writeInstances(primitive, entries, weight) {
+  if (!primitive || primitive.isDestroyed?.() || !entries.length) return;
+  fadeInstances(primitive, entries, weight, { force: true });
+}
+
+/**
+ * The arrival's two weights: the exact ways at `fine`, their simplified
+ * selves at `coarse`. Quantised; nothing written when neither moved a step.
+ */
+function writeArrival(fine, coarse, force = false) {
+  if (!_arrival) return;
+  const f = quantizeFade(fine);
+  const c = quantizeFade(coarse);
+  if (!force && f === _arrival.written.fine && c === _arrival.written.coarse) return;
+  for (const [primitive, entries] of _arrival.viewport) writeInstances(primitive, entries, f);
+  for (const [primitive, entries] of _arrival.national) writeInstances(primitive, entries, c);
+  _arrival.written.fine = f;
+  _arrival.written.coarse = c;
+}
+
+/**
+ * End the crossfade now: the exact ways at full strength, the simplified ones
+ * given their colour back and hidden — in the same frame.
+ */
+function finishArrival() {
+  if (!_arrival) return;
+  const { ids } = _arrival;
+  writeArrival(1, 1, true);
+  _arrival = null;
+  setNationalHideTarget(new Set([..._nationalHideTarget, ...ids]));
+  syncNationalHidden();
+  governorRequestRender('power-grid-arrived');
+}
+
+/**
+ * The per-frame read of the arrival ramp (`zoomFade.watchZoomFade`), and the
+ * state the browser harness reads. Nothing is fetched here, and a frame with
+ * no arrival running writes nothing.
+ *
+ * THERE IS NO ZOOM BAND AT 120 km, and on purpose. The pack and the answer are
+ * the same mapped ways at two simplifications; drawn together at rest they
+ * would be every line twice, up to 50 m apart. And 120 km is a REQUEST limit —
+ * the Overpass box the proxy answers — not a choice of scale: the pack is drawn
+ * everywhere the answer is not. So the answer replaces the pack way by way,
+ * with a short arrival crossfade (`commitStrokes`), and the pack takes the ways
+ * back in one frame when the camera climbs past the ceiling — where a pixel is
+ * ~140 m and the 50 m simplification is under it.
+ */
+function onFadeFrame(_scale, nowMs) {
+  if (!_enabled) return;
+  let viewport = _strokePrimitives.length ? 1 : 0;
+  let national = 1;
+  if (_arrival) {
+    const t = _fadeHandle?.arrival('viewport', nowMs) ?? 1;
+    const alphas = coverAlphas({ fine: 1, coarse: 0 }, {
+      fineReady: true, coarseReady: true, fineArrival: t, coarseArrival: 1,
+    });
+    writeArrival(alphas.fine, alphas.coarse);
+    viewport = quantizeFade(alphas.fine);
+    national = quantizeFade(alphas.coarse);
+    if (t >= 1) finishArrival();
+  }
+  const arriving = _arrival ? _arrival.ids.length : 0;
+  const drawn = _strokePrimitives.length;
+  if (viewport === _fadeReported.viewport && national === _fadeReported.national
+    && arriving === _fadeReported.arriving && drawn === _fadeReported.drawn) return;
+  _fadeReported.viewport = viewport;
+  _fadeReported.national = national;
+  _fadeReported.arriving = arriving;
+  _fadeReported.drawn = drawn;
+  _fadeHandle?.report({
+    // `national` is the weight of the pack's ways being handed over (1 when
+    // none is); the rest of the pack is drawn at full, the covered ways hidden.
+    levels: { national, viewport },
+    dominant: _payload ? 'viewport' : 'national',
+    bands: {},
+    swap: { atM: POWER_GRID_MAX_ALTITUDE_M, unit: 'm', fade: 'arrival' },
+    arriving,
+    staged: Boolean(_stagedStrokes),
+  });
 }
 
 /** Replace the drawn substations and pylons for one loaded box. */
@@ -1072,12 +1395,12 @@ function recordFor(id) {
 
 /** Whether a picked id belongs to this layer — casings included. */
 function hasRecord(id) {
-  return _records.has(id) || _nationalRecords.has(id) || _nationalAliases.has(id);
+  return _records.has(id) || _nationalRecords.has(id) || _nationalAliases.has(id) || _strokeAliases.has(id);
 }
 
 /** A casing answers a pick as the stroke it sits under. */
 function canonicalId(id) {
-  return _nationalAliases.get(id) || id;
+  return _nationalAliases.get(id) || _strokeAliases.get(id) || id;
 }
 
 /**
@@ -1107,12 +1430,14 @@ function nationalPointPosition(lat, lon) {
 /** File the pack's strokes by band, and draw its substation dots (hidden until a band shows them). */
 function indexNational(pack) {
   _nationalByTier = new Map();
+  _nationalWayIndex = new Map();
   for (const stroke of pack.strokes) {
     const tierId = pack.voltages[stroke.vi]?.tier;
     if (!tierId || !Array.isArray(stroke.c) || stroke.c.length < 4) continue;
     const list = _nationalByTier.get(tierId);
     if (list) list.push(stroke);
     else _nationalByTier.set(tierId, [stroke]);
+    _nationalWayIndex.set(stroke.id, { tierId, underground: Boolean(stroke.u) });
   }
   if (!_nationalPoints) return;
   _nationalPoints.removeAll();
@@ -1241,6 +1566,8 @@ function buildNationalTier(tierId) {
 
 /** Remove every national batch from the scene (the pack itself stays loaded). */
 function clearNationalBatches() {
+  // An arrival writes into these batches: it ends before they go.
+  finishArrival();
   for (const batch of _nationalBatches.values()) {
     for (const primitive of batch.primitives) _viewer?.scene?.groundPrimitives?.remove?.(primitive);
   }
@@ -1284,6 +1611,13 @@ function restackGroundPrimitives() {
 /**
  * Draw the bands the camera's altitude calls for, building any that have not
  * been built yet. Cheap when nothing changed, so it runs every frame.
+ *
+ * SWITCHED, NOT FADED, and that is a choice. A band adds the lower-voltage
+ * lines of the same pack as the camera comes down — a subset shown by
+ * importance, not the same lines at another level of aggregation — and a
+ * ground polyline takes no fade uniform: fading the 63/90 kV mesh in would
+ * write ~16 700 instance colours per step (8 368 ways in the pack, casing and
+ * core each). Its batch's `show` is the cheap, honest switch.
  * @param {boolean} [force]
  */
 function applyNationalBand(force = false) {
@@ -1369,11 +1703,6 @@ function syncNationalHidden() {
   }
   _nationalHideDirty = pending;
   governorRequestRender('power-grid-national-handover');
-}
-
-/** Whether every batch of the viewport answer has finished building. */
-function viewportStrokesReady() {
-  return _strokePrimitives.every((primitive) => primitive.ready);
 }
 
 /**
@@ -1621,7 +1950,7 @@ function applyClassification(next) {
   // `classificationType` is baked into a built GroundPolylinePrimitive, so the
   // batches are rebuilt rather than mutated — the geometry is already in hand,
   // and this happens only when the operator switches map stacks.
-  if (_payload) buildStrokes(_payload);
+  if (_payload) stageStrokes(_payload);
   if (_nationalBatches.size) {
     // A selected national stroke's record is about to be replaced; its
     // highlight goes with it rather than outliving the record that owns it.
@@ -1656,7 +1985,7 @@ function applyNightDress(next) {
   const selected = _selectedId;
   clearSelection();
   if (_payload) {
-    buildStrokes(_payload);
+    stageStrokes(_payload);
     buildPoints(_payload);
     buildPylons();
   }
@@ -1817,12 +2146,10 @@ function onPreRender() {
   // The national bands follow the camera DURING a zoom, not after it: the
   // 63/90 kV mesh comes in as the camera passes 600 km, on that frame.
   applyNationalBand();
-  // The viewport answer takes over the ways it draws only once its own
-  // batches have finished building — never a frame with neither on screen.
-  if (_pendingNationalHide && viewportStrokesReady()) {
-    setNationalHideTarget(_pendingNationalHide);
-    _pendingNationalHide = null;
-  }
+  // A viewport answer's batches take over — from the ones on screen and from
+  // the pack — only once they have finished building, in the frame about to
+  // be drawn: never a frame with neither on screen.
+  commitStagedStrokes();
   syncNationalHidden();
   if (!_records.size && !_nationalPoints?.show) return;
   const occluder = horizonOccluder(camera);
@@ -1910,6 +2237,8 @@ function scheduleLoad() {
  * answer replaces them (a pan inside it).
  */
 function clearRendered() {
+  finishArrival();
+  discardStagedStrokes();
   clearSelection();
   clearStrokePrimitives();
   _points?.removeAll();
@@ -1919,7 +2248,6 @@ function clearRendered() {
   _records.clear();
   _payload = null;
   _loadedBox = null;
-  _pendingNationalHide = null;
   _overlayHost.clearSource(POWER_GRID_OVERLAY_SOURCE_ID);
 }
 
@@ -1994,18 +2322,23 @@ async function load() {
     // definition and must not overwrite what the newer one is about to draw.
     if (requestAbort.signal.aborted || _abort !== requestAbort || !_enabled) return false;
 
-    clearRendered();
-    // Every national way comes back while the new answer's batches build, and
-    // the ones it draws stand down only once those batches are ready — so a
-    // pan swaps simplified routes for exact ones, never routes for nothing.
-    setNationalHideTarget(new Set());
+    // The marks of the last answer go; its STROKES stay on screen, and the
+    // pack stays hidden under them, until the new answer's batches have built
+    // and can take their place in one frame (`stageStrokes`) — a pan keeps
+    // every route it shares with the last view, and gains the others without
+    // a frame of bare ground.
+    clearSelection();
+    _points?.removeAll();
+    _pylons?.removeAll();
+    _pylonIds = [];
+    _pylonSpacingM = 0;
+    _records.clear();
     _payload = payload;
     _loadedBox = box;
-    buildStrokes(payload);
+    stageStrokes(payload);
     buildPoints(payload);
     buildPylons();
     publishOverlay();
-    _pendingNationalHide = powerGridStrokeIds(payload);
     _stale = payload.status === 'stale';
     _towersShown = Boolean(payload.towersRequested);
     _lastUpdate = Date.now();
@@ -2312,7 +2645,8 @@ function nationalDiagnostics() {
     osmBase: _national?.osmBase || null,
     batches,
     hideTarget: _nationalHideTarget.size,
-    hidePending: Boolean(_pendingNationalHide) || _nationalHideDirty,
+    hidePending: Boolean(_stagedStrokes) || _nationalHideDirty,
+    arriving: _arrival ? _arrival.ids.length : 0,
     pointsShown: _nationalPointRecords.reduce((count, record) => count + (record.point?.show ? 1 : 0), 0),
     pointsCollectionShown: Boolean(_nationalPoints?.show),
   };
@@ -2367,7 +2701,11 @@ const powerGridLayer = {
     _nationalAliases = new Map();
     _nationalBand = null;
     _nationalHideTarget = new Set();
-    _pendingNationalHide = null;
+    _stagedStrokes = null;
+    _drawnWayIds = new Set();
+    _strokeAliases = new Map();
+    _arrival = null;
+    _nationalWayIndex = new Map();
     _nationalHideDirty = false;
     _classificationType = powerClassificationTypeForScene(viewer?.scene);
 
@@ -2406,6 +2744,8 @@ const powerGridLayer = {
     if (!_preRenderRemover) {
       _preRenderRemover = viewer.scene.preRender.addEventListener(onPreRender);
     }
+    // The arrival crossfade of an answer over the pack — see `onFadeFrame`.
+    _fadeHandle = watchZoomFade(viewer, POWER_GRID_LAYER_ID, onFadeFrame);
     if (!_moveEndRemover) {
       _moveEndRemover = viewer.camera.moveEnd.addEventListener(onCameraSettle);
     }
@@ -2421,6 +2761,10 @@ const powerGridLayer = {
   },
 
   disable() {
+    // A crossfade cut short ends at once, the pack's colours given back.
+    finishArrival();
+    _fadeHandle?.release();
+    _fadeHandle = null;
     _enabled = false;
     _unwatchNight?.();
     _unwatchNight = null;
@@ -2647,7 +2991,8 @@ const powerGridLayer = {
     _national = null;
     _nationalBand = null;
     _nationalHideTarget = new Set();
-    _pendingNationalHide = null;
+    _arrival = null;
+    discardStagedStrokes();
     if (_pylons) {
       unregisterSpriteCollection(POWER_GRID_LAYER_ID, _pylons);
       viewer?.scene?.primitives?.remove?.(_pylons);
@@ -2725,6 +3070,90 @@ export function _powerStatsForTest() {
 /** @returns {Array<object>} See `powerGridLayer.getRenderDiagnostics`. */
 export function _powerBatchesForTest() {
   return renderDiagnostics();
+}
+
+/**
+ * Seed the national pack as the layer draws it — indexed, and its bands built
+ * for the seeded camera — so the hand-over to a viewport answer can run.
+ * @returns {Array<string>} The bands built.
+ */
+export function _buildPowerNationalForTest(pack) {
+  _national = pack;
+  _nationalBatches = new Map();
+  _nationalRecords = new Map();
+  _nationalAliases = new Map();
+  _nationalHideTarget = new Set();
+  _nationalHideDirty = false;
+  indexNational(pack);
+  applyNationalBand(true);
+  return [..._nationalBatches.keys()];
+}
+
+/** Stage a viewport answer's strokes, as an answer that just landed does. */
+export function _stagePowerStrokesForTest(payload) {
+  _payload = payload;
+  stageStrokes(payload);
+  return _stagedStrokes ? _stagedStrokes.primitives.slice() : [];
+}
+
+/**
+ * The part of a frame that swaps a staged set in and applies the hand-over,
+ * with a stand-in for the shared read when the layer holds none.
+ * @returns {{committed: boolean, arrivals: Array<string>}}
+ */
+export function _powerCommitFrameForTest() {
+  const arrivals = [];
+  const previous = _fadeHandle;
+  _fadeHandle ??= {
+    arrive: (key) => arrivals.push(key), arrival: () => 0, report() {}, release() {},
+  };
+  try {
+    const committed = commitStagedStrokes();
+    syncNationalHidden();
+    return { committed, arrivals };
+  } finally {
+    _fadeHandle = previous;
+  }
+}
+
+/** One frame of the arrival ramp at `arrival` (0..1); what it reported. */
+export function _powerFadeFrameForTest({ arrival = 1 } = {}) {
+  let reported = null;
+  const previous = _fadeHandle;
+  _fadeHandle = {
+    arrive() {}, arrival: () => arrival, report(state) { reported = state; }, release() {},
+  };
+  _fadeReported.viewport = -1;
+  try {
+    onFadeFrame(null, 0);
+  } finally {
+    _fadeHandle = previous;
+  }
+  return reported;
+}
+
+/** The hand-over between the pack and the answer, as the layer holds it. */
+export function _powerHandoverForTest() {
+  return {
+    drawn: [..._drawnWayIds],
+    hideTarget: new Set(_nationalHideTarget),
+    arriving: _arrival ? [..._arrival.ids] : [],
+    staged: Boolean(_stagedStrokes),
+    strokes: _strokePrimitives.slice(),
+    batches: _nationalBatches,
+  };
+}
+
+/** Take every stroke batch down, the pack's too, between tests. */
+export function _resetPowerStrokesForTest() {
+  finishArrival();
+  discardStagedStrokes();
+  clearStrokePrimitives();
+  clearNationalBatches();
+  _nationalHideTarget = new Set();
+  _nationalWayIndex = new Map();
+  _strokeAliases = new Map();
+  _national = null;
 }
 
 /** Re-space and redraw the pylon glyphs, as a camera settle would. */

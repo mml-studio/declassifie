@@ -26,6 +26,12 @@ import powerGridLayer, {
   _powerStatsForTest,
   _selectPowerObjectForTest,
   _setPowerGridStateForTest,
+  _buildPowerNationalForTest,
+  _powerCommitFrameForTest,
+  _powerFadeFrameForTest,
+  _powerHandoverForTest,
+  _resetPowerStrokesForTest,
+  _stagePowerStrokesForTest,
   buildPowerSelectionLabel,
   createSubstationOverlayEntry,
   formatGridKm,
@@ -844,5 +850,170 @@ test('a failed refinement under the national map is a note, not a red layer', as
     globalThis.fetch = realFetch;
     // Clears the backoff timer the failure armed, so the suite can exit.
     powerGridLayer.disable();
+  }
+});
+
+// --- The hand-over from the pack to the viewport answer ------------------------
+//
+// The pack and the answer are the same mapped ways at two simplifications, so
+// there is no zoom band at 120 km: the answer takes the ways over one frame at a
+// time, never leaving a gap, and the ways it takes from the pack crossfade.
+
+// A `GroundPolylinePrimitive` checks its line width against the GL context's
+// limits at construction, and there is none under `node --test`.
+const { default: ContextLimits } = await import('@cesium/engine/Source/Renderer/ContextLimits.js');
+ContextLimits._maximumAliasedLineWidth = 16;
+// The dashed cables carry a `Material`, which types its uniforms against the
+// DOM image classes Node does not have — see `anfrFrance.test.mjs`.
+for (const name of ['HTMLCanvasElement', 'HTMLImageElement', 'ImageBitmap', 'OffscreenCanvas']) {
+  if (!(name in globalThis)) globalThis[name] = class {};
+}
+
+/** A scene whose ground primitives are Cesium's own, readied by hand. */
+function groundViewer(heightM = 20_000) {
+  const ground = [];
+  const listeners = new Set();
+  const decorate = (primitive) => {
+    let ready = false;
+    Object.defineProperty(primitive, 'ready', { get: () => ready, configurable: true });
+    primitive.setReadyForTest = () => { ready = true; };
+    const store = new Map();
+    primitive.attributesForTest = store;
+    primitive.getGeometryInstanceAttributes = (id) => {
+      if (!store.has(id)) {
+        // Cesium's setter COPIES the value into the batch table.
+        let color = new Uint8Array([0, 0, 0, 255]);
+        store.set(id, {
+          get color() { return color; },
+          set color(value) { color = Uint8Array.from(value); },
+        });
+      }
+      return store.get(id);
+    };
+    return primitive;
+  };
+  return {
+    ground,
+    readyAll() { for (const primitive of ground) primitive.setReadyForTest(); },
+    camera: {
+      positionCartographic: { height: heightM },
+      computeViewRectangle: () => Cesium.Rectangle.fromDegrees(-1.6, 43.3, -1.3, 43.5),
+    },
+    scene: {
+      frameState: { context: { depthTexture: true } },
+      globe: { ellipsoid: Cesium.Ellipsoid.WGS84 },
+      canvas: { clientWidth: 1400, clientHeight: 900 },
+      requestRender() {},
+      postRender: {
+        addEventListener(fn) {
+          listeners.add(fn);
+          return () => listeners.delete(fn);
+        },
+      },
+      groundPrimitives: {
+        add(primitive) { ground.push(decorate(primitive)); return primitive; },
+        remove(primitive) {
+          const at = ground.indexOf(primitive);
+          if (at >= 0) ground.splice(at, 1);
+          return at >= 0;
+        },
+        contains: (primitive) => ground.includes(primitive),
+        raiseToTop(primitive) {
+          const at = ground.indexOf(primitive);
+          if (at >= 0) { ground.splice(at, 1); ground.push(primitive); }
+        },
+        get length() { return ground.length; },
+        get: (i) => ground[i],
+      },
+    },
+  };
+}
+
+const alphaByte = (attributes) => attributes.color[3];
+
+test('a pan keeps every route on screen until the next answer has built, then swaps in one frame', () => {
+  const viewer = groundViewer();
+  const overlayHost = { setEntries() {}, setVisible() {}, clearSource() {} };
+  _setPowerGridStateForTest({ viewer, records: new Map(), payload: null, overlayHost, enabled: true });
+  try {
+    const first = _stagePowerStrokesForTest(PAYLOAD);
+    assert.ok(first.length > 0 && first.every((primitive) => primitive.show === false), 'built hidden');
+    assert.equal(_powerCommitFrameForTest().committed, false, 'not ready, not swapped');
+    viewer.readyAll();
+    assert.equal(_powerCommitFrameForTest().committed, true);
+    assert.ok(first.every((primitive) => primitive.show === true));
+    assert.equal(_powerHandoverForTest().drawn.length, new Set(PAYLOAD.strokes.map((stroke) => stroke.id)).size);
+
+    // The next answer of a pan: the routes on screen stay up while it builds.
+    const second = _stagePowerStrokesForTest(PAYLOAD);
+    assert.ok(first.every((primitive) => viewer.ground.includes(primitive) && primitive.show), 'no frame of bare ground');
+    assert.ok(second.every((primitive) => primitive.show === false));
+    assert.equal(_powerCommitFrameForTest().committed, false);
+    viewer.readyAll();
+    const swap = _powerCommitFrameForTest();
+    assert.equal(swap.committed, true);
+    assert.deepEqual(swap.arrivals, [], 'a same-level redraw swaps, it does not fade');
+    assert.ok(first.every((primitive) => !viewer.ground.includes(primitive)), 'the old batches left in the same frame');
+    assert.ok(second.every((primitive) => primitive.show === true));
+    // The dark casing answers a click as the line it sits under.
+    const way = PAYLOAD.strokes.find((stroke) => stroke.id)?.id;
+    assert.equal(resolvePowerPickId({ id: `power-grid:casing:${way}` }), `power-grid:casing:${way}`,
+      'a click on the casing is claimed by the layer');
+  } finally {
+    _resetPowerStrokesForTest();
+    _setPowerGridStateForTest({ viewer: null, payload: null, enabled: false });
+  }
+});
+
+test('an answer arriving over the pack crossfades each way it takes over, then hides the simplified one', () => {
+  const viewer = groundViewer();
+  const overlayHost = { setEntries() {}, setVisible() {}, clearSource() {} };
+  _setPowerGridStateForTest({ viewer, records: new Map(), payload: null, overlayHost, enabled: true });
+  const pack = nationalPack();
+  try {
+    assert.ok(_buildPowerNationalForTest(pack).length > 0, 'the bands under 120 km are built');
+    viewer.readyAll();
+    _stagePowerStrokesForTest(PAYLOAD);
+    assert.equal(_powerHandoverForTest().hideTarget.size, 0, 'the pack draws everything while the answer builds');
+    viewer.readyAll();
+    const commit = _powerCommitFrameForTest();
+    assert.deepEqual(commit.arrivals, ['viewport']);
+    const handover = _powerHandoverForTest();
+    assert.ok(handover.arriving.length > 0, 'the overhead ways the pack drew are crossing over');
+    const way = handover.arriving[0];
+    assert.equal(handover.hideTarget.has(way), false, 'a crossing way stays drawn by the pack until the ramp ends');
+    const underground = PAYLOAD.strokes.find((stroke) => stroke.u && pack.strokes.some((own) => own.id === stroke.id));
+    if (underground) assert.equal(handover.hideTarget.has(underground.id), true, 'a dashed cable swaps at once');
+
+    const exact = handover.strokes.find((primitive) => primitive.attributesForTest.has(`power-grid:stroke:${way}`))
+      || handover.strokes.find((primitive) => primitive.geometryInstances?.some?.((instance) => instance.id === `power-grid:stroke:${way}`));
+    const tierId = pack.voltages[pack.strokes.find((stroke) => stroke.id === way).vi].tier;
+    const batch = handover.batches.get(tierId);
+    const exactCore = () => exact.attributesForTest.get(`power-grid:stroke:${way}`);
+    const packCore = () => batch.overhead.attributesForTest.get(`power-grid:nat:${way}`);
+    assert.equal(alphaByte(exactCore()), 0, 'the exact way starts at nothing');
+    assert.equal(alphaByte(packCore()), Math.round(0.9 * 255), 'its simplified self at full');
+
+    const middle = _powerFadeFrameForTest({ arrival: 0.5 });
+    assert.equal(alphaByte(exactCore()), Math.round(0.9 * 0.5 * 255));
+    assert.equal(alphaByte(packCore()), Math.round(0.9 * 0.5 * 255), 'the pack steps down in the same proportion');
+    assert.deepEqual(middle.levels, { national: 0.5, viewport: 0.5 });
+    assert.deepEqual(middle.bands, {}, 'no zoom band: the two are one line at two simplifications');
+    assert.equal(middle.swap.atM, POWER_GRID_MAX_ALTITUDE_M);
+
+    _powerFadeFrameForTest({ arrival: 1 });
+    assert.equal(alphaByte(exactCore()), Math.round(0.9 * 255));
+    assert.equal(_powerHandoverForTest().hideTarget.has(way), true, 'then the simplified way stands down');
+    assert.equal(packCore().show[0], 0);
+    assert.equal(alphaByte(packCore()), Math.round(0.9 * 255), 'its colour given back for when it returns');
+    assert.equal(_powerHandoverForTest().arriving.length, 0);
+
+    // A pan to the same ways afterwards crosses nothing over.
+    _stagePowerStrokesForTest(PAYLOAD);
+    viewer.readyAll();
+    assert.deepEqual(_powerCommitFrameForTest().arrivals, []);
+  } finally {
+    _resetPowerStrokesForTest();
+    _setPowerGridStateForTest({ viewer: null, payload: null, enabled: false });
   }
 });
