@@ -236,7 +236,11 @@ export function createScanAreaLevels(config) {
   function reconsider(at) {
     const levels = scanAreaLevelsAt({ altitudeM, pinned: at?.pinned });
     wanted.fine = primaryLevel === 'fine';
-    wanted.coarse = primaryLevel === 'coarse' || (primaryLevel === 'fine' && levels.coarse);
+    // The sections are asked for only where the reveal still DRAWS them: they
+    // are gone 70 % into the band (1 259 m), and between there and the band's
+    // fine end a companion request would build a wash nobody sees.
+    wanted.coarse = primaryLevel === 'coarse'
+      || (primaryLevel === 'fine' && levels.coarse && levelVisible(true, scanAreaZoomWeights(altitudeM).coarse));
     if (primaryLevel === 'fine' && wanted.coarse) ensureCompanion(at);
     else abortCompanion();
     force = true;
@@ -297,9 +301,13 @@ export function createScanAreaLevels(config) {
       // replaces its own level, or appears over nothing, just appears.
       if (!had && paints[level].drawn() && paints[partnerOf(level)].drawn()) handle?.arrive(level);
     }
+    // A level is READY when its answer is on screen — including an answer with
+    // no shape in it: an empty box of plots must still replace the sections,
+    // not leave them standing at full strength over a key that says "nothing".
+    const ready = (level) => paints[level].drawn() || (Boolean(held[level]) && !paints[level].stats().pending);
     const alphas = coverAlphas(scanAreaZoomWeights(scale?.heightM), {
-      fineReady: paints.fine.drawn(),
-      coarseReady: paints.coarse.drawn(),
+      fineReady: ready('fine'),
+      coarseReady: ready('coarse'),
       fineArrival: handle?.arrival('fine', nowMs) ?? 1,
       coarseArrival: handle?.arrival('coarse', nowMs) ?? 1,
     });
@@ -307,7 +315,12 @@ export function createScanAreaLevels(config) {
     const coarse = quantizeFade(alphas.coarse);
     const writeAll = force || swapped;
     force = false;
-    if (!writeAll && fine === written.fine && coarse === written.coarse) return;
+    // A drawing swapped in before it finished building (the paint's frame cap)
+    // takes no fade until it is ready, and the weights may not move again by
+    // then: keep writing — `fadeInstances` skips every primitive already at
+    // this weight — until both paints report ready.
+    const building = !paints.fine.stats().ready || !paints.coarse.stats().ready;
+    if (!writeAll && !building && fine === written.fine && coarse === written.coarse) return;
     paints.fine.fade(fine, { force: writeAll });
     paints.coarse.fade(coarse, { force: writeAll });
     paints.fine.setShow(levelVisible(enabled, fine));

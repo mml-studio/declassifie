@@ -298,3 +298,27 @@ test('a shell teardown with no redraw behind it — the dormant ceiling — clea
   await flush();
   assert.equal(viewer.added.length, 0);
 });
+
+test('an empty answer still replaces the level above it', async () => {
+  const { viewer, levels } = levelsFixture();
+  levels.primary(sectionsAnswer(), { viewer, point: { ...LYON, altitudeM: 2_500 }, classificationType: 0 });
+  viewer.readyAll();
+  levels._frameForTest(2_500);
+  // Down to 1 000 m over a box where nothing sold: the shell answers no plot.
+  const empty = { ...plotsAnswer(), plots: [] };
+  levels.primary(empty, { viewer, point: { ...LYON, altitudeM: 1_000 }, classificationType: 0 });
+  await flush();
+  const frame = levels._frameForTest(1_000);
+  assert.equal(frame.coarse, 0, 'the sections do not stand over an answer that said "nothing here"');
+  await flush();
+  assert.equal(levels.stats().levels.sections.held, false);
+});
+
+test('the sections are not asked for where the reveal no longer draws them', async () => {
+  const { viewer, levels, asked } = levelsFixture();
+  // 1 200 m is inside the band but past the sections' last visible weight (1 259 m).
+  levels.primary(plotsAnswer(), { viewer, point: { ...LYON, altitudeM: 1_200 }, classificationType: 0 });
+  await flush();
+  assert.equal(asked.length, 0);
+  assert.equal(levels.stats().levels.sections.wanted, false);
+});
