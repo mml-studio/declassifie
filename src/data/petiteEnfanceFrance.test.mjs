@@ -26,14 +26,23 @@ import petiteEnfanceFranceLayer, {
   indexPeAreas,
   selectPeLabelCohort,
   COMMUNE_SPAN_DEG,
-  NATIONAL_ENTER_SPAN_DEG,
   NATIONAL_EXIT_SPAN_DEG,
+  PE_COMMUNE_BAND,
+  PE_NATIONAL_BAND,
+  peBandWeights,
+  buildPeTerritoryLevels,
   peContourBox,
+  pePlanLevels,
+  peTerritoryIdOf,
   _clearPeSelectionForTest,
+  _peFadeFrameForTest,
   _peRowControlsForTest,
+  _setPeLevelsForTest,
   _setPeStateForTest,
 } from './petiteEnfanceFrance.js';
-import { PE_BANDS, PE_BOX_STEP_DEG } from './petiteEnfanceFeed.js';
+import {
+  PE_BANDS, PE_BOX_STEP_DEG, PE_MAX_BOX_DEG, PE_MAX_BOX_COMMUNES, projectPeAreas,
+} from './petiteEnfanceFeed.js';
 import { schoolLevelColor } from './schoolsFrance.js';
 import { SCHOOL_LEVELS } from './schoolsFeed.js';
 
@@ -278,13 +287,288 @@ test('an empty or malformed input paints nothing and throws nothing', () => {
   assert.equal(indexPeAreas([{ noId: true }]).size, 0);
 });
 
-test('the regimes hand over with hysteresis, and the commune grain is inside', () => {
-  // A camera resting on the boundary must not swap the whole map back and
-  // forth on sub-pixel drift.
-  assert.ok(NATIONAL_EXIT_SPAN_DEG < NATIONAL_ENTER_SPAN_DEG);
-  // The commune grain turns on strictly INSIDE the local regime: it is a
-  // detail of a view that is already drawing territories.
-  assert.ok(COMMUNE_SPAN_DEG < NATIONAL_EXIT_SPAN_DEG);
+// --- Fade on zoom ------------------------------------------------------------
+
+test('the three scales are one statistic on one set of breaks, so they may fade', () => {
+  // The same rate, published at the three scales, against the same edition's
+  // national rate: the same band, so the same colour, whichever level draws
+  // it. That is the whole licence for drawing two of them at once.
+  const national = 60.9;
+  const rows = {
+    dep: { numdep: '01', nomdep: 'AIN', txcouv_dep: 45.2 },
+    epci: { numepci: '200070555', nomepci: 'CC DE LA VEYLE', txcouv_epci: 45.2 },
+    com: { numcom: '01053', nomcom: 'BOURG-EN-BRESSE', txcouv_com: 45.2 },
+  };
+  const bands = Object.entries(rows).map(([scale, row]) => (
+    projectPeAreas({ scale, taux: [row], national, year: 2023 }).areas[0].band
+  ));
+  assert.equal(new Set(bands).size, 1, `bands per scale: ${bands.join(', ')}`);
+  assert.equal(bands[0], 'bas');
+});
+
+test('the bands sit where the levels already changed, and the proxy can answer both ends', () => {
+  // The coarse ends are the old thresholds: territories below 0,9°, the
+  // commune cut-outs below 0,45°.
+  assert.equal(PE_NATIONAL_BAND.coarse, NATIONAL_EXIT_SPAN_DEG);
+  assert.equal(PE_COMMUNE_BAND.coarse, COMMUNE_SPAN_DEG);
+  for (const band of [PE_NATIONAL_BAND, PE_COMMUNE_BAND]) {
+    const ratio = band.coarse / band.fine;
+    assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+  }
+  // The widest view that loads territories, snapped outward, is still a box
+  // the contour proxy answers rather than refuses.
+  assert.ok(PE_NATIONAL_BAND.coarse + 2 * PE_BOX_STEP_DEG <= PE_MAX_BOX_DEG);
+  // ~1 450 communes in a 0,9° view, measured; the answer cap stays above it.
+  assert.ok(PE_MAX_BOX_COMMUNES > 1450);
+  // The two bands never overlap, so the EPCI level between them is drawn at
+  // the product of two alphas of which at most one is below 1.
+  assert.ok(PE_COMMUNE_BAND.coarse < PE_NATIONAL_BAND.fine);
+  for (let span = 0.2; span < 1; span += 0.01) {
+    const outer = peBandWeights(span, PE_NATIONAL_BAND);
+    const inner = peBandWeights(span, PE_COMMUNE_BAND);
+    assert.ok(outer.fine === 1 || inner.coarse === 1, `both bands at once at ${span.toFixed(2)}°`);
+  }
+});
+
+test('a settled view loads every level with weight, and only those', () => {
+  // National zoom: the choropleth alone.
+  assert.deepEqual(pePlanLevels(3), {
+    national: true, local: false, under: false, over: false, regime: 'national', grain: 'epci',
+  });
+  // Inside the outer band: both levels load, and the territories own the row
+  // once the reveal has them at half strength (15 % into the band).
+  const outer = pePlanLevels(0.86);
+  assert.equal(outer.national, true);
+  assert.equal(outer.local, true);
+  assert.equal(outer.under, true);
+  assert.equal(outer.over, false);
+  assert.equal(outer.regime, 'national');
+  assert.equal(pePlanLevels(0.8).regime, 'local');
+  assert.equal(pePlanLevels(0.6).regime, 'local');
+  // Between the bands: the territories at the EPCI grain, the choropleth gone.
+  assert.deepEqual(pePlanLevels(0.5), {
+    national: false, local: true, under: true, over: false, regime: 'local', grain: 'epci',
+  });
+  // Inside the commune band: both grains.
+  const inner = pePlanLevels(0.35);
+  assert.equal(inner.under && inner.over, true);
+  assert.equal(inner.national, false);
+  assert.equal(pePlanLevels(0.42).grain, 'epci');
+  assert.equal(pePlanLevels(0.3).grain, 'com');
+  // City zoom: the commune grain alone.
+  assert.deepEqual(pePlanLevels(0.2), {
+    national: false, local: true, under: false, over: true, regime: 'local', grain: 'com',
+  });
+  // Past the limb, or with no rectangle to ask about, the choropleth answers.
+  assert.equal(pePlanLevels(Infinity).local, false);
+  assert.equal(pePlanLevels(Infinity).national, true);
+  assert.deepEqual(pePlanLevels(0.3, { hasBox: false }), {
+    national: true, local: false, under: false, over: false, regime: 'national', grain: 'epci',
+  });
+  // A sliver of weight at a band's far end loads nothing a reader could see.
+  assert.equal(pePlanLevels(NATIONAL_EXIT_SPAN_DEG * 0.9999).local, false);
+});
+
+test('inside the commune band the cut-out ground is drawn once per grain, and nowhere else twice', () => {
+  const both = buildPeTerritoryLevels({ packs: [PACK], areas: AREAS, under: true, over: true });
+  const ids = (group) => both.groups[group].map((piece) => piece.record.id);
+  // Aulnay is EPCI ground at both grains: drawn once.
+  assert.deepEqual(ids('local'), ['epci:200070555']);
+  assert.deepEqual(both.groups.local[0].parts, [ring(4.9, 46.1)]);
+  // Ville is EPCI ground going and commune ground coming: the same ring twice.
+  assert.deepEqual(ids('under'), ['epci:200070555']);
+  assert.deepEqual(ids('over'), ['com:01002']);
+  assert.equal(both.groups.under[0].parts[0], both.groups.over[0].parts[0]);
+  assert.equal(both.groups.over[0].record.color, peBandColor('bas'));
+
+  // Outside the band one grain is built and the drawing is the one the layer
+  // always drew: every piece is plain territory.
+  for (const [under, over, withCommunes] of [[true, false, false], [false, true, true]]) {
+    const one = buildPeTerritoryLevels({ packs: [PACK], areas: AREAS, under, over });
+    const plain = buildPeTerritoryRecords({ packs: [PACK], areas: AREAS, withCommunes });
+    assert.deepEqual(one.groups.under, []);
+    assert.deepEqual(one.groups.over, []);
+    assert.deepEqual(one.groups.local.map((piece) => piece.parts), plain.records.map((r) => r.parts));
+  }
+});
+
+test('Paris crossfades whole into its arrondissements, and the unpublished one keeps its EPCI', () => {
+  const paris = {
+    departement: '75',
+    communes: [
+      { c: '75056', n: 'Paris', e: '200054781', p: [ring(2.3, 48.85)], x: 1 },
+      { c: '75101', n: 'Paris 1er', e: '200054781', p: [ring(2.33, 48.86)], a: '75056' },
+      { c: '75102', n: 'Paris 2e', e: '200054781', p: [ring(2.34, 48.87)], a: '75056' },
+    ],
+  };
+  const areas = [
+    area({ id: 'epci:200054781', code: '200054781', name: 'MGP' }),
+    area({
+      id: 'com:75101', scale: 'com', code: '75101', name: 'Paris 1er', band: 'bas',
+    }),
+  ];
+  const both = buildPeTerritoryLevels({ packs: [paris], areas, under: true, over: true });
+  assert.deepEqual(both.groups.local, []);
+  assert.deepEqual(both.groups.under.map((piece) => piece.parts), [[ring(2.3, 48.85)]]);
+  const over = new Map(both.groups.over.map((piece) => [piece.record.id, piece.parts]));
+  assert.deepEqual(over.get('com:75101'), [ring(2.33, 48.86)]);
+  assert.deepEqual(over.get('epci:200054781'), [ring(2.34, 48.87)]);
+});
+
+test('a pick of one ring resolves to its territory, whatever carries the id', () => {
+  assert.equal(peTerritoryIdOf('com:01002'), 'com:01002');
+  assert.equal(peTerritoryIdOf({ id: 'epci:200070555', part: 3 }), 'epci:200070555');
+  assert.equal(peTerritoryIdOf(null), null);
+  assert.equal(peTerritoryIdOf({ id: 42 }), null);
+});
+
+/** A ready primitive stand-in whose attributes record what the fade writes. */
+function fakeBatch(colors) {
+  const attributes = new Map();
+  const entries = colors.map((alpha, index) => {
+    const id = { id: `epci:${index}` };
+    // Like Cesium's attribute handles, the setter COPIES what it is given:
+    // `fadeInstances` writes every instance from one scratch array.
+    let color = new Uint8Array([0, 0, 0, Math.round(alpha * 255)]);
+    attributes.set(id, {
+      get color() { return new Uint8Array(color); },
+      set color(value) { color = new Uint8Array(value); },
+    });
+    return [id, { red: 0, green: 0, blue: 0, alpha }];
+  });
+  const primitive = {
+    ready: true,
+    show: false,
+    getGeometryInstanceAttributes: (id) => attributes.get(id),
+  };
+  return {
+    primitive,
+    entries,
+    alphaOf: (index) => attributes.get(entries[index][0]).color[3] / 255,
+  };
+}
+
+const fakeViewer = (removed = []) => ({
+  scene: { requestRender() {}, primitives: { remove: (primitive) => removed.push(primitive) } },
+});
+
+test('the département level holds full strength until the territories are drawn', () => {
+  const entity = { show: true, polygon: {} };
+  const building = fakeBatch([0.33]);
+  building.primitive.ready = false;
+  _setPeLevelsForTest({
+    viewer: fakeViewer(),
+    plan: pePlanLevels(0.3),
+    regime: 'local',
+    nationalPainted: true,
+    depEntities: [['01', [entity]]],
+    depShown: true,
+    pending: { under: true, over: true, groups: { local: [building] } },
+  });
+  // Deep inside the territories' own range, and still the choropleth: the
+  // territories are a build in flight, so nothing has replaced it yet.
+  let frame = _peFadeFrameForTest(0.3);
+  assert.equal(frame.levels.departements, 1);
+  assert.equal(frame.departementsShown, true);
+  assert.equal(entity.show, true);
+  assert.equal(frame.local, null);
+  assert.equal(building.primitive.show, false, 'a drawing is never shown half-built');
+
+  // Built: it is promoted, and (no ramp under test) takes over at once.
+  building.primitive.ready = true;
+  frame = _peFadeFrameForTest(0.3);
+  assert.equal(frame.pending, null);
+  assert.ok(frame.local);
+  assert.equal(frame.levels.departements, 0);
+  assert.equal(frame.departementsShown, false);
+  assert.equal(entity.show, false);
+  assert.equal(frame.levels.epci, 1);
+  assert.equal(building.primitive.show, true);
+});
+
+test('inside the outer band both levels are drawn, and their weights follow the camera', () => {
+  const wash = fakeBatch([0.33, 0.275]);
+  const entity = { show: false, polygon: {} };
+  _setPeLevelsForTest({
+    viewer: fakeViewer(),
+    plan: pePlanLevels(0.82),
+    nationalPainted: true,
+    depEntities: [['01', [entity]]],
+    local: { under: true, groups: { local: [wash] } },
+  });
+  // 0.82° is in the first 30 % of the band, where the reveal still has the
+  // territories coming in and the départements going out.
+  const frame = _peFadeFrameForTest(0.82);
+  const expected = peBandWeights(0.82, PE_NATIONAL_BAND);
+  assert.ok(Math.abs(frame.levels.departements - expected.coarse) < 1e-12);
+  assert.ok(Math.abs(frame.levels.epci - expected.fine) < 1e-12);
+  assert.ok(frame.levels.departements > 0 && frame.levels.departements < 1);
+  assert.ok(frame.levels.epci > 0 && frame.levels.epci < 1);
+  assert.equal(entity.show, true);
+  assert.equal(wash.primitive.show, true);
+  // Every band of the level is multiplied by ONE factor: the heavier band
+  // stays the heavier one at every point of the fade.
+  const ratio = wash.alphaOf(0) / wash.alphaOf(1);
+  assert.ok(Math.abs(ratio - 0.33 / 0.275) < 0.05, `band ratio ${ratio}`);
+  assert.ok(wash.alphaOf(0) < 0.33, 'the territories are faded, not at full strength');
+  // The départements carry their weight through their colour callback.
+  assert.ok(frame.nationalWeight > 0 && frame.nationalWeight < 1);
+});
+
+test('inside the commune band the EPCI ground under the cut-outs fades as the communes come in', () => {
+  const shared = fakeBatch([0.33]);
+  const under = fakeBatch([0.33]);
+  const over = fakeBatch([0.275]);
+  _setPeLevelsForTest({
+    viewer: fakeViewer(),
+    plan: pePlanLevels(0.35),
+    regime: 'local',
+    local: {
+      under: true, over: true, groups: { local: [shared], under: [under], over: [over] },
+    },
+  });
+  const frame = _peFadeFrameForTest(0.35);
+  const inner = peBandWeights(0.35, PE_COMMUNE_BAND);
+  assert.equal(frame.levels.epci, 1);
+  assert.ok(Math.abs(frame.levels.epciUnderCommunes - inner.coarse) < 1e-12);
+  assert.ok(Math.abs(frame.levels.communes - inner.fine) < 1e-12);
+  // The wash outside the cut-outs is not part of the hand-over at all.
+  assert.ok(Math.abs(shared.alphaOf(0) - 0.33) < 0.01);
+  assert.ok(under.alphaOf(0) < 0.33 && over.alphaOf(0) < 0.275);
+  // Past the band's fine end the EPCI ground under the communes is hidden.
+  const city = _peFadeFrameForTest(0.2);
+  assert.equal(city.levels.epciUnderCommunes, 0);
+  assert.equal(under.primitive.show, false);
+  assert.equal(over.primitive.show, true);
+});
+
+test('territories the view no longer wants are dropped once the choropleth is back', () => {
+  const removed = [];
+  const wash = fakeBatch([0.33]);
+  // The choropleth is not painted yet: the territories hold the national view.
+  _setPeLevelsForTest({
+    viewer: fakeViewer(removed),
+    plan: pePlanLevels(3),
+    nationalPainted: false,
+    local: { under: true, groups: { local: [wash] } },
+  });
+  let frame = _peFadeFrameForTest(3);
+  assert.equal(frame.levels.epci, 1);
+  assert.ok(frame.local, 'nothing has replaced them yet');
+  assert.deepEqual(removed, []);
+
+  // Painted: the territories reach zero and are released, not kept invisible.
+  _setPeLevelsForTest({
+    viewer: fakeViewer(removed),
+    plan: pePlanLevels(3),
+    nationalPainted: true,
+    depEntities: [['01', [{ show: false, polygon: {} }]]],
+    local: { under: true, groups: { local: [wash] } },
+  });
+  frame = _peFadeFrameForTest(3);
+  assert.equal(frame.levels.departements, 1);
+  assert.equal(frame.local, null);
+  assert.deepEqual(removed, [wash.primitive]);
 });
 
 // --- The selection card -----------------------------------------------------

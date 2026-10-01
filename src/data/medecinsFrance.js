@@ -93,6 +93,7 @@ import {
   APL_DEP_POPULATION,
   MEDECINS_FR_LAYER_ID,
   MEDECINS_MAX_BOX_DEG,
+  MEDECINS_NATIONAL_SPAN_DEG,
   aplStandingLabel,
   medecinsSource,
   ETAB_COMMUNE,
@@ -139,6 +140,14 @@ import {
   tariffMix,
 } from './medecinsFrFeed.js';
 import { pickAt } from './pickAt.js';
+import {
+  bandPosition,
+  fadeBand,
+  levelVisible,
+  reveal,
+  watchZoomFade,
+} from './zoomFade.js';
+import { fadeMarkLevel, meshSitesAlphas, nationalCutAlphas } from './amenitiesMedecinsAnfrFade.js';
 
 export { MEDECINS_FR_LAYER_ID };
 
@@ -461,6 +470,98 @@ export function buildDepartementCard(code, name, row, aplRow, stats) {
   return [name || code, ...details].join('\n');
 }
 
+// --- Fade on zoom -------------------------------------------------------------
+
+/**
+ * The band, in the view's LARGER span (degrees), across which the mesh hands
+ * over to every practice: 0.6° → 0.36°.
+ *
+ * It replaces the 0.6° line, and its coarse end IS that line, because the
+ * finer level cannot be asked for above it: `/sites` takes the camera box
+ * unpadded and answers 413 to anything wider than `MEDECINS_MAX_BOX_DEG`
+ * (0.6°) on EITHER axis — which is why the old switch, decided on latitude,
+ * fell back to the mesh whenever the longitude was wider. Measured on the
+ * larger span, the band starts exactly where the request becomes legal, so
+ * the box, the 6 000-site cap and the ten-minute cache are all unchanged. The
+ * fine end is 0.6 × 0.6 = 0.36°; coarse / fine = 1.67.
+ *
+ * The weights are `reveal`, because the band can only sit below the old line:
+ * the practices are at full strength by 0.6 × 0.6^0.3 = 0.515°, the mesh's own
+ * marks are gone by 0.6 × 0.6^0.7 = 0.420°, and the practices own the key from
+ * 0.539°. Keeping the mesh down to 0.42° costs a re-pick of the 64 232 tuples
+ * the layer already holds, and nothing on the wire.
+ *
+ * The mesh is a thinned subset of the same practices — `/api/medecins-fr/mesh`
+ * writes one tuple per `pack.sites` line, in pack order, and `/sites` answers
+ * with those line numbers — so a practice both levels draw is drawn ONCE, at
+ * full strength, and only what the practices add fades in (see
+ * `amenitiesMedecinsAnfrFade.js`).
+ *
+ * ── Why the national map is still a HARD CUT ────────────────────────────────
+ * The départements carry the DREES's APL — or, under the « Densité » chip,
+ * doctors per 100 000 inhabitants — on a five-step ramp, and the marks are
+ * practices coloured by family. Different datasets and a different indicator:
+ * a crossfade would draw a red « under-served » département through the green
+ * plates of its GPs. So the 9.5° line stays a line, and what changed is the
+ * blank across it: the level being left now stays on screen until the one
+ * replacing it is drawn, and the two trade places in one frame.
+ */
+export const MEDECINS_SITES_BAND = fadeBand(0.36, MEDECINS_MAX_BOX_DEG);
+
+/**
+ * Which levels a settled view loads, and which owns the key, the count and the
+ * share link (`dominant`, the layer's regime).
+ *
+ * @param {{lat: number, max: number}} span The view's latitude span and larger span.
+ * @returns {{national: boolean, mesh: boolean, sites: boolean, dominant: string,
+ *   position: number, weights: {mesh: number, sites: number}}}
+ */
+export function planMedecinsLevels(span) {
+  if (medecinsRegime(Number(span?.lat)) === 'national') {
+    return {
+      national: true, mesh: false, sites: false, dominant: 'national', position: 0, weights: { mesh: 0, sites: 0 },
+    };
+  }
+  const position = bandPosition(Number(span?.max), MEDECINS_SITES_BAND);
+  const target = reveal(position);
+  const sites = levelVisible(true, target.fine);
+  const mesh = !sites || levelVisible(true, target.coarse);
+  return {
+    national: false,
+    mesh,
+    sites,
+    dominant: sites && target.fine > target.coarse ? 'sites' : 'mesh',
+    position,
+    weights: { mesh: target.coarse, sites: target.fine },
+  };
+}
+
+/**
+ * The alpha every level is drawn at, for one frame: the hard national cut on
+ * the settled regime, and the mesh → practices fade on this frame's span.
+ *
+ * @param {number} span The view's larger span this frame, degrees.
+ * @param {object} state
+ * @returns {{national: number, points: number, mesh: number, sites: number,
+ *   shared: number, position: number}}
+ */
+export function medecinsLevelAlphas(span, {
+  regime = 'national', nationalReady = false, pointsReady = false,
+  meshReady = false, sitesReady = false, meshArrival = 1, sitesArrival = 1,
+} = {}) {
+  const cut = nationalCutAlphas({ national: regime === 'national', nationalReady, pointsReady });
+  const position = bandPosition(span, MEDECINS_SITES_BAND);
+  const band = meshSitesAlphas(position, { meshReady, sitesReady, meshArrival, sitesArrival });
+  return {
+    national: cut.national,
+    points: cut.points,
+    mesh: band.mesh * cut.points,
+    sites: band.sites * cut.points,
+    shared: band.shared * cut.points,
+    position,
+  };
+}
+
 /** Metres between two WGS-84 points, flat-earth and fine over one viewport. */
 function metresApart(aLat, aLon, bLat, bLon) {
   const rad = (d) => (d * Math.PI) / 180;
@@ -578,7 +679,17 @@ export function createMedecinsLayer({
   fetchImpl = (...args) => globalThis.fetch(...args),
 } = {}) {
   let _viewer = null;
+  /**
+   * The marks, in three collections by what the band does to them (see
+   * `amenitiesMedecinsAnfrFade.js`): `_marks` the practices the mesh does not
+   * hold (they come in), `_meshMarks` the mesh dots the practices answer does
+   * not hold (they go out), `_sharedMarks` the practices both levels draw,
+   * drawn once and never faded. Outside the band only one of the first two
+   * is in use.
+   */
   let _marks = null;
+  let _meshMarks = null;
+  let _sharedMarks = null;
   let _clickHandler = null;
   let _enabled = false;
   let _loading = false;
@@ -603,7 +714,6 @@ export function createMedecinsLayer({
   let _selectedId = null;
   let _cameraRemovers = [];
   let _rowControlsListener = null;
-  let _sitesToken = 0;
   let _paint = 'apl';
   let _nationalPromise = null;
   let _sitesAbort = null;
@@ -618,6 +728,38 @@ export function createMedecinsLayer({
   /** The server pack the last `/sites` answer came from. */
   let _packId = null;
   const practitionerKey = (record) => `${record.packId ?? ''}:${record.index}`;
+
+  /** The mesh on screen — `{ rows, box, key }` — or null. */
+  let _meshLevel = null;
+  /** The practices on screen — `{ rows, payload, box, key }` — or null. */
+  let _sitesLevel = null;
+  /**
+   * The marks have answered for the view the camera settled on, possibly with
+   * nothing. Until then the départements hold the screen.
+   */
+  let _pointsAnswered = false;
+  /** The départements are painted for the current chip: the national level is drawn. */
+  let _nationalReady = false;
+  /** What the last settle asked for — see {@link planMedecinsLevels}. */
+  let _plan = null;
+  /** One refresh at a time decides; an older one that lands late draws nothing. */
+  let _refreshToken = 0;
+  /**
+   * One material per colour, kept across repaints: assigning a NEW material
+   * rebuilds a département's ground batch, and the national view used to do
+   * that for all 96 on every camera event.
+   */
+  const _depMaterials = new Map();
+  /** Codes the current chip paints; the rest are drawn as absence. */
+  let _depPaintedCodes = new Set();
+  /** Whether the départements are shown, as the swap last decided. */
+  let _depShown = false;
+  /** `watchZoomFade` handle while the layer is enabled. */
+  let _fade = null;
+  /** Rewrite every mark's alpha on the next frame: a class was rebuilt. */
+  let _fadeForce = false;
+  /** Mesh tuple → its line in the server pack, which is the `/sites` index. */
+  let _meshLines = new WeakMap();
 
   const renderId = (key) => `${RENDER_PREFIX}${key}`;
 
@@ -829,7 +971,14 @@ export function createMedecinsLayer({
     if (_mesh) return _mesh;
     if (_meshPromise) return _meshPromise;
     _meshPromise = fetchJson('/api/medecins-fr/mesh')
-      .then((payload) => { _mesh = payload; return payload; })
+      .then((payload) => {
+        _mesh = payload;
+        // One pass over 64 232 tuples, once a session: the tuple at line `i`
+        // is the practice `/sites` calls `index: i`, and that is the join.
+        _meshLines = new WeakMap();
+        (payload?.sites ?? []).forEach((row, line) => _meshLines.set(row, line));
+        return payload;
+      })
       .catch((error) => { _meshPromise = null; throw error; });
     return _meshPromise;
   }
@@ -895,32 +1044,55 @@ export function createMedecinsLayer({
     return APL_BINS[aplBin(value)]?.color ?? null;
   }
 
+  /**
+   * Give every département the fill of the current chip.
+   *
+   * Paints, and does not decide visibility: whether the level is on screen is
+   * the swap's call ({@link medecinsLevelAlphas}), made per frame. Materials
+   * are kept per colour, so a repaint that changes nothing rebuilds nothing.
+   */
   function repaintDepartements() {
     if (!_national) return;
-    const materials = new Map();
     const painted = new Set();
     for (const code of _depEntities.keys()) {
       const color = departementColor(code);
       if (!color) continue;
-      let material = materials.get(color);
+      let material = _depMaterials.get(color);
       if (!material) {
         material = new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString(color).withAlpha(0.55));
-        materials.set(color, material);
+        _depMaterials.set(color, material);
       }
       painted.add(code);
       for (const entity of _depEntities.get(code)) {
         if (!entity.polygon) continue;
-        entity.polygon.material = material;
-        entity.show = _regime === 'national';
+        // The same object again is no change at all; a new one is a rebuild.
+        if (entity.polygon.material !== material) entity.polygon.material = material;
       }
     }
     // A département the rollup does not cover is drawn as absence, not as the
     // bottom of the scale. Overseas départements have no APL row at all.
-    for (const [code, parts] of _depEntities) {
-      if (painted.has(code)) for (const entity of parts) entity.show = _regime === 'national';
-      else for (const entity of parts) entity.show = false;
-    }
+    _depPaintedCodes = painted;
+    applyDepartementShow();
     _viewer?.scene?.requestRender?.();
+  }
+
+  /** Write `_depShown` onto the entities — at a transition, never per frame. */
+  function applyDepartementShow() {
+    for (const [code, parts] of _depEntities) {
+      const show = _depShown && _depPaintedCodes.has(code);
+      for (const entity of parts) {
+        if (entity.show !== show) entity.show = show;
+      }
+    }
+  }
+
+  /** Show or hide the national level, with its labels. */
+  function setDepartementsShown(show) {
+    if (show === _depShown) return;
+    _depShown = show;
+    applyDepartementShow();
+    if (show) publishDepartementLabels();
+    else overlayHost.clearSource(LABEL_SOURCE_ID);
   }
 
   function publishDepartementLabels() {
@@ -1012,6 +1184,14 @@ export function createMedecinsLayer({
   function selectSite(id) {
     const record = _records.get(id);
     if (!record) return;
+    // A mesh dot is one of a SAMPLE drawn to show where practices are, and
+    // carries no address of its own (`site: null`): there is no card for it,
+    // and building one threw on `site[SITE_VILLE]`. Inside the mesh → sites
+    // band only the dots the sites did not replace are still mesh records.
+    if (!record.site && !record.etab) {
+      if (_selectedId) clearSelection();
+      return;
+    }
     _selectedId = id;
     // A hospital has no `/praticiens` index to fetch and no names to fill in:
     // FINESS publishes establishments, not people. Its card is complete the
@@ -1128,7 +1308,7 @@ export function createMedecinsLayer({
   const HOSPITAL_ABSORB_M = 50;
   const HOSPITAL_ABSORB_DEG = HOSPITAL_ABSORB_M / 111_320;
 
-  /** Hospitals inside the current view, as `repaintMarks` rows. */
+  /** Hospitals inside the current view, as `drawMarks` rows. */
   function hospitalRows(box) {
     const table = _national?.etablissements;
     if (!Array.isArray(table) || !table.length) return [];
@@ -1142,8 +1322,8 @@ export function createMedecinsLayer({
         key: `etab:${index}`,
         lat,
         lon,
-        // Read by `medecinMarkPixelSize` nowhere — `repaintMarks` asks
-        // `markPixelSize` below, which branches on the family.
+        // Read by `medecinMarkPixelSize` nowhere — `addMark` branches on the
+        // family and gives a hospital its fixed side.
         practitioners: Number(etab[ETAB_PRACTITIONERS]) || 0,
         family: 'hopital',
         site: null,
@@ -1170,72 +1350,161 @@ export function createMedecinsLayer({
     )));
   }
 
-  function repaintMarks(rows) {
-    if (!_marks) return;
-    _marks.removeAll();
+  /** One plate, for every class: the classes cannot drift apart in look. */
+  function addMark(collection, row, membership) {
+    const id = renderId(row.key);
+    const position = markerPosition(row.lat, row.lon);
+    // A hospital has no magnitude to draw; a practice does. See
+    // `HOSPITAL_MARK_PX` for why that is a statement and not a default.
+    const side = row.family === 'hopital'
+      ? HOSPITAL_MARK_PX
+      : medecinMarkPixelSize(row.practitioners);
+    const mark = collection?.add({
+      id,
+      position,
+      image: familyGlyph(row.family),
+      width: side,
+      height: side,
+      color: familyColor(row.family),
+      scaleByDistance: MARK_SCALE_BY_DISTANCE,
+      translucencyByDistance: MARK_TRANSLUCENCY,
+      // The mark stands on the pavement, and every building it stands next to
+      // is taller than it. With the depth test ON, a plate anchored at street
+      // level is eaten from below by the ground that is NEARER the camera at
+      // those screen pixels — the « parasol » that made these read as dots
+      // half-sunk into the roofs. `Infinity` is this repository's value
+      // everywhere, and it is safe here without a horizon curtain because
+      // every row drawn came out of the CURRENT view rectangle: neither
+      // level can hand back a practice on the far side of the planet.
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    }) ?? null;
+    _records.set(id, { ...row, position, mark, ...membership });
+  }
+
+  /**
+   * Draw the marks of the levels on screen, each once, in its class.
+   *
+   * The practices are drawn first, so a place both levels hold is drawn as the
+   * PRACTICE — the mark with a card and names behind it — into the shared
+   * collection, and the mesh then draws only what the practices answer does
+   * not hold. The join is the pack line: a mesh tuple's line is the `index`
+   * `/sites` sends, as long as both came from the same pack — after a weekly
+   * rebuild mid-session they do not, and the two levels are then drawn as
+   * strangers rather than matched by a guess. Hospitals are keyed by their own
+   * line and are in both levels' rows, so they are always shared.
+   *
+   * Billboards are built synchronously, so a redraw of the same levels — a
+   * pan — replaces the old marks in the frame it runs in: no gap to cover.
+   */
+  function drawMarks(meshLevel, sitesLevel) {
+    for (const collection of [_marks, _meshMarks, _sharedMarks]) collection?.removeAll();
     _records = new Map();
     resetFloorRetries();
-    for (const row of rows) {
-      const id = renderId(row.key);
-      const position = markerPosition(row.lat, row.lon);
-      // A hospital has no magnitude to draw; a practice does. See
-      // `HOSPITAL_MARK_PX` for why that is a statement and not a default.
-      const side = row.family === 'hopital'
-        ? HOSPITAL_MARK_PX
-        : medecinMarkPixelSize(row.practitioners);
-      const mark = _marks.add({
-        id,
-        position,
-        image: familyGlyph(row.family),
-        width: side,
-        height: side,
-        color: familyColor(row.family),
-        scaleByDistance: MARK_SCALE_BY_DISTANCE,
-        translucencyByDistance: MARK_TRANSLUCENCY,
-        // The mark stands on the pavement, and every building it stands next to
-        // is taller than it. With the depth test ON, a plate anchored at street
-        // level is eaten from below by the ground that is NEARER the camera at
-        // those screen pixels — the « parasol » that made these read as dots
-        // half-sunk into the roofs. `Infinity` is this repository's value
-        // everywhere, and it is safe here without a horizon curtain because
-        // every row drawn came out of the CURRENT view rectangle: neither
-        // `renderSites` nor `renderMesh` can hand back a practice on the far
-        // side of the planet.
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    _meshLevel = meshLevel || null;
+    _sitesLevel = sitesLevel || null;
+    const joinable = Boolean(_sitesLevel && _mesh?.packId && _sitesLevel.packId === _mesh.packId);
+    const meshRows = (_meshLevel?.rows ?? []).map((row) => (
+      row.etab ? row : { ...row, key: `${joinable ? 'site' : 'mesh'}:${row.line}` }
+    ));
+    const meshKeys = new Set(meshRows.map((row) => row.key));
+    for (const row of _sitesLevel?.rows ?? []) {
+      const shared = meshKeys.has(row.key);
+      addMark(shared ? _sharedMarks : _marks, row, {
+        cls: shared ? 'shared' : 'sites', inSites: true, inMesh: shared,
       });
-      _records.set(id, { ...row, position, mark });
     }
+    for (const row of meshRows) {
+      // Drawn above, once, as the practice.
+      if (_records.has(renderId(row.key))) continue;
+      addMark(_meshMarks, row, { cls: 'mesh', inSites: false, inMesh: true });
+    }
+    // Every mark is new: its level's weight is written on the next frame.
+    _fadeForce = true;
     restoreSpriteOrder();
     groundDrawnMarks();
     _viewer?.scene?.requestRender?.();
   }
 
-  async function renderMesh(box) {
-    const payload = await ensureMesh();
+  /** Whether a record is part of one level's drawing. */
+  function recordInLevel(record, level) {
+    return level === 'mesh' ? record?.inMesh !== false : record?.inSites !== false;
+  }
+
+  /** The records of the level that owns the count, the key and the analyst rows. */
+  function dominantRecords() {
+    // The départements own the national view, even while the marks hold the
+    // screen for the frame or two it takes to paint them.
+    if (_regime === 'national') return [];
+    const level = _regime === 'sites' ? 'sites' : 'mesh';
+    const out = [];
+    for (const record of _records.values()) {
+      if (recordInLevel(record, level)) out.push(record);
+    }
+    return out;
+  }
+
+  /** Remove one class of marks; the shared ones lose that level's membership. */
+  function dropClass(cls, collection) {
+    if (_selectedId && _records.get(_selectedId)?.cls === cls) clearSelection();
+    collection?.removeAll();
+    for (const [id, record] of _records) {
+      if (record.cls === cls) _records.delete(id);
+      else if (record.cls === 'shared') {
+        if (cls === 'mesh') record.inMesh = false;
+        else record.inSites = false;
+      }
+    }
+    _rowControlsListener?.();
+    governorRequestRender('medecins-fr-drop');
+  }
+
+  /** Every mark goes: the départements have taken over, or the layer is off. */
+  function dropPointLevels() {
+    if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
+    for (const collection of [_marks, _meshMarks, _sharedMarks]) collection?.removeAll();
+    _records = new Map();
+    resetFloorRetries();
+    _meshLevel = null;
+    _sitesLevel = null;
+    _pointsAnswered = false;
+  }
+
+  /** The mesh rows one view draws: the thinned practices, then the hospitals. */
+  function meshLevelFor(box, key) {
     // § 3.5 — see `profileCountBudget`. Coverage first, density second.
     const budget = profileCountBudget(medecinsMeshBudget(box.north - box.south));
-    const { picked } = selectMedecinsMesh(payload.sites, { box, budget });
+    const { picked } = selectMedecinsMesh(_mesh.sites, { box, budget });
     // OUTSIDE THE BUDGET, DELIBERATELY. The thinner exists so 64 232 practices
     // do not become a mat, and a hospital is exactly the mark that must survive
     // the camera pulling back: there are at most a few dozen in any box this
     // regime draws, and they are what a reader is looking for at that height.
     const hospitals = hospitalRows(box);
-    const practices = absorbedByHospital(picked.map((row, index) => ({
-      key: `mesh:${index}:${row[MESH_LAT]}:${row[MESH_LON]}`,
-      lat: row[MESH_LAT],
-      lon: row[MESH_LON],
-      practitioners: row[MESH_PRACTITIONERS],
-      family: MEDECIN_PRACTICE_FAMILIES[row[MESH_FAMILY]] ?? 'specialiste',
-      site: null,
-      praticiens: null,
-    })), hospitals);
+    const practices = absorbedByHospital(picked.map((row, index) => {
+      // A tuple the index does not know (it always should) keeps a key of its
+      // own that no practice can share.
+      const line = _meshLines.get(row) ?? `${index}:${row[MESH_LAT]}:${row[MESH_LON]}`;
+      return {
+        // Rekeyed by `drawMarks` against the practices on screen.
+        key: `mesh:${line}`,
+        line,
+        lat: row[MESH_LAT],
+        lon: row[MESH_LON],
+        practitioners: row[MESH_PRACTITIONERS],
+        family: MEDECIN_PRACTICE_FAMILIES[row[MESH_FAMILY]] ?? 'specialiste',
+        site: null,
+        praticiens: null,
+      };
+    }), hospitals);
     // Hospitals LAST so they are added last and sit on top of what they absorb
     // the neighbours of — `spriteOrder.js` orders collections, not marks.
-    repaintMarks([...practices, ...hospitals]);
+    return { rows: [...practices, ...hospitals], box, key };
   }
 
-  async function renderSites(box) {
-    const token = ++_sitesToken;
+  /**
+   * Ask `/sites` about one box.
+   * @returns {Promise<?object>} The level, or null when a newer view cancelled it.
+   */
+  async function fetchSitesLevel(box, key) {
     // A superseded request is cancelled rather than left to arrive and be
     // discarded: a drag across Paris otherwise leaves several 800 kB responses
     // downloading and parsing for viewports nobody is looking at any more.
@@ -1253,14 +1522,9 @@ export function createMedecinsLayer({
     try {
       payload = await fetchJson(`/api/medecins-fr/sites?${params}`, controller?.signal);
     } catch (error) {
-      if (error?.name === 'AbortError') return;
+      if (error?.name === 'AbortError') return null;
       throw error;
     }
-    if (token !== _sitesToken) return;
-    _packId = payload.packId ?? _packId;
-    _sites = payload.sites;
-    _sitesTruncated = Boolean(payload.truncated);
-    _sitesBox = box;
     const hospitals = hospitalRows(box);
     const practices = absorbedByHospital(payload.sites.map((entry) => ({
       key: `site:${entry.index}`,
@@ -1272,37 +1536,92 @@ export function createMedecinsLayer({
       family: sitePrimaryFamily(entry.site),
       site: entry.site,
     })), hospitals);
-    repaintMarks([...practices, ...hospitals]);
+    return { rows: [...practices, ...hospitals], payload, packId: payload.packId ?? null, box, key };
   }
 
-  /** The one place the three regimes are chosen between. */
+  /**
+   * Load every level of marks the settled view wants, and draw them together.
+   *
+   * Both are awaited before anything is drawn, so a view in the band never
+   * shows half of its hand-over and a pan swaps the whole drawing in one
+   * frame. A level that failed keeps what it had on screen; a level the view
+   * no longer wants stays until the frame callback has faded it out under its
+   * partner ({@link onFadeFrame}).
+   */
+  async function loadPoints(plan, box, token, force) {
+    const meshKey = plan.mesh ? boxKey(box, 'mesh') : null;
+    const sitesKey = plan.sites ? boxKey(box, 'sites') : null;
+    const reuseMesh = Boolean(meshKey) && !force && _meshLevel?.key === meshKey;
+    const reuseSites = Boolean(sitesKey) && !force && _sitesLevel?.key === sitesKey;
+    if (!sitesKey) _sitesAbort?.abort();
+    const failure = (error) => ({ error });
+    const [meshAnswer, sitesAnswer] = await Promise.all([
+      meshKey && !reuseMesh ? ensureMesh().catch(failure) : null,
+      sitesKey && !reuseSites ? fetchSitesLevel(box, sitesKey).catch(failure) : null,
+    ]);
+    if (token !== _refreshToken || !_enabled) return;
+
+    const previousMesh = _meshLevel;
+    const previousSites = _sitesLevel;
+    let nextMesh = previousMesh;
+    let nextSites = previousSites;
+    const errors = [];
+    if (meshKey && !reuseMesh) {
+      if (meshAnswer?.error || !_mesh) errors.push(meshAnswer?.error);
+      else nextMesh = meshLevelFor(box, meshKey);
+    }
+    if (sitesKey && !reuseSites) {
+      if (sitesAnswer?.error) errors.push(sitesAnswer.error);
+      // Cancelled by a newer view, which the token check above already caught.
+      else if (sitesAnswer) nextSites = sitesAnswer;
+    }
+    if (nextSites && nextSites !== previousSites) {
+      _packId = nextSites.packId ?? _packId;
+      _sites = nextSites.payload.sites;
+      _sitesTruncated = Boolean(nextSites.payload.truncated);
+      _sitesBox = nextSites.box;
+    }
+    if (nextMesh !== previousMesh || nextSites !== previousSites) drawMarks(nextMesh, nextSites);
+    // A level arriving over its partner ramps in, and its partner steps down
+    // in the same proportion. A redraw of the same level, or the first marks
+    // over the départements (a hard cut), swaps in one frame.
+    if (nextSites && !previousSites && previousMesh) _fade?.arrive('sites');
+    if (nextMesh && !previousMesh && previousSites) _fade?.arrive('mesh');
+    _pointsAnswered = true;
+    if (errors.length) throw errors[0] ?? new Error('medecins-fr: a level failed to load');
+  }
+
+  /** The one place the three levels are chosen between. */
   async function refresh({ force = false } = {}) {
     if (!_enabled || !_viewer) return;
     const box = cameraBox();
     if (!box) return;
-    const span = box.north - box.south;
-    const regime = medecinsRegime(span);
-    const changed = regime !== _regime;
-    const key = boxKey(box, regime);
-    if (!force && !changed && key === _lastServedKey && !_lastError) return;
+    const latSpan = box.north - box.south;
+    const plan = planMedecinsLevels({ lat: latSpan, max: Math.max(latSpan, box.east - box.west) });
+    // The levels drawn are part of the key, so a settle that changes them
+    // always re-asks even when the rectangle barely moved.
+    const key = boxKey(box, `${plan.dominant}:${plan.mesh ? 'm' : ''}${plan.sites ? 's' : ''}`);
+    if (!force && key === _lastServedKey && !_lastError) return;
     _lastServedKey = key;
-    _regime = regime;
+    _regime = plan.dominant;
+    _plan = plan;
+    const token = ++_refreshToken;
     _loading = true;
     _lastError = null;
     try {
       await ensureNational();
-      if (regime === 'national') {
+      if (token !== _refreshToken) return;
+      if (plan.national) {
         await ensureDepartementShapes();
+        if (token !== _refreshToken) return;
         repaintDepartements();
-        publishDepartementLabels();
-        repaintMarks([]);
+        // Painted: the swap can hand the screen over. The marks are NOT
+        // cleared here; they stay until the départements are shown, and the
+        // frame callback drops them then.
+        _nationalReady = true;
+        if (_depShown) publishDepartementLabels();
       } else {
-        if (changed) { repaintDepartements(); publishDepartementLabels(); }
-        // The proxy refuses a box wider than its ceiling, and the ceiling bites
-        // before the regime gate does on a wide-but-short viewport.
-        const wide = (box.east - box.west) > MEDECINS_MAX_BOX_DEG;
-        if (regime === 'sites' && !wide) await renderSites(box);
-        else await renderMesh(box);
+        await loadPoints(plan, box, token, force);
       }
       _lastUpdate = Date.now();
       publishDrawingJoin();
@@ -1312,10 +1631,77 @@ export function createMedecinsLayer({
       // later camera event skip the retry as "already served".
       _lastServedKey = null;
     } finally {
-      _loading = false;
+      if (token === _refreshToken) _loading = false;
       _rowControlsListener?.();
+      _fade?.frame();
       governorRequestRender('medecins-fr-refresh');
     }
+  }
+
+  // --- The hand-overs, per frame ---------------------------------------------
+
+  /** A level's arrival ramp, 1 when none runs or the layer has no handle. */
+  function arrivalOf(levelKey, nowMs) {
+    return _fade ? _fade.arrival(levelKey, nowMs) : 1;
+  }
+
+  /**
+   * Per frame: weight arithmetic and adapter writes, nothing else.
+   *
+   * Nothing here fetches or builds. A level is DROPPED — its marks removed —
+   * only once it has faded out AND the settled view no longer asks for it.
+   */
+  function onFadeFrame(scale, nowMs) {
+    if (!_enabled) return;
+    const span = Math.max(scale?.latSpan, scale?.lonSpan);
+    const alphas = medecinsLevelAlphas(span, {
+      regime: _regime,
+      nationalReady: _nationalReady,
+      pointsReady: _pointsAnswered,
+      meshReady: Boolean(_meshLevel),
+      sitesReady: Boolean(_sitesLevel),
+      meshArrival: arrivalOf('mesh', nowMs),
+      sitesArrival: arrivalOf('sites', nowMs),
+    });
+    const force = _fadeForce;
+    _fadeForce = false;
+    setDepartementsShown(levelVisible(_enabled, alphas.national));
+    fadeMarkLevel(_marks, alphas.sites, { enabled: _enabled, force });
+    fadeMarkLevel(_meshMarks, alphas.mesh, { enabled: _enabled, force });
+    fadeMarkLevel(_sharedMarks, alphas.shared, { enabled: _enabled, force });
+    if (_regime === 'national') {
+      if (_pointsAnswered && !levelVisible(true, alphas.points)) dropPointLevels();
+    } else if (_plan) {
+      if (_meshLevel && !_plan.mesh && !levelVisible(true, alphas.mesh)) {
+        _meshLevel = null;
+        dropClass('mesh', _meshMarks);
+      }
+      if (_sitesLevel && !_plan.sites && !levelVisible(true, alphas.sites)) {
+        _sitesLevel = null;
+        dropClass('sites', _marks);
+      }
+    }
+    _fade?.report({
+      levels: {
+        national: alphas.national,
+        mesh: alphas.mesh,
+        sites: alphas.sites,
+        shared: alphas.shared,
+      },
+      dominant: _regime,
+      bands: {
+        'mesh-sites': { fine: MEDECINS_SITES_BAND.fine, coarse: MEDECINS_SITES_BAND.coarse, unit: 'deg-max' },
+      },
+      hardCuts: {
+        'national-points': { enter: MEDECINS_NATIONAL_SPAN_DEG, exit: MEDECINS_NATIONAL_SPAN_DEG, unit: 'deg-lat' },
+      },
+      marks: {
+        mesh: _meshMarks?.length ?? 0,
+        sites: _marks?.length ?? 0,
+        shared: _sharedMarks?.length ?? 0,
+      },
+      pending: _loading,
+    });
   }
 
   function installClickHandler(viewer) {
@@ -1385,10 +1771,18 @@ export function createMedecinsLayer({
 
     init(viewer) {
       _viewer = viewer;
-      _marks = new Cesium.BillboardCollection({ scene: viewer.scene, blendOption: Cesium.BlendOption.TRANSLUCENT });
-      viewer.scene.primitives.add(_marks);
-      _marks.show = false;
-      registerSpriteCollection(MEDECINS_FR_LAYER_ID, _marks);
+      // Bottom to top: the mesh's own dots, the practices, then the marks both
+      // levels hold — so a shared plate is never under a fading one.
+      const collection = () => {
+        const marks = new Cesium.BillboardCollection({ scene: viewer.scene, blendOption: Cesium.BlendOption.TRANSLUCENT });
+        viewer.scene.primitives.add(marks);
+        marks.show = false;
+        registerSpriteCollection(MEDECINS_FR_LAYER_ID, marks);
+        return marks;
+      };
+      _meshMarks = collection();
+      _marks = collection();
+      _sharedMarks = collection();
       registerPickOwner(MEDECINS_FR_LAYER_ID, (pickedId) => (
         typeof pickedId === 'string' && pickedId.startsWith(RENDER_PREFIX)
       ));
@@ -1401,7 +1795,10 @@ export function createMedecinsLayer({
       _enabled = true;
       publishDrawingJoin();
       if (viewer) installClickHandler(viewer);
-      if (_marks) _marks.show = true;
+      // Which collection and which département is shown is the swap's call,
+      // made per frame ({@link onFadeFrame}).
+      const fadeViewer = viewer || _viewer;
+      if (fadeViewer) _fade = watchZoomFade(fadeViewer, MEDECINS_FR_LAYER_ID, onFadeFrame);
       if (_depDataSource) _depDataSource.show = true;
       overlayHost.setVisible(OVERLAY_SOURCE_ID, true);
       overlayHost.setVisible(LABEL_SOURCE_ID, true);
@@ -1419,10 +1816,19 @@ export function createMedecinsLayer({
 
     disable() {
       _enabled = false;
+      _fade?.release();
+      _fade = null;
+      _refreshToken += 1;
       publishDrawingJoin();
-      if (_marks) { _marks.show = false; _marks.removeAll(); }
+      dropPointLevels();
+      for (const marks of [_marks, _meshMarks, _sharedMarks]) {
+        if (marks) marks.show = false;
+      }
       if (_depDataSource) _depDataSource.show = false;
-      for (const parts of _depEntities.values()) for (const entity of parts) entity.show = false;
+      _depShown = false;
+      applyDepartementShow();
+      _regime = 'national';
+      _plan = null;
       overlayHost.clearSource(OVERLAY_SOURCE_ID);
       overlayHost.clearSource(LABEL_SOURCE_ID);
       overlayHost.setVisible(OVERLAY_SOURCE_ID, false);
@@ -1450,9 +1856,17 @@ export function createMedecinsLayer({
       this.disable();
       unregisterSpriteCollection(MEDECINS_FR_LAYER_ID);
       unregisterPickOwner(MEDECINS_FR_LAYER_ID);
-      if (_marks) { viewer?.scene?.primitives?.remove?.(_marks); _marks = null; }
+      for (const marks of [_marks, _meshMarks, _sharedMarks]) {
+        if (marks) viewer?.scene?.primitives?.remove?.(marks);
+      }
+      _marks = null;
+      _meshMarks = null;
+      _sharedMarks = null;
       if (_depDataSource) { viewer?.dataSources?.remove?.(_depDataSource, true); _depDataSource = null; }
       _depEntities.clear();
+      _depMaterials.clear();
+      _depPaintedCodes = new Set();
+      _nationalReady = false;
       _depShapesPromise = null;
       _depMeta = new Map();
       _viewer = null;
@@ -1468,7 +1882,10 @@ export function createMedecinsLayer({
       const paint = params.paint === 'medecins' ? 'medecins' : 'apl';
       if (paint === _paint) return false;
       _paint = paint;
-      if (_regime === 'national') { repaintDepartements(); publishDepartementLabels(); }
+      // Repainted whichever level is on screen, so the départements that cover
+      // a zoom-out already carry the chip the reader picked meanwhile.
+      repaintDepartements();
+      if (_depShown) publishDepartementLabels();
       if (_selectedId?.startsWith('dep:')) selectDepartement(_selectedId.slice(4));
       _rowControlsListener?.();
       governorRequestRender('medecins-fr-paint');
@@ -1537,7 +1954,9 @@ export function createMedecinsLayer({
       if (!_enabled || _regime === 'national') return [];
       const limit = Number.isFinite(maxCount) ? Math.max(1, Math.floor(maxCount)) : 2000;
       const out = [];
-      for (const record of _records.values()) {
+      // Inside the band both levels are drawn; the one that owns the key is
+      // the one the analyst reads.
+      for (const record of dominantRecords()) {
         if (out.length >= limit) break;
         const readout = medecinsSiteReadout(record, { specialites: _national?.specialites });
         if (readout && Number.isFinite(readout.lat) && Number.isFinite(readout.lon)) out.push(readout);
@@ -1548,7 +1967,7 @@ export function createMedecinsLayer({
     getStats() {
       const stats = _national?.stats ?? null;
       return {
-        count: _records.size,
+        count: dominantRecords().length,
         lastUpdate: _lastUpdate,
         loading: _loading,
         error: _lastError,

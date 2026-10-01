@@ -39,6 +39,7 @@ import delinquanceFranceLayer, {
   delinquanceBinLabels,
   delinquanceCaveat,
   delinquanceFill,
+  delinquanceLevelAlphas,
   delinquanceRegimeFor,
   delinquanceValueLine,
   delinquanceViewBox,
@@ -48,9 +49,11 @@ import delinquanceFranceLayer, {
   selectDelinquanceLabelCohort,
   _clearDelinquanceSelectionForTest,
   _delinquanceDepartementOverlayForTest,
+  _delinquanceLevelFrameForTest,
   _delinquanceRowControlsForTest,
   _selectDelinquanceCommuneForTest,
   _selectDelinquanceDepartementForTest,
+  _setDelinquanceLevelsForTest,
   _setDelinquanceStateForTest,
 } from './delinquanceFrance.js';
 import {
@@ -63,6 +66,7 @@ import {
   DELINQUANCE_PLAINTE_RULE,
   DELINQUANCE_SUPPRESSION_RULE,
   DELINQUANCE_TOTAL_COMMUNE_SLUGS,
+  DELINQUANCE_TOTAL_DEPARTEMENT_SLUGS,
   DELINQUANCE_TOTAL_SLUG,
   createCommuneFold,
   joinCommuneCells,
@@ -73,6 +77,7 @@ import {
 } from './delinquanceFeed.js';
 import { buildDepartementIndex } from './franceDepartements.js';
 import {
+  delinquanceRateBin,
   delinquanceRateBins,
   projectDelinquanceNational,
 } from './delinquanceDepartements.js';
@@ -720,6 +725,149 @@ test('the regime swap has hysteresis, so a camera on the boundary does not thras
   assert.equal(delinquanceRegimeFor(Infinity, 'communes'), 'departements');
   assert.equal(delinquanceRegimeFor(NaN, 'communes'), 'departements');
   assert.ok(COMMUNE_MAX_PACKS >= 1);
+});
+
+// ---------------------------------------------------------------------------
+// The département → commune swap: still a hard cut, no longer a blank one.
+// ---------------------------------------------------------------------------
+
+test('THE TWO LEVELS MAY NOT FADE INTO EACH OTHER: one colour would mean two rates', () => {
+  // The commune ramp is cut over communes, the département ramp over
+  // départements, by two different pieces of code. On the real fixtures,
+  // under the total the layer opens on, a rate just above the top
+  // département break is the darkest band as a département and a middle band
+  // as a commune — a crossfade would draw the one through the other.
+  const departements = national(DELINQUANCE_TOTAL_SLUG).thresholds;
+  const communes = PACK_75.thresholds[DELINQUANCE_TOTAL_SLUG];
+  assert.notDeepEqual(departements, communes, 'the two levels share one set of breaks');
+  const rate = departements.at(-1) + 1;
+  const asDepartement = delinquanceRateBin(rate, departements);
+  const asCommune = delinquanceRateBin(rate, communes);
+  assert.equal(asDepartement, DELINQUANCE_RAMP.length - 1);
+  assert.ok(asCommune < asDepartement, `${rate} ‰ is band ${asDepartement} and band ${asCommune}`);
+  // And the total is not even the same sum at the two grains.
+  assert.notEqual(DELINQUANCE_TOTAL_COMMUNE_SLUGS.length, DELINQUANCE_TOTAL_DEPARTEMENT_SLUGS.length);
+  // So the swap is a hard cut at every combination: one level or the other,
+  // at full strength, never both and never a fraction.
+  for (const regime of ['departements', 'communes']) {
+    for (const departementsReady of [false, true]) {
+      for (const communesReady of [false, true]) {
+        const alphas = delinquanceLevelAlphas({ regime, departementsReady, communesReady });
+        const values = [alphas.departements, alphas.communes];
+        assert.ok(values.every((value) => value === 0 || value === 1), JSON.stringify({ regime, alphas }));
+        assert.ok(values[0] + values[1] <= 1, `both levels drawn at once: ${JSON.stringify(alphas)}`);
+      }
+    }
+  }
+});
+
+test('the level being left holds the screen until the level replacing it is drawn', () => {
+  // Zooming in: the commune packs are still in flight, the départements stay.
+  assert.deepEqual(
+    delinquanceLevelAlphas({ regime: 'communes', departementsReady: true, communesReady: false }),
+    { departements: 1, communes: 0 },
+  );
+  assert.deepEqual(
+    delinquanceLevelAlphas({ regime: 'communes', departementsReady: true, communesReady: true }),
+    { departements: 0, communes: 1 },
+  );
+  // Zooming out: the communes stay until the départements are painted.
+  assert.deepEqual(
+    delinquanceLevelAlphas({ regime: 'departements', departementsReady: false, communesReady: true }),
+    { departements: 0, communes: 1 },
+  );
+  assert.deepEqual(
+    delinquanceLevelAlphas({ regime: 'departements', departementsReady: true, communesReady: true }),
+    { departements: 1, communes: 0 },
+  );
+  // Nothing drawn yet is nothing to show, not a guess.
+  assert.deepEqual(
+    delinquanceLevelAlphas({ regime: 'communes', departementsReady: false, communesReady: false }),
+    { departements: 0, communes: 0 },
+  );
+});
+
+test('the frame swaps a built commune drawing in, and drops it once the départements are back', () => {
+  const removed = [];
+  const viewer = { scene: { requestRender() {}, primitives: { remove: (primitive) => removed.push(primitive) } } };
+  const entity = { show: true };
+  const fills = { ready: false, show: false };
+  const outlines = { ready: false, show: false };
+  try {
+    // In the commune regime with the drawing still building: the départements
+    // hold, the new drawing stays hidden and pending.
+    _setDelinquanceLevelsForTest({
+      viewer,
+      regime: 'communes',
+      depEntities: [['2B', [entity]]],
+      depPainted: true,
+      depShown: true,
+      pending: { fills, outlines, records: new Map([['delinquance-fr:com:2B050', {}]]) },
+    });
+    let frame = _delinquanceLevelFrameForTest();
+    assert.equal(frame.departementsShown, true);
+    assert.equal(entity.show, true);
+    assert.equal(frame.pending?.fills, fills, 'still pending');
+    assert.equal(fills.show, false, 'a drawing is never shown half-built');
+
+    // One primitive ready is not the drawing ready.
+    fills.ready = true;
+    frame = _delinquanceLevelFrameForTest();
+    assert.equal(frame.departementsShown, true);
+    assert.equal(fills.show, false);
+
+    // Both ready: the swap happens in one frame.
+    outlines.ready = true;
+    frame = _delinquanceLevelFrameForTest();
+    assert.equal(frame.pending, null);
+    assert.equal(frame.fills, fills);
+    assert.equal(frame.communesShown, true);
+    assert.equal(fills.show, true);
+    assert.equal(outlines.show, true);
+    assert.equal(frame.departementsShown, false);
+    assert.equal(entity.show, false);
+    assert.deepEqual(removed, [], 'there was no older drawing to remove');
+
+    // Zoomed back out with the départements painted: they take the screen and
+    // the commune drawing is released, not kept invisible.
+    _setDelinquanceLevelsForTest({
+      viewer,
+      regime: 'departements',
+      depEntities: [['2B', [entity]]],
+      depPainted: true,
+      depShown: false,
+      current: { fills, outlines },
+    });
+    frame = _delinquanceLevelFrameForTest();
+    assert.equal(frame.departementsShown, true);
+    assert.equal(entity.show, true);
+    assert.equal(frame.fills, null);
+    assert.equal(frame.communeLevelDrawn, false);
+    assert.deepEqual(removed, [fills, outlines]);
+  } finally {
+    _clearDelinquanceSelectionForTest();
+  }
+});
+
+test('a commune view with nothing to draw still replaces the départements', () => {
+  // Over the sea, or after a failed fetch, the commune level is drawn as
+  // nothing: the national fills must not linger at commune zoom for it.
+  const entity = { show: true };
+  try {
+    _setDelinquanceLevelsForTest({
+      viewer: { scene: { requestRender() {}, primitives: { remove() {} } } },
+      regime: 'communes',
+      depEntities: [['2B', [entity]]],
+      depPainted: true,
+      depShown: true,
+      communeLevelDrawn: true,
+    });
+    const frame = _delinquanceLevelFrameForTest();
+    assert.equal(frame.departementsShown, false);
+    assert.equal(entity.show, false);
+  } finally {
+    _clearDelinquanceSelectionForTest();
+  }
 });
 
 test('the camera helpers refuse a view they cannot measure', () => {

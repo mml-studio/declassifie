@@ -655,6 +655,42 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   years”, still the default) and « Toutes les dates » (“All dates”); « 6
   dernières années » (“Last 6 years”) is gone. A shared link that asked for six
   years opens on all dates, so every permit it showed is still there.
+- **Layers that change level as you zoom now fade between levels instead of
+  swapping them.** After Kyle Walker's "fade on zoom": over a band of zoom the
+  coarse level fades out while the finer one comes in, and the detail is at
+  full strength early in the band, so a view that showed the detail before
+  still does. Where the two levels are not the same statistic — a different
+  dataset, indicator or set of breaks — the switch stays a cut, but no layer
+  shows an empty globe while its next level loads any more: the level being
+  left holds until the next one is drawn, then the two cross in a quarter of a
+  second.
+- **« Carroyage INSEE » (“INSEE grid”)**: the 1 km grid fades into the 200 m
+  one, and the régions into the départements. Over Lyon from 9 km the 200 m
+  discs are drawn at full strength with the 1 km discs fading out behind them.
+  The `population` indicator still switches grids on a cut (a 1 km cell holds
+  25 times the people of a 200 m one), and so does the change from the
+  départements' 2023 medians to the grid. A pan no longer clears the discs
+  before their redraw is built, a selected square stays selected when a pan
+  keeps it in view, and the legend no longer reads “carroyage 1 km” over the
+  200 m grid.
+- **Charge points, schools, everyday amenities, doctors and mobile antennas**:
+  the thinned mesh densifies into every site, without drawing a site twice,
+  and the antenna shafts fade in; the national maps (prisms, shares, APL)
+  still switch on a cut. Clicking a doctors' mesh dot no longer throws.
+  **Higher education** no longer goes blank while the prisms or the register
+  load.
+- **Childcare coverage** fades from départements to intercommunalities to
+  communes. **Recorded delinquency** keeps its cut (its two levels are coloured
+  on different breaks) but no longer blanks the globe while commune packs load.
+- **Shared mobility**: between 3 500 m and 2 100 m of view range the group
+  bubbles fade out as the vehicles come in, instead of two thousand dots
+  appearing in one frame.
+- **Property sales and energy ratings**: between 1 800 m and 1 080 m the
+  cadastral sections fade into the plots; a pan no longer leaves bare ground
+  while the new shapes build.
+- **Power grid**: a pan under 120 km no longer flickers every route between its
+  exact and simplified tracing; the routes an answer takes over from the
+  national pack crossfade instead of jumping.
 - **The traffic cars have their frames back.** Each simulated car on « Trafic
   routier » is framed again, in the colour of its road (coral when jammed,
   amber when slowed, mint when free), and a few carry their `VEH-…` number —

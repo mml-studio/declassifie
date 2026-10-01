@@ -262,6 +262,15 @@ import {
   anfrSelectedGlyph,
 } from './anfrGlyphs.js';
 import { mapKeyCarriesSelection } from './mapKeySelection.js';
+import {
+  bandPosition,
+  fadeBand,
+  levelVisible,
+  quantizeFade,
+  reveal,
+  watchZoomFade,
+} from './zoomFade.js';
+import { fadeMarkLevel, meshSitesAlphas } from './amenitiesMedecinsAnfrFade.js';
 
 /** Layer id — also the share-link registry key and the voice-tool enum value. */
 export const ANFR_FR_LAYER_ID = 'anfr-fr';
@@ -303,15 +312,36 @@ const LOADING_CARD_DELAY_MS = 250;
  */
 export const ANFR_MAX_BOX_DEG = 0.35;
 /**
- * View span (max of the two, degrees) at or below which the exact regime
- * answers, and above which it hands back to the maillage.
+ * The band, in the view's LARGER span (degrees), across which the maillage
+ * hands over to every support: 0.35° → 0.21°.
  *
- * The exit threshold IS the box ceiling, and the entry threshold sits under
- * it, so a camera resting on the boundary cannot oscillate and the box that is
- * actually requested is never one the proxy would refuse.
+ * It replaces the 0.32 / 0.35 hysteresis, and its coarse end is the old exit:
+ * the box ceiling itself. `/supports` is asked about the camera box UNPADDED
+ * ({@link cameraAnfrBox}), so a 0.35° view is a 0.35° box, the largest the
+ * proxy answers, and the fullest one in France (6 462 supports, Paris) is
+ * still one BillboardCollection under the 8 000-mark cap — nothing about the
+ * request changes. The fine end is 0.6 × 0.35 = 0.21°; coarse / fine = 1.67.
+ *
+ * The weights are `reveal`: the supports are at full strength by
+ * 0.35 × 0.6^0.3 = 0.300°, the maillage's own dots are gone by
+ * 0.35 × 0.6^0.7 = 0.245°, and the supports own the key from 0.314°. Keeping
+ * the maillage down to 0.245° costs the world-locked re-pick the maillage
+ * already runs on every settle (1.7 ms over Paris, measured), and nothing on
+ * the wire.
+ *
+ * The maillage is a thinned subset of the same supports — `buildAnfrMesh`
+ * writes one tuple per support, at its coordinate — so the two levels are not
+ * faded into each other wholesale (see `amenitiesMedecinsAnfrFade.js`). A
+ * support whose coordinate the maillage draws is SHARED: drawn at full
+ * strength from the moment it lands. Its maillage dot stays under it and
+ * fades with the maillage, which is what carries the one thing the two looks
+ * disagree on — a support fades with distance (`SUPPORT_FADE`, about 0.8 at
+ * the 25-45 km a band view is seen from) and a maillage dot does not — so the
+ * mark steps from the dot's 1.0 to the support's 0.8 smoothly, never through
+ * a dip. Only the supports the maillage thinned away come in with the band,
+ * and only the maillage dots no support answered (the padded edge) go out.
  */
-const SUPPORTS_ENTER_SPAN_DEG = 0.32;
-const SUPPORTS_EXIT_SPAN_DEG = ANFR_MAX_BOX_DEG;
+export const ANFR_SUPPORTS_BAND = fadeBand(0.21, ANFR_MAX_BOX_DEG);
 const CAMERA_DEBOUNCE_MS = 450;
 /**
  * Poll cadence (ms). The observatoire is rebuilt WEEKLY — `extras.frequency`
@@ -349,8 +379,8 @@ const GROUND_WARM_LIMIT = 500;
 
 // --- The shaft sub-regime ---------------------------------------------------
 /**
- * View span (max of the two, degrees) at or below which the supports are drawn
- * as SHAFTS at their real height, and above which the shafts go away again.
+ * View span (max of the two, degrees) under which the supports are drawn as
+ * SHAFTS at their real height: a band from 0.09° (none) to 0.06° (all).
  *
  * 0.06° is about 6.7 km across the screen. On a 1 000-pixel-wide viewport that
  * puts the national median mast (30 m) at roughly 4.5 px of shaft, which is the
@@ -358,11 +388,27 @@ const GROUND_WARM_LIMIT = 500;
  * top of the exact regime (0.32°) the same mast is about one pixel: a shaft
  * there would be a rendering cost that changes nothing a reader can use.
  *
- * The exit sits above the entry so a camera resting on the boundary cannot
- * flicker the whole shaft field on and off.
+ * The pair used to be an enter / exit hysteresis, so a camera resting on the
+ * boundary could not flicker the whole shaft field on and off. It is now the
+ * band the shafts fade in across ({@link ANFR_SHAFT_BAND}), which settles the
+ * same flicker by having nothing left to switch. The coarse end can sit at
+ * the old exit rather than below the old entry because the shafts are not
+ * fetched: they are drawn from the supports already on screen, and the cap
+ * that bounds them was measured AT 0.09° — the fullest 0.09° box in France
+ * holds 1 913 supports, under the 2 400-shaft ceiling.
  */
 export const ANFR_MAST_ENTER_SPAN_DEG = 0.06;
 export const ANFR_MAST_EXIT_SPAN_DEG = 0.09;
+/**
+ * The shafts' fade band, 0.09° → 0.06° of the larger span; coarse / fine = 1.5.
+ *
+ * A shaft is not a level that replaces another — it is the support's height
+ * added under a dot that does not move — so it is honest to fade: the same
+ * support, one channel more. It comes in with `reveal`'s finer weight, full
+ * by 0.09 × (2/3)^0.3 = 0.080°, so every view that used to draw shafts still
+ * draws them at full strength.
+ */
+export const ANFR_SHAFT_BAND = fadeBand(ANFR_MAST_ENTER_SPAN_DEG, ANFR_MAST_EXIT_SPAN_DEG);
 /**
  * Hard cap on drawn shafts.
  *
@@ -540,20 +586,21 @@ function sameMarkStyle(a, b) {
 
 /**
  * A billboard for a mast that was not drawn.
+ * @param {?object} collection The class's collection (`markCollection`).
  * @param {string} id Record id, which is also the pick id.
  * @param {object} position Cartesian3.
  * @param {object} style `anfrSupportStyle` / `anfrMeshStyle`.
  * @param {?object} fade `SUPPORT_FADE` for a support, undefined for a maillage dot.
  * @returns {?object} The billboard, or null with no collection.
  */
-function takeMark(id, position, style, fade) {
-  if (!_points) return null;
-  return _points.add(mastBillboardOptions(id, position, style, fade ? { translucencyByDistance: fade } : {}));
+function takeMark(collection, id, position, style, fade) {
+  if (!collection) return null;
+  return collection.add(mastBillboardOptions(id, position, style, fade ? { translucencyByDistance: fade } : {}));
 }
 
-/** Remove the billboard of a mast that left the view. */
-function releaseMark(billboard) {
-  if (billboard && _points && !_points.isDestroyed()) _points.remove(billboard);
+/** Remove the billboard of a mast that left the view, or left its class. */
+function releaseMark(collection, billboard) {
+  if (billboard && collection && !collection.isDestroyed?.()) collection.remove(billboard);
 }
 
 /**
@@ -562,9 +609,35 @@ function releaseMark(billboard) {
  * `remove` are documented to rewrite the vertex buffer, and that rewrite is
  * what zeroes the write counts the flip reads.
  */
-function rebuildMarksOnce() {
-  if (!_points || _points.isDestroyed()) return;
-  _points.remove(_points.add({ show: false, position: Cesium.Cartesian3.ZERO }));
+function rebuildMarksOnce(collection) {
+  if (!collection || collection.isDestroyed?.()) return;
+  collection.remove(collection.add({ show: false, position: Cesium.Cartesian3.ZERO }));
+}
+
+/**
+ * What one rest did to each collection, so the single rebuild above is asked
+ * for exactly where marks were rewritten and none came or went.
+ */
+function markLedger() {
+  const touched = new Map();
+  const entry = (collection) => {
+    let row = touched.get(collection);
+    if (!row) {
+      row = { written: 0, added: 0, removed: 0 };
+      touched.set(collection, row);
+    }
+    return row;
+  };
+  return {
+    written(collection) { entry(collection).written += 1; },
+    added(collection) { entry(collection).added += 1; },
+    removed(collection) { entry(collection).removed += 1; },
+    settle() {
+      for (const [collection, row] of touched) {
+        if (collection && row.written && !row.added && !row.removed) rebuildMarksOnce(collection);
+      }
+    },
+  };
 }
 
 /**
@@ -574,12 +647,12 @@ function rebuildMarksOnce() {
  * owns it.
  * @returns {boolean} Whether the billboard was written.
  */
-function keepMark(record, position, style, fade) {
+function keepMark(collection, record, position, style, fade) {
   const restyled = !sameMarkStyle(record.style, style);
   record.position = position;
   record.style = style;
   if (!record.point) {
-    record.point = takeMark(record.id, position, style, fade);
+    record.point = takeMark(collection, record.id, position, style, fade);
     return false;
   }
   let written = false;
@@ -614,12 +687,39 @@ let _http = DEFAULT_HTTP;
 
 // --- Runtime state ----------------------------------------------------------
 let _viewer = null;
+/**
+ * The marks, in three collections by what the band does to them — see
+ * `amenitiesMedecinsAnfrFade.js` and {@link ANFR_SUPPORTS_BAND}. `_points`
+ * holds the supports the maillage does not draw (they come in), `_sharedPoints`
+ * the supports whose coordinate the maillage draws (full strength from the
+ * moment they land), `_meshPoints` every maillage dot (they go out). Outside
+ * the band only `_points` or `_meshPoints` is in use, and a rest keeps the
+ * marks it can within each collection, as it always did.
+ */
 let _points = null;
+let _meshPoints = null;
+let _sharedPoints = null;
 /** Shafts. Depth-tested world geometry, deliberately NOT a sprite collection. */
 let _masts = null;
 /** Azimuth rays of the selected support only. */
 let _sectors = null;
+/** Every drawn mark, by id, whichever level drew it: the pick and selection map. */
 let _records = new Map();
+/** The maillage's own records, by id. */
+let _meshRecords = new Map();
+/** The supports' own records, by id. */
+let _supportRecords = new Map();
+/** The maillage, the supports, the shaft field are on screen (possibly as nothing). */
+let _meshDrawn = false;
+let _supportsDrawn = false;
+/** What the last settle asked for — see {@link planAnfrLevels}. */
+let _plan = null;
+/** `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
+/** Rewrite every mark's alpha on the next frame: a class was rebuilt. */
+let _fadeForce = false;
+/** The shaft alpha last written onto every shaft's material, or null to force. */
+let _shaftAlphaWritten = null;
 let _enabled = false;
 let _clickHandler = null;
 let _cameraChangedAttached = false;
@@ -830,20 +930,60 @@ export function anfrMastHeightM(support) {
 }
 
 /**
- * Whether the camera is close enough for shafts, with hysteresis.
+ * Which levels a settled view loads, and which owns the key, the count and
+ * the status line (`dominant`, the layer's regime).
  *
- * Pure, so the threshold pair can be tested without a viewer — the bug this
- * shape prevents is a boundary that flickers the whole shaft field on and off
- * while the reader holds still.
+ * Every level whose weight is above zero is loaded — the maillage and the
+ * supports both inside {@link ANFR_SUPPORTS_BAND}, the shaft field anywhere
+ * its own band gives it weight and the supports are loaded. A level at zero
+ * is not. Pure, so the bands can be tested without a viewer.
  *
- * @param {number} spanDeg The view's widest span, in degrees.
- * @param {boolean} current Whether shafts are drawn right now.
- * @returns {boolean}
+ * @param {number} spanDeg The view's larger span, in degrees.
+ * @param {{supportsBox?: boolean}} [context] Whether `cameraAnfrBox` gave a
+ *   box: a view crossing the dateline has none, and the maillage is then the
+ *   honest fallback, not an empty map.
+ * @returns {{mesh: boolean, supports: boolean, shafts: boolean, dominant: string,
+ *   position: number, weights: {mesh: number, supports: number, shafts: number}}}
  */
-export function anfrMastRegime(spanDeg, current = false) {
+export function planAnfrLevels(spanDeg, { supportsBox = true } = {}) {
   const span = Number(spanDeg);
-  if (!Number.isFinite(span)) return false;
-  return current ? span <= ANFR_MAST_EXIT_SPAN_DEG : span <= ANFR_MAST_ENTER_SPAN_DEG;
+  const position = bandPosition(span, ANFR_SUPPORTS_BAND);
+  const target = reveal(position);
+  const supports = Boolean(supportsBox) && levelVisible(true, target.fine);
+  const mesh = !supports || levelVisible(true, target.coarse);
+  const shaftWeight = reveal(bandPosition(span, ANFR_SHAFT_BAND)).fine;
+  return {
+    mesh,
+    supports,
+    shafts: supports && levelVisible(true, shaftWeight),
+    dominant: supports && target.fine > target.coarse ? 'supports' : 'maillage',
+    position,
+    weights: { mesh: target.coarse, supports: target.fine, shafts: shaftWeight },
+  };
+}
+
+/**
+ * The alpha every class is drawn at, for one frame: the maillage → supports
+ * fade on this frame's span, and the shafts' own fade under it.
+ *
+ * @param {number} span The view's larger span this frame, degrees.
+ * @param {object} state
+ * @returns {{mesh: number, supports: number, shared: number, shafts: number, position: number}}
+ */
+export function anfrLevelAlphas(span, {
+  meshReady = false, supportsReady = false, shaftsReady = false,
+  meshArrival = 1, supportsArrival = 1, shaftsArrival = 1,
+} = {}) {
+  const position = bandPosition(span, ANFR_SUPPORTS_BAND);
+  const band = meshSitesAlphas(position, {
+    meshReady, sitesReady: supportsReady, meshArrival, sitesArrival: supportsArrival,
+  });
+  // A shaft stands on a support: nothing to cover, so it is its band's weight,
+  // ramped in when the field is first built, under the supports' own strength.
+  const shafts = shaftsReady && supportsReady
+    ? reveal(bandPosition(span, ANFR_SHAFT_BAND)).fine * Math.max(0, Math.min(1, shaftsArrival)) * band.shared
+    : 0;
+  return { mesh: band.mesh, supports: band.sites, shared: band.shared, shafts, position };
 }
 
 /**
@@ -1002,18 +1142,18 @@ export function anfrViewSpanDeg(viewer) {
   return { lat, max: Math.max(lat, lon) };
 }
 
-/** Which regime the camera is in, with hysteresis at the boundary. */
+/**
+ * Plan the settled view: the levels it loads, and the dominant one as the
+ * regime. The shaft field is nested inside the supports: the maillage has no
+ * support heights in its tuple and could only guess at them.
+ * @returns {object} The plan.
+ */
 function updateRegime(viewer) {
   const span = anfrViewSpanDeg(viewer);
-  if (_regime === 'supports') {
-    if (span.max > SUPPORTS_EXIT_SPAN_DEG) _regime = 'maillage';
-  } else if (span.max <= SUPPORTS_ENTER_SPAN_DEG) {
-    _regime = 'supports';
-  }
-  // The shaft sub-regime is nested inside the exact one: the maillage has no
-  // support heights in its tuple and could only guess at them.
-  _mastRegime = _regime === 'supports' && anfrMastRegime(span.max, _mastRegime);
-  return _regime;
+  _plan = planAnfrLevels(span.max, { supportsBox: Boolean(cameraAnfrBox(viewer)) });
+  _regime = _plan.dominant;
+  _mastRegime = _plan.shafts;
+  return _plan;
 }
 
 /**
@@ -1176,10 +1316,12 @@ function reconcileMasts() {
   _mastsDrawn = 0;
   _mastsUnpublished = 0;
   _mastsClipped = 0;
-  const draw = _enabled && _regime === 'supports' && _mastRegime;
+  // The shafts stand on the supports, whichever level owns the key: inside
+  // the band the supports may be drawn under a maillage that still leads.
+  const draw = _enabled && _supportsDrawn && _mastRegime;
   const drawn = [];
   if (draw) {
-    for (const record of _records.values()) {
+    for (const record of _supportRecords.values()) {
       const heightM = anfrMastHeightM(record.support);
       if (heightM === null) {
         _mastsUnpublished += 1;
@@ -1248,6 +1390,37 @@ function reconcileMasts() {
     while (band.spare.length > keep) band.collection.remove(band.spare.pop());
   }
   _masts.show = draw && drawn.length > 0;
+  // New and recycled shafts carry whatever alpha they were built or left at:
+  // the next frame writes the field's weight onto every one of them.
+  _shaftAlphaWritten = null;
+}
+
+/**
+ * Fade the whole shaft field by one weight.
+ *
+ * Every shaft owns its material (see the note above `MAST_SOLID_SLOT`), so the
+ * weight is written into each one's colour uniform: one number per shaft, read
+ * at draw time, and no vertex buffer touched — a `PolylineCollection` keeps a
+ * material's uniforms out of its buffers. The field's five looks stay five
+ * draw commands, since every shaft of a look carries the same alpha at any
+ * moment. At zero the field is hidden as a collection.
+ */
+function fadeShafts(weight, force = false) {
+  if (!_masts) return;
+  const w = quantizeFade(weight);
+  const visible = levelVisible(_enabled, w) && _mastsDrawn > 0;
+  if (_masts.show !== visible) _masts.show = visible;
+  if (!visible) return;
+  const alpha = MAST_ALPHA * w;
+  if (!force && alpha === _shaftAlphaWritten) return;
+  _shaftAlphaWritten = alpha;
+  for (const band of _mastBands.values()) {
+    const lines = band.collection;
+    for (let i = 0; i < lines.length; i += 1) {
+      const color = lines.get(i)?.material?.uniforms?.color;
+      if (color && color.alpha !== alpha) color.alpha = alpha;
+    }
+  }
 }
 
 /** Hide every ray and forget what they said. */
@@ -2019,12 +2192,15 @@ async function ensureMesh() {
  * Re-picked on every camera settle rather than cached: measured over the real
  * 72 700 tuples, the pick costs 15.3 ms for a whole-France box and 1.7 ms for
  * Paris, against a round trip that would cost a few hundred.
+ *
+ * Only the maillage's own records and collection are touched: inside the band
+ * the supports are drawn beside it and keep theirs.
  */
 function reconcileMesh(box) {
   // A settle on the view already drawn — a click, a nudge under the rounding —
   // redraws nothing.
   const boxKey = boxKeyOf(box);
-  if (boxKey === _meshBoxKey && _records.size) return;
+  if (boxKey === _meshBoxKey && _meshDrawn) return;
   const pick = selectAnfrMesh(_mesh?.mesh, {
     box,
     // § 3.5: the profile decides how DENSE the mesh is, never what it covers.
@@ -2037,10 +2213,10 @@ function reconcileMesh(box) {
   const selected = takeSelectionForRebuild();
   // Keyed by id: a dot still picked keeps its record and its billboard (see
   // "A rest keeps the marks it can" above), and only the newcomers are drawn.
-  const previous = _records;
+  const previous = _meshRecords;
   const next = new Map();
   const arrivals = [];
-  let written = 0;
+  const ledger = markLedger();
 
   for (const tuple of pick.picked) {
     if (next.size >= MAX_RENDERED_SUPPORTS) break;
@@ -2051,14 +2227,14 @@ function reconcileMesh(box) {
     if (next.has(id)) continue;
     const style = anfrMeshStyle(tuple);
     const kept = previous.get(id);
-    if (kept?.mesh) {
+    if (kept) {
       // The selected dot is one of these, and keeps any lookup still in
       // flight, which writes into this object when it lands.
       previous.delete(id);
       const moved = Number(kept.tuple?.[MESH_LAT]) !== lat || Number(kept.tuple?.[MESH_LON]) !== lon;
       kept.tuple = tuple;
-      if (keepMark(kept, moved ? Cesium.Cartesian3.fromDegrees(lon, lat, POINT_LIFT_M) : kept.position, style, undefined)) {
-        written += 1;
+      if (keepMark(_meshPoints, kept, moved ? Cesium.Cartesian3.fromDegrees(lon, lat, POINT_LIFT_M) : kept.position, style, undefined)) {
+        ledger.written(_meshPoints);
       }
       next.set(id, kept);
       continue;
@@ -2074,6 +2250,7 @@ function reconcileMesh(box) {
     next.set(id, {
       id,
       mesh: true,
+      cls: 'mesh',
       tuple,
       support,
       coSited: Array.isArray(known) ? Math.max(0, known.length - 1) : 0,
@@ -2090,40 +2267,25 @@ function reconcileMesh(box) {
     });
     arrivals.push(id);
   }
-  for (const record of previous.values()) releaseMark(record.point);
+  for (const record of previous.values()) {
+    releaseMark(_meshPoints, record.point);
+    ledger.removed(_meshPoints);
+  }
   for (const id of arrivals) {
     const record = next.get(id);
-    record.point = takeMark(id, record.position, record.style, undefined);
+    record.point = takeMark(_meshPoints, id, record.position, record.style, undefined);
+    ledger.added(_meshPoints);
   }
-  if (written && !arrivals.length && !previous.size) rebuildMarksOnce();
-  _records = next;
-  _count = _records.size;
-  _inView = pick.inBox;
-  // The maillage tuple carries no height, so there is nothing to extrude and
-  // the shaft field is put away rather than left over from the last close-up.
-  reconcileMasts();
+  ledger.settle();
+  _meshRecords = next;
+  _meshDrawn = true;
+  syncRecords();
+  // A support's class is whether the maillage draws its coordinate, and the
+  // maillage has just changed.
+  classifySupports();
   restoreSelectionAfterRebuild(selected);
+  _fadeForce = true;
   governorRequestRender('anfr-fr-mesh');
-}
-
-async function loadMesh(box) {
-  _error = null;
-  _loading = !_mesh;
-  const generation = ++_requestGeneration;
-  await ensureMesh();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'maillage') return;
-  _loading = false;
-  if (!_mesh) {
-    // The upstream's own words go to the console; the row gets a sentence a
-    // reader can act on. `HTTP 503` and `malformed payload` are diagnostics,
-    // not user copy, and this is a French UI.
-    _error = messages().errors.meshUnavailable;
-    _status = 'error';
-    return;
-  }
-  reconcileMesh(box);
-  _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
-  _status = _count > 0 ? 'ready' : 'empty';
 }
 
 /**
@@ -2193,17 +2355,87 @@ function boxKeyOf(box) {
   return [box.south, box.west, box.north, box.east].map((v) => v.toFixed(4)).join(',');
 }
 
+/** The coordinate a support and a maillage dot are matched on (`meshSupportId`'s). */
+function supportCoordinate(support) {
+  return `${Number(support?.lat).toFixed(5)},${Number(support?.lon).toFixed(5)}`;
+}
+
+/** The coordinates the maillage draws a dot at. */
+function meshCoordinates() {
+  const coordinates = new Set();
+  for (const record of _meshRecords.values()) coordinates.add(meshSupportId(record.tuple));
+  return coordinates;
+}
+
+/** The collection one class of marks lives in. */
+function markCollection(cls) {
+  if (cls === 'mesh') return _meshPoints;
+  if (cls === 'shared') return _sharedPoints;
+  return _points;
+}
+
+/** Every drawn mark by id, for the pick, the selection and the cards. */
+function syncRecords() {
+  _records = new Map([..._meshRecords, ..._supportRecords]);
+}
+
+/** The count and the in-view figure belong to the level that owns the key. */
+function syncCounts() {
+  if (_regime === 'supports') {
+    _count = _supportRecords.size;
+    _inView = Number(_pack?.inBox) || _count;
+  } else {
+    _count = _meshRecords.size;
+    _inView = _meshPick?.inBox ?? _count;
+  }
+}
+
+/** The records of the level that owns the key, the count and the legend. */
+function dominantRecords() {
+  return _regime === 'supports' ? _supportRecords : _meshRecords;
+}
+
+/**
+ * Put each support in the class the maillage now gives it: SHARED when the
+ * maillage draws a dot at its coordinate, its own class when it does not.
+ *
+ * Only while the maillage is drawn — the classes only differ in what the band
+ * does to them, and with one level on screen both are at full strength. A
+ * support that changes class moves collection: removed from one, added to the
+ * other, one rebuild each, which a pan inside the band rarely asks for since
+ * the world-locked pick keeps its dots.
+ */
+function classifySupports() {
+  if (!_meshDrawn || !_supportRecords.size) return;
+  const coordinates = meshCoordinates();
+  const ledger = markLedger();
+  for (const record of _supportRecords.values()) {
+    const cls = coordinates.has(supportCoordinate(record.support)) ? 'shared' : 'supports';
+    if (cls === record.cls) continue;
+    const from = markCollection(record.cls);
+    const to = markCollection(cls);
+    releaseMark(from, record.point);
+    ledger.removed(from);
+    record.point = takeMark(to, record.id, record.position, record.style, SUPPORT_FADE);
+    ledger.added(to);
+    record.cls = cls;
+    if (record.id === _selectedId && record.point) dressSelected(record.point);
+  }
+  ledger.settle();
+  _fadeForce = true;
+}
+
 function reconcileSupports(payload) {
-  _meshBoxKey = null;
   const selected = takeSelectionForRebuild();
   // Keyed by id, as the maillage is: a support the new box shares with the
   // last one keeps its record and its billboard, re-seated on the ground
   // floor as it is now known; only the newcomers are drawn.
-  const previous = _records;
+  const previous = _supportRecords;
   const next = new Map();
   const arrivals = [];
-  let written = 0;
+  const ledger = markLedger();
   const warm = [];
+  const coordinates = _meshDrawn ? meshCoordinates() : null;
   for (const support of payload?.supports || []) {
     if (!Number.isFinite(support?.lat) || !Number.isFinite(support?.lon)) continue;
     if (next.size >= MAX_RENDERED_SUPPORTS) break;
@@ -2214,17 +2446,19 @@ function reconcileSupports(payload) {
     const { ground, top } = supportAnchors(support.lat, support.lon, heightM);
     warm.push({ lat: support.lat, lon: support.lon });
     const kept = previous.get(id);
-    if (kept && !kept.mesh) {
+    if (kept) {
       // The selected support is one of these, and keeps its card in flight.
       previous.delete(id);
       Object.assign(kept, { support, groundPosition: ground, mastHeightM: heightM });
-      if (keepMark(kept, top, style, SUPPORT_FADE)) written += 1;
+      const collection = markCollection(kept.cls);
+      if (keepMark(collection, kept, top, style, SUPPORT_FADE)) ledger.written(collection);
       next.set(id, kept);
       continue;
     }
     next.set(id, {
       id,
       mesh: false,
+      cls: coordinates?.has(supportCoordinate(support)) ? 'shared' : 'supports',
       support,
       coSited: 0,
       detail: _details.get(support.id) || null,
@@ -2239,19 +2473,57 @@ function reconcileSupports(payload) {
     });
     arrivals.push(id);
   }
-  for (const record of previous.values()) releaseMark(record.point);
+  for (const record of previous.values()) {
+    const collection = markCollection(record.cls);
+    releaseMark(collection, record.point);
+    ledger.removed(collection);
+  }
   for (const id of arrivals) {
     const record = next.get(id);
-    record.point = takeMark(id, record.position, record.style, SUPPORT_FADE);
+    const collection = markCollection(record.cls);
+    record.point = takeMark(collection, id, record.position, record.style, SUPPORT_FADE);
+    ledger.added(collection);
   }
-  if (written && !arrivals.length && !previous.size) rebuildMarksOnce();
-  _records = next;
-  _count = _records.size;
-  _inView = Number(payload?.inBox) || _count;
+  ledger.settle();
+  _supportRecords = next;
+  _supportsDrawn = true;
+  syncRecords();
+  classifySupports();
   warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
-  reconcileMasts();
   restoreSelectionAfterRebuild(selected);
+  _fadeForce = true;
   governorRequestRender('anfr-fr-supports');
+}
+
+/** The maillage has faded out under the supports, and the settled view no longer wants it. */
+function dropMeshLevel() {
+  if (!_meshDrawn) return;
+  if (_selectedId && _meshRecords.has(_selectedId)) clearSelection();
+  _meshPoints?.removeAll();
+  _meshRecords = new Map();
+  _meshDrawn = false;
+  _meshPick = null;
+  _meshBoxKey = null;
+  syncRecords();
+  syncCounts();
+  governorRequestRender('anfr-fr-drop');
+}
+
+/** The supports have faded out under the maillage, and the settled view no longer wants them. */
+function dropSupportsLevel() {
+  if (!_supportsDrawn) return;
+  if (_selectedId && _supportRecords.has(_selectedId)) clearSelection();
+  _points?.removeAll();
+  _sharedPoints?.removeAll();
+  _supportRecords = new Map();
+  _supportsDrawn = false;
+  _pack = null;
+  _packBoxKey = null;
+  _mastRegime = false;
+  reconcileMasts();
+  syncRecords();
+  syncCounts();
+  governorRequestRender('anfr-fr-drop');
 }
 
 /** One `/supports` answer for a block of cells — see `anfrSupportCells.js`. */
@@ -2272,36 +2544,6 @@ const _supportCells = createAnfrSupportCells({
   maxBoxDeg: ANFR_MAX_BOX_DEG,
   maxAgeMs: POLL_INTERVAL_MS,
 });
-
-async function loadSupports(box, { force = false } = {}) {
-  const key = boxKeyOf(box);
-  if (!force && _pack && _packBoxKey === key) return;
-  _error = null;
-  _loading = true;
-  const generation = ++_requestGeneration;
-  try {
-    const payload = await _supportCells.load(box);
-    if (generation !== _requestGeneration || !_enabled || _regime !== 'supports') return;
-    _pack = payload;
-    _packBoxKey = key;
-    reconcileSupports(payload);
-    _lastUpdate = Number(payload.fetchedAt) || Date.now();
-    _status = _count > 0 ? 'ready' : 'empty';
-  } catch (error) {
-    if (generation !== _requestGeneration || !_enabled) return;
-    if (error?.name !== 'AbortError') {
-      console.warn('[Data:ANFR FR] supports unavailable:', error?.message || error);
-    }
-    // Keep whatever is drawn: an older box is still a true map of the masts in
-    // it, and blanking the screen would say France has no antennas.
-    _error = _records.size
-      ? messages().errors.refreshUnavailable
-      : messages().errors.registerUnavailable;
-    _status = _records.size ? 'ready' : 'error';
-  } finally {
-    if (generation === _requestGeneration) _loading = false;
-  }
-}
 
 /**
  * The Cartoradio card for one support, on demand and once per session.
@@ -2369,32 +2611,136 @@ async function loadViewport({ force = false } = {}) {
   // `cameraSettle.js`: an arrival on any other view has to be read afresh.
   markViewportRead(_viewer, ANFR_FR_LAYER_ID);
   if (!_mastsShown) return;
-  const regime = updateRegime(_viewer);
-  if (regime === 'supports') {
-    const box = cameraAnfrBox(_viewer);
-    // A camera inside the exact regime that gives no usable rectangle — an
-    // oblique horizon shot, or a view crossing the dateline — has no box to
-    // ask about. The maillage is the honest fallback, not an empty map.
-    if (box) {
-      await loadSupports(box, { force });
-      // `loadSupports` short-circuits when the box has not moved, so a zoom
-      // that only crosses the shaft threshold would otherwise leave the field
-      // as it was. Reconciling here is idempotent and costs one walk of the
-      // records the layer already holds.
-      if (_enabled && _regime === 'supports') reconcileMasts();
-      return;
-    }
-    _regime = 'maillage';
-  }
-  _pack = null;
-  _packBoxKey = null;
-  const meshBox = cameraAnfrMeshBox(_viewer);
-  if (!meshBox) {
+  const plan = updateRegime(_viewer);
+  // `planAnfrLevels` already fell back to the maillage for a view with no
+  // supports box — an oblique horizon shot, a view across the dateline.
+  const meshBox = plan.mesh ? cameraAnfrMeshBox(_viewer) : null;
+  const supportsBox = plan.supports ? cameraAnfrBox(_viewer) : null;
+  if (!meshBox && !supportsBox) {
     _status = 'empty';
     _loading = false;
     return;
   }
-  await loadMesh(meshBox);
+  const supportsKey = supportsBox ? boxKeyOf(supportsBox) : null;
+  const reuseSupports = Boolean(supportsKey) && !force && _supportsDrawn && Boolean(_pack) && _packBoxKey === supportsKey;
+  _error = null;
+  _loading = Boolean((meshBox && !_mesh) || (supportsBox && !reuseSupports));
+  const generation = ++_requestGeneration;
+  // Both levels are awaited before either is drawn, so a view in the band
+  // never shows half of its hand-over.
+  const [, supportsAnswer] = await Promise.all([
+    meshBox ? ensureMesh() : null,
+    supportsBox && !reuseSupports
+      ? _supportCells.load(supportsBox).then((payload) => ({ payload }), (error) => ({ error }))
+      : null,
+  ]);
+  if (generation !== _requestGeneration || !_enabled) return;
+  _loading = false;
+
+  const hadMesh = _meshDrawn;
+  const hadSupports = _supportsDrawn;
+  const hadShafts = _mastsDrawn > 0;
+  if (meshBox) {
+    if (_mesh) {
+      reconcileMesh(meshBox);
+      _lastUpdate = Number(_mesh.fetchedAt) || Date.now();
+    } else {
+      // The upstream's own words go to the console; the row gets a sentence a
+      // reader can act on. `HTTP 503` and `malformed payload` are diagnostics,
+      // not user copy, and this is a French UI.
+      _error = messages().errors.meshUnavailable;
+    }
+  }
+  if (supportsBox && !reuseSupports) {
+    if (supportsAnswer?.payload) {
+      _pack = supportsAnswer.payload;
+      _packBoxKey = supportsKey;
+      reconcileSupports(supportsAnswer.payload);
+      _lastUpdate = Number(supportsAnswer.payload.fetchedAt) || Date.now();
+    } else {
+      const error = supportsAnswer?.error;
+      if (error?.name !== 'AbortError') {
+        console.warn('[Data:ANFR FR] supports unavailable:', error?.message || error);
+      }
+      // Keep whatever is drawn: an older box is still a true map of the masts in
+      // it, and blanking the screen would say France has no antennas.
+      _error = _supportRecords.size
+        ? messages().errors.refreshUnavailable
+        : messages().errors.registerUnavailable;
+    }
+  }
+  // `reuseSupports` short-circuits the supports, so a zoom that only crosses
+  // the shaft band would otherwise leave the field as it was. Reconciling
+  // here is idempotent and costs one walk of the records the layer holds.
+  reconcileMasts();
+  // A level landing over its partner ramps in, and its partner steps down in
+  // the same proportion; a redraw of the same level swaps in one frame. A
+  // shaft field built where there was none ramps in on its own.
+  if (_supportsDrawn && !hadSupports && hadMesh) _fade?.arrive('supports');
+  if (_meshDrawn && !hadMesh && hadSupports) _fade?.arrive('mesh');
+  if (_mastsDrawn > 0 && !hadShafts) _fade?.arrive('shafts');
+  syncCounts();
+  if (_error) _status = _count > 0 ? 'ready' : 'error';
+  else _status = _count > 0 ? 'ready' : 'empty';
+  _fade?.frame();
+}
+
+// --- The hand-overs, per frame ------------------------------------------------
+
+/** A level's arrival ramp, 1 when none runs or the layer has no handle. */
+function arrivalOf(key, nowMs) {
+  return _fade ? _fade.arrival(key, nowMs) : 1;
+}
+
+/**
+ * Per frame: weight arithmetic and adapter writes, nothing else.
+ *
+ * Nothing here fetches or builds. A level is DROPPED — its marks removed —
+ * only once it has faded out AND the settled view no longer asks for it.
+ */
+function onFadeFrame(scale, nowMs) {
+  if (!_enabled) return;
+  const span = Math.max(scale?.latSpan, scale?.lonSpan);
+  const alphas = anfrLevelAlphas(span, {
+    meshReady: _meshDrawn,
+    supportsReady: _supportsDrawn,
+    shaftsReady: _mastsDrawn > 0,
+    meshArrival: arrivalOf('mesh', nowMs),
+    supportsArrival: arrivalOf('supports', nowMs),
+    shaftsArrival: arrivalOf('shafts', nowMs),
+  });
+  const force = _fadeForce;
+  _fadeForce = false;
+  const enabled = _enabled && _mastsShown;
+  fadeMarkLevel(_meshPoints, alphas.mesh, { enabled, force });
+  fadeMarkLevel(_points, alphas.supports, { enabled, force });
+  fadeMarkLevel(_sharedPoints, alphas.shared, { enabled, force });
+  fadeShafts(alphas.shafts, force);
+  if (_plan) {
+    if (_meshDrawn && !_plan.mesh && !levelVisible(true, alphas.mesh)) dropMeshLevel();
+    if (_supportsDrawn && !_plan.supports && !levelVisible(true, alphas.supports)) dropSupportsLevel();
+  }
+  _fade?.report({
+    levels: {
+      mesh: alphas.mesh,
+      supports: alphas.supports,
+      shared: alphas.shared,
+      shafts: alphas.shafts,
+    },
+    // i18n-ignore-next-line — level keys, read by the harness.
+    dominant: _regime === 'maillage' ? 'mesh' : 'supports',
+    bands: {
+      'mesh-supports': { fine: ANFR_SUPPORTS_BAND.fine, coarse: ANFR_SUPPORTS_BAND.coarse, unit: 'deg-max' },
+      'supports-shafts': { fine: ANFR_SHAFT_BAND.fine, coarse: ANFR_SHAFT_BAND.coarse, unit: 'deg-max' },
+    },
+    marks: {
+      mesh: _meshPoints?.length ?? 0,
+      supports: _points?.length ?? 0,
+      shared: _sharedPoints?.length ?? 0,
+      shafts: _mastsDrawn,
+    },
+    pending: _loading,
+  });
 }
 
 /**
@@ -2407,10 +2753,11 @@ function dropMasts() {
   _requestGeneration += 1;
   if (_selectedId) clearSelection();
   _points?.removeAll();
+  _meshPoints?.removeAll();
+  _sharedPoints?.removeAll();
   clearMastField();
   _sectors?.removeAll();
-  _records = new Map();
-  _meshBoxKey = null;
+  clearLevelRecords();
   _packBoxKey = null;
   _count = 0;
   _inView = 0;
@@ -2426,6 +2773,16 @@ function dropMasts() {
   // asked to draw.
   _status = 'ready';
   governorRequestRender('anfr-fr-masts');
+}
+
+/** Forget every drawn record of both levels. */
+function clearLevelRecords() {
+  _records = new Map();
+  _meshRecords = new Map();
+  _supportRecords = new Map();
+  _meshDrawn = false;
+  _supportsDrawn = false;
+  _meshBoxKey = null;
 }
 
 /**
@@ -2474,7 +2831,8 @@ function onCameraSettled() {
 function collectDetectableObjects(options = {}) {
   if (!_enabled || !_records.size) return [];
   const records = [];
-  for (const record of _records.values()) {
+  // The level that owns the key: inside the band the other one is fading.
+  for (const record of dominantRecords().values()) {
     // A support where nothing radiates is not offered to DETECT. The callout
     // names a generation, and "5G" over a mast that has never transmitted is
     // exactly the claim this layer exists to refuse.
@@ -2519,7 +2877,7 @@ export function buildAnfrLoadingLabel({
   inView = _inView,
   national = nationalSummary(),
   pick = _meshPick,
-  records = _records,
+  records = dominantRecords(),
   mastRegime = _mastRegime,
   masts = _mastsDrawn,
   mastsUnpublished = _mastsUnpublished,
@@ -3102,7 +3460,6 @@ const anfrFranceLayer = {
     _points = new Cesium.BillboardCollection({ blendOption: Cesium.BlendOption.TRANSLUCENT });
     _points.show = false;
     viewer.scene.primitives.add(_points);
-    registerSpriteCollection(ANFR_FR_LAYER_ID, _points);
     // NOT registered with the sprite order, and the reason is the same one
     // `irve-fr` gives for its beams: that registry arbitrates near-plane
     // clamped sprites, and a shaft is depth-bearing geometry that has to sort
@@ -3118,9 +3475,23 @@ const anfrFranceLayer = {
     _sectors = new Cesium.PolylineCollection();
     _sectors.show = false;
     viewer.scene.primitives.add(_sectors);
+    // The two other classes of marks (see `_points`): the maillage's dots and
+    // the supports the maillage also draws.
+    _meshPoints = new Cesium.BillboardCollection({ blendOption: Cesium.BlendOption.TRANSLUCENT });
+    _meshPoints.show = false;
+    viewer.scene.primitives.add(_meshPoints);
+    _sharedPoints = new Cesium.BillboardCollection({ blendOption: Cesium.BlendOption.TRANSLUCENT });
+    _sharedPoints.show = false;
+    viewer.scene.primitives.add(_sharedPoints);
+    // Bottom to top: the maillage's dots, the supports, then the supports the
+    // maillage also draws — so a shared triangle sits on the dot fading under it.
+    registerSpriteCollection(ANFR_FR_LAYER_ID, _meshPoints);
+    registerSpriteCollection(ANFR_FR_LAYER_ID, _points);
+    registerSpriteCollection(ANFR_FR_LAYER_ID, _sharedPoints);
 
     _enabled = false;
-    _records = new Map();
+    clearLevelRecords();
+    _plan = null;
     _selectedId = null;
     _count = 0;
     _inView = 0;
@@ -3145,7 +3516,9 @@ const anfrFranceLayer = {
     _enabled = true;
     _error = null;
     _mastsShown = anfrMastsShownOnEnable(_mastsShown, _coverageMode);
-    if (_points) _points.show = true;
+    // Which class of marks is shown, and at what weight, is the frame
+    // callback's call ({@link onFadeFrame}).
+    _fade = watchZoomFade(viewer, ANFR_FR_LAYER_ID, onFadeFrame);
     // The shafts and rays stay hidden until a reconcile decides they belong on
     // screen — the camera may well be over the Atlantic when the row is ticked.
     _overlayHost.setVisible(ANFR_FR_OVERLAY_SOURCE_ID, true);
@@ -3176,8 +3549,11 @@ const anfrFranceLayer = {
 
   disable(viewer) {
     _enabled = false;
+    _fade?.release();
+    _fade = null;
     _requestGeneration += 1;
     _regime = 'maillage';
+    _plan = null;
     _mastRegime = false;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
@@ -3190,10 +3566,13 @@ const anfrFranceLayer = {
       _mapStackListener = null;
     }
     _points?.removeAll();
+    _meshPoints?.removeAll();
+    _sharedPoints?.removeAll();
     clearMastField();
     _sectors?.removeAll();
-    _records = new Map();
-    _meshBoxKey = null;
+    clearLevelRecords();
+    _pack = null;
+    _packBoxKey = null;
     _count = 0;
     _inView = 0;
     _mastsDrawn = 0;
@@ -3213,7 +3592,9 @@ const anfrFranceLayer = {
       releaseCameraSettle(viewer, ANFR_FR_LAYER_ID);
       _cameraChangedAttached = false;
     }
-    if (_points) _points.show = false;
+    for (const marks of [_points, _meshPoints, _sharedPoints]) {
+      if (marks) marks.show = false;
+    }
     if (_masts) _masts.show = false;
     if (_sectors) _sectors.show = false;
     _loading = false;
@@ -3320,7 +3701,9 @@ const anfrFranceLayer = {
     const legend = [];
     if (_records.size) {
       const tally = new Map();
-      for (const record of _records.values()) {
+      // The level that owns the key is the one it counts: inside the band the
+      // other is fading, and a mast drawn by both would be counted twice.
+      for (const record of dominantRecords().values()) {
         const band = record.style?.band;
         if (band) tally.set(band, (tally.get(band) || 0) + 1);
       }
@@ -3436,11 +3819,14 @@ const anfrFranceLayer = {
       if (typeof document !== 'undefined') document.removeEventListener('keydown', onKeyDown);
       unregisterPickOwner(ANFR_FR_LAYER_ID);
     }
-    if (_points) {
-      unregisterSpriteCollection(ANFR_FR_LAYER_ID, _points);
-      viewer?.scene?.primitives?.remove?.(_points);
-      _points = null;
+    for (const marks of [_points, _meshPoints, _sharedPoints]) {
+      if (!marks) continue;
+      unregisterSpriteCollection(ANFR_FR_LAYER_ID, marks);
+      viewer?.scene?.primitives?.remove?.(marks);
     }
+    _points = null;
+    _meshPoints = null;
+    _sharedPoints = null;
     if (_masts) {
       viewer?.scene?.primitives?.remove?.(_masts);
       _masts = null;
@@ -3456,7 +3842,7 @@ const anfrFranceLayer = {
     // their collection — exactly once each — and a second `init()` on a new
     // viewer starts from an empty pool rather than from objects built against
     // the old context.
-    _records.clear();
+    clearLevelRecords();
     _mesh = null;
     _pack = null;
     _packBoxKey = null;
@@ -3502,20 +3888,22 @@ export function _setAnfrStateForTest({
   _loading = false;
   _error = null;
   _status = 'ready';
-  _records = new Map();
-  _meshBoxKey = null;
+  clearLevelRecords();
+  _plan = null;
   _meshLookups.clear();
   _details.clear();
   for (const [key, value] of details || []) _details.set(key, value);
   for (const [key, value] of lookups || []) _meshLookups.set(key, value);
 
   if (regime === 'supports') {
+    _supportsDrawn = true;
     for (const support of pack?.supports || []) {
       const id = anfrSupportId(support.id);
       const heightM = anfrMastHeightM(support);
-      _records.set(id, {
+      _supportRecords.set(id, {
         id,
         mesh: false,
+        cls: 'supports',
         support,
         coSited: 0,
         detail: _details.get(support.id) || null,
@@ -3531,13 +3919,15 @@ export function _setAnfrStateForTest({
       });
     }
   } else {
+    _meshDrawn = Boolean(meshPick || mesh);
     for (const tuple of meshPick?.picked || mesh?.mesh || []) {
       const id = anfrMeshRecordId(tuple);
       const known = _meshLookups.get(id);
       const support = Array.isArray(known) && known.length ? known[0] : null;
-      _records.set(id, {
+      _meshRecords.set(id, {
         id,
         mesh: true,
+        cls: 'mesh',
         tuple,
         support,
         coSited: Array.isArray(known) ? Math.max(0, known.length - 1) : 0,
@@ -3553,6 +3943,7 @@ export function _setAnfrStateForTest({
       });
     }
   }
+  syncRecords();
   _count = _records.size;
   _inView = meshPick?.inBox ?? Number(pack?.inBox) ?? _count;
   // Counts the shafts the same production walk would, so the row label and the
@@ -3580,6 +3971,15 @@ export async function _loadAnfrViewportForTest(viewer, options = {}) {
   return { regime: _regime, count: _count, inView: _inView, status: _status, error: _error };
 }
 
+/**
+ * One production frame of the hand-overs, against a camera of this larger
+ * span: what the frame callback writes and drops, without a render loop.
+ */
+export function _anfrFadeFrameForTest(span, nowMs = 0) {
+  onFadeFrame({ latSpan: span, lonSpan: span }, nowMs);
+  return { meshDrawn: _meshDrawn, supportsDrawn: _supportsDrawn, shaftsShown: Boolean(_masts?.show) };
+}
+
 /** The city view's cells, as if the six-hour poll had come round: the next load asks again. */
 export function _expireAnfrSupportCellsForTest() {
   _supportCells.expire();
@@ -3595,8 +3995,8 @@ export function _clearAnfrSelectionForTest() {
   _pack = null;
   _packBoxKey = null;
   _meshPick = null;
-  _meshBoxKey = null;
-  _records = new Map();
+  clearLevelRecords();
+  _plan = null;
   _meshLookups.clear();
   _details.clear();
   _regime = 'maillage';

@@ -20,7 +20,6 @@ import {
 } from './filosofiTerritoires.js';
 import {
   TERRITORY_VINTAGE,
-  levelForBox,
   resolveTerritoryMetric,
 } from './filosofiTerritoiresFeed.js';
 import {
@@ -42,6 +41,18 @@ import {
 import { pickAt } from './pickAt.js';
 import { formatNumber } from '../i18n/format.js';
 import messages from './filosofiCarreaux.i18n.js';
+import {
+  bandPosition,
+  coverAlphas,
+  createFadeColorAppearance,
+  fadeBand,
+  fadeCollection,
+  levelVisible,
+  quantizeFade,
+  reveal,
+  setAppearanceFade,
+  watchZoomFade,
+} from './zoomFade.js';
 import { serverFailureMessage, serverMessage } from '../i18n/serverMessages.js';
 
 /**
@@ -113,6 +124,19 @@ import { serverFailureMessage, serverMessage } from '../i18n/serverMessages.js';
  * because a reader who thinks they are seeing the same numbers from further
  * away is being misled by the zoom.
  *
+ * FOUR LEVELS, AND ONLY TWO OF THE THREE STEPS BETWEEN THEM FADE. Régions,
+ * départements, the 1 km grid and the 200 m grid used to replace each other on
+ * a hard cut, with a blank frame while the next one was fetched and built, and
+ * the swap read as the map reloading. Within one dataset the levels now
+ * crossfade over a band of zoom (`zoomFade.js`, after Kyle Walker's "fade on
+ * zoom"): the 1 km disc is still there, fading, while its twenty-five 200 m
+ * cells come in over it, because they ARE the same statistic at two resolutions
+ * — same indicator, same national breaks. Between the départements and the grid
+ * the cut stays a cut, for the reason in the paragraph above: a resting view
+ * that showed both would show one colour meaning two numbers. It no longer
+ * goes blank, though — the outgoing level holds until the incoming one is
+ * drawn, and the two cross over 260 ms.
+ *
  * @module data/filosofiCarreaux
  */
 
@@ -164,6 +188,58 @@ const UPDATE_INTERVAL_MS = 60 * 60_000;
 /** Cache grid the box is snapped onto — matches the proxy's own step. */
 const BOX_SNAP_DEG = 0.01;
 
+/**
+ * Where the 1 km grid fades into the 200 m one, on the camera's own view:
+ * `max(latitude span, 0.66 × longitude span)`, the measure `resolutionForBox`
+ * already switches on.
+ *
+ * THE BAND CAN ONLY SIT BELOW THE OLD SWITCH. The 200 m grid's request is
+ * capped where it always was — `resolutionForBox` of the box snapped onto the
+ * 0.01° cache grid must still say 200, a 0.12° box over Paris being ~4 000 of
+ * the 5 000 cells a request may return — so above 0.12 there is no fine grid
+ * to fade into, and the band's coarse end is 0.12. Near it the fine request is
+ * made or refused by the same rule as before (the snap can widen the box by
+ * up to 0.02°); where it is refused, the 1 km grid simply stays, as it did.
+ *
+ * The fine end, 0.07, puts the band at a ratio of 1.7 — three quarters of a
+ * zoom level. The 1 km grid has to stay drawn that far down, and it costs
+ * nothing there: a 0.12° view holds about 200 of its cells. Over the band the
+ * grids `reveal` rather than crossfade, so the 200 m grid is at full strength
+ * from the first 30 % of it: the city view the harness has always checked —
+ * Lyon from 9 km at −75°, 0.101 on this measure — is a 200 m view still, with
+ * the 1 km discs fading out behind it instead of vanishing.
+ */
+export const FILOSOFI_GRID_BAND = fadeBand(0.07, 0.12);
+
+/**
+ * Where the régions fade into the départements, on the same measure.
+ *
+ * 12° is `levelForBox`'s switch and stays the coarse end. Both levels are
+ * national answers — 14 and 97 anchors, one keyless request each behind a
+ * month-long proxy cache — so keeping the régions drawn down to 7.2° costs a
+ * few points, and the band can take the full 0.6 ratio.
+ */
+export const FILOSOFI_TERRITORY_BAND = fadeBand(7.2, 12);
+
+/**
+ * Whether an indicator is a COUNT, whose colour is a number of people per
+ * cell (or per territory).
+ *
+ * Those do not fade. A 1 km cell holds twenty-five times the people of a 200 m
+ * one, so on the same breaks it sits in the top bands while its own cells sit
+ * in the middle ones — two colours, both right, for what a crossfade would
+ * present as one place at two resolutions. The territory levels say the same
+ * thing in their own code: `population` is the one indicator banded on the
+ * level's own size breaks. A count keeps a hard cut, at the band's coarse end,
+ * which is where it was.
+ *
+ * @param {object} metric
+ * @returns {boolean}
+ */
+export function filosofiCountMetric(metric) {
+  return metric?.id === 'population';
+}
+
 /** Selection accent, matching the app's other selected-object cards. */
 const SELECTED_COLOR = '#00ffff';
 
@@ -196,10 +272,40 @@ const DEFAULT_OVERLAY_HOST = Object.freeze({
 let _viewer = null;
 let _overlayHost = DEFAULT_OVERLAY_HOST;
 let _enabled = false;
-let _primitive = null;
-/** cell id -> drawn record */
-let _records = new Map();
-let _payload = null;
+
+/**
+ * One grid's drawing. There are two, so that both can be on screen inside
+ * `FILOSOFI_GRID_BAND`.
+ *
+ * A redraw is built into `pending` — a hidden primitive, which Cesium still
+ * builds — and only replaces `primitive` once it is ready. Clearing the old one
+ * first, as the layer used to, left the map blank for the frames an
+ * asynchronous build takes, on every pan.
+ *
+ * @param {200|1000} resolution
+ */
+function emptyGrid(resolution) {
+  return {
+    resolution,
+    appearance: null,
+    primitive: null,
+    /** cell id -> drawn record, for `primitive` */
+    records: new Map(),
+    pending: null,
+    pendingRecords: null,
+    payload: null,
+    loadedKey: null,
+    abort: null,
+    /** Whether the last settled view wants this grid at all. */
+    wanted: false,
+  };
+}
+let _grids = { 200: emptyGrid(200), 1000: emptyGrid(1000) };
+/**
+ * The grid that owns the legend, the stats and the card's commune names:
+ * the stronger of the two on the last settled view.
+ */
+let _dominantResolution = 200;
 /**
  * The indicator the discs are coloured by, once one has been chosen.
  *
@@ -211,25 +317,56 @@ let _payload = null;
 let _metric = null;
 let _selectedId = null;
 let _loading = false;
+let _inflight = 0;
 let _error = null;
 let _status = 'idle';
 let _lastUpdate = null;
-let _loadedKey = null;
-let _abort = null;
 let _debounceTimer = null;
+/** Bumped by every settled view, so a superseded one does not write the row. */
+let _loadGeneration = 0;
 let _retryTimer = null;
 let _retryDelayMs = 0;
 let _clickHandler = null;
 let _moveEndRemover = null;
+/**
+ * The manager's "repaint my row" callback. The panel is otherwise redrawn on a
+ * toggle or a poll — hourly here — and never when an answer lands, so a legend
+ * that follows the stronger of two grids would keep describing the one the
+ * camera had left: measured over Lyon at 9 km, a 200 m view under a legend that
+ * still read "carroyage 1 km".
+ */
+let _rowControlsListener = null;
 
 // --- The national regime ---------------------------------------------------
-/** `'carreaux'` below the grid's ceiling, `'territoires'` above it. */
+/**
+ * `'carreaux'` below the grid's ceiling, `'territoires'` above it — on the last
+ * SETTLED view. Both regimes can be drawn for the length of a swap; this says
+ * which one is arriving and owns the row.
+ */
 let _regime = 'carreaux';
+/** The territory level that owns the row, the stronger on the last settled view. */
 let _level = 'DEP';
-let _points = null;
-/** territory id -> drawn record */
-let _territoryRecords = new Map();
-let _territoryPayload = null;
+
+/** One territory level's drawing. Two, for `FILOSOFI_TERRITORY_BAND`. */
+function emptyTerritory(level) {
+  return {
+    level,
+    points: null,
+    /** territory id -> drawn record */
+    records: new Map(),
+    payload: null,
+    loadedKey: null,
+    /** The indicator the points were last filled with. */
+    metricId: null,
+    abort: null,
+    wanted: false,
+    /** The collection was refilled: its alphas must be rewritten. */
+    dirty: false,
+  };
+}
+let _territories = { DEP: emptyTerritory('DEP'), REG: emptyTerritory('REG') };
+/** The per-frame fade, while the layer is on. */
+let _fade = null;
 /**
  * The indicator the national discs are coloured by, once one has been chosen.
  *
@@ -237,7 +374,6 @@ let _territoryPayload = null;
  * it here would read the page's language while the module is still loading.
  */
 let _territoryMetric = null;
-let _territoryLoadedKey = null;
 let _territoryAnchors = null;
 
 // ---------------------------------------------------------------------------
@@ -328,11 +464,52 @@ export function cellId(cell, resolution) {
   return `filosofi:${cell.crs ?? 3035}:${resolution}:${cell.n}:${cell.e}`;
 }
 
-function clearPrimitive() {
-  if (_primitive && _viewer?.scene) _viewer.scene.primitives.remove(_primitive);
-  _primitive = null;
-  _records = new Map();
-  _selectedId = null;
+/** Both grids, fine first. */
+function gridList() {
+  return [_grids[200], _grids[1000]];
+}
+
+/** The drawn record behind a cell id, in whichever grid holds it. */
+function findCellRecord(id) {
+  for (const grid of gridList()) {
+    const record = grid.records.get(id);
+    if (record) return { grid, record };
+  }
+  return null;
+}
+
+/**
+ * The grid whose answer the row describes: the dominant one when it has
+ * answered, otherwise whichever has, so the panel never reads empty while a
+ * second grid is on screen.
+ */
+function rowGrid() {
+  const dominant = _grids[_dominantResolution];
+  if (dominant.payload) return dominant;
+  return gridList().find((grid) => grid.payload) || dominant;
+}
+
+function removePrimitive(primitive) {
+  if (primitive && _viewer?.scene) _viewer.scene.primitives.remove(primitive);
+}
+
+/** Drop one grid's drawing and answer. */
+function clearGrid(grid) {
+  grid.abort?.abort();
+  grid.abort = null;
+  if (_selectedId && grid.records.has(_selectedId)) clearSelection();
+  removePrimitive(grid.primitive);
+  removePrimitive(grid.pending);
+  grid.primitive = null;
+  grid.pending = null;
+  grid.pendingRecords = null;
+  grid.records = new Map();
+  grid.payload = null;
+  grid.loadedKey = null;
+}
+
+function clearGrids() {
+  for (const grid of gridList()) clearGrid(grid);
 }
 
 /**
@@ -346,7 +523,7 @@ function clearPrimitive() {
  * @param {number} resolution
  * @returns {{records: Array<object>, coldGround: number}}
  */
-function buildRecords(cells, resolution) {
+function buildRecords(cells, resolution, vintage = FILOSOFI_VINTAGE) {
   const records = [];
   let coldGround = 0;
   let fallbackM = null;
@@ -373,7 +550,7 @@ function buildRecords(cells, resolution) {
       id: cellId(cell, resolution),
       cell,
       resolution,
-      vintage: _payload?.vintage ?? FILOSOFI_VINTAGE,
+      vintage,
       color,
       fill: symbol.fill,
       baseM,
@@ -409,14 +586,38 @@ function symbolHierarchy(record) {
   ]);
 }
 
-/** Build one batched primitive for the whole viewport. */
-function drawRecords(records) {
-  clearPrimitive();
-  if (!records.length || !_viewer) return;
+/**
+ * Build one batched primitive for a grid's whole viewport.
+ *
+ * Into `pending`, hidden: the frame callback promotes it once Cesium reports it
+ * ready, and only then removes the drawing it replaces. An empty answer clears
+ * the grid at once — there is nothing to wait for.
+ *
+ * @param {object} grid
+ * @param {Array<object>} records
+ */
+function drawGrid(grid, records) {
+  // A redraw that finished building but was never shown (no frame rendered in
+  // between) is the freshest drawing there is: it goes on screen rather than
+  // into the bin.
+  promotePending(grid);
+  removePrimitive(grid.pending);
+  grid.pending = null;
+  grid.pendingRecords = null;
+  if (!_viewer) return;
+  if (!records.length) {
+    if (_selectedId && grid.records.has(_selectedId)) clearSelection();
+    removePrimitive(grid.primitive);
+    grid.primitive = null;
+    grid.records = new Map();
+    governorRequestRender('filosofi-fr');
+    return;
+  }
 
+  const pendingRecords = new Map();
   const instances = [];
   for (const record of records) {
-    _records.set(record.id, record);
+    pendingRecords.set(record.id, record);
     instances.push(new Cesium.GeometryInstance({
       id: record.id,
       geometry: new Cesium.PolygonGeometry({
@@ -433,20 +634,54 @@ function drawRecords(records) {
     }));
   }
 
-  _primitive = new Cesium.Primitive({
+  // Flat shading, because there is no form left to shade and a headlight on a
+  // horizontal disc only tints it: `flat` puts the exact band colour on the
+  // map, which is what the panel's legend swatch promises. The appearance is
+  // the grid's own and outlives its primitives: its one uniform is how the
+  // whole grid fades, whatever the number of discs.
+  grid.appearance ??= createFadeColorAppearance({ flat: true, closed: false });
+  grid.pending = new Cesium.Primitive({
     geometryInstances: instances,
-    // Flat shading, because there is no form left to shade and a headlight on a
-    // horizontal disc only tints it: `flat` puts the exact band colour on the
-    // map, which is what the panel's legend swatch promises.
-    appearance: new Cesium.PerInstanceColorAppearance({
-      flat: true, closed: false, translucent: true,
-    }),
+    appearance: grid.appearance,
     asynchronous: true,
     releaseGeometryInstances: false,
   });
-  _primitive.show = _enabled;
-  _viewer.scene.primitives.add(_primitive);
+  grid.pending.show = false;
+  grid.pendingRecords = pendingRecords;
+  _viewer.scene.primitives.add(grid.pending);
   governorRequestRender('filosofi-fr');
+}
+
+/**
+ * Swap a grid's ready redraw in for the drawing it replaces.
+ *
+ * The selection survives a redraw that still holds its cell — a pan of a few
+ * streets used to drop the highlight and leave the card standing alone — and
+ * closes with it when the cell has left the view.
+ *
+ * @param {object} grid
+ * @returns {boolean} Whether a drawing was promoted.
+ */
+function promotePending(grid) {
+  if (!grid.pending?.ready) return false;
+  removePrimitive(grid.primitive);
+  grid.primitive = grid.pending;
+  grid.records = grid.pendingRecords || new Map();
+  grid.pending = null;
+  grid.pendingRecords = null;
+  if (_selectedId && cellResolution(_selectedId) === grid.resolution) {
+    if (grid.records.has(_selectedId)) {
+      applyInstanceColor(_selectedId, Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(DISC_ALPHA));
+    } else {
+      clearSelection();
+    }
+  }
+  return true;
+}
+
+/** The grid a cell id belongs to, read off the id itself. */
+function cellResolution(id) {
+  return String(id).startsWith('filosofi:') ? Number(String(id).split(':')[2]) : null;
 }
 
 /**
@@ -469,8 +704,9 @@ export function instanceColor(record) {
 }
 
 function applyInstanceColor(id, color) {
-  if (!_primitive?.ready) return;
-  const attributes = _primitive.getGeometryInstanceAttributes(id);
+  const primitive = findCellRecord(id)?.grid.primitive;
+  if (!primitive?.ready) return;
+  const attributes = primitive.getGeometryInstanceAttributes(id);
   if (!attributes) return;
   attributes.color = Cesium.ColorGeometryInstanceAttribute.toValue(color, attributes.color);
   governorRequestRender('filosofi-recolor');
@@ -478,8 +714,8 @@ function applyInstanceColor(id, color) {
 
 function clearSelection() {
   if (_selectedId) {
-    const record = _records.get(_selectedId);
-    if (record) applyInstanceColor(_selectedId, instanceColor(record));
+    const found = findCellRecord(_selectedId);
+    if (found) applyInstanceColor(_selectedId, instanceColor(found.record));
   }
   _selectedId = null;
   _overlayHost.clearSource(FILOSOFI_SELECTED_OVERLAY_SOURCE_ID);
@@ -496,13 +732,6 @@ function currentTerritoryMetric() {
   return _territoryMetric ?? resolveTerritoryMetric(null);
 }
 
-/** Repaint every instance after the metric changed, without refetching. */
-function recolorAll() {
-  for (const [id, record] of _records) {
-    if (id === _selectedId) continue;
-    applyInstanceColor(id, instanceColor(record));
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The card
@@ -602,18 +831,19 @@ export function createFilosofiSelectedOverlayEntry(record, communes = {}) {
 }
 
 /** @param {*} picked @param {(id:string)=>boolean} has @returns {?string} */
-export function resolveFilosofiPickId(picked, has = (id) => _records.has(id)) {
+export function resolveFilosofiPickId(picked, has = (id) => Boolean(findCellRecord(id))) {
   const id = typeof picked?.id === 'string' ? picked.id : picked?.id?.id;
   return typeof id === 'string' && has(id) ? id : null;
 }
 
 function selectCell(id) {
-  const record = _records.get(id);
+  const found = findCellRecord(id);
+  const record = found?.record;
   if (!record) return false;
   clearSelection();
   _selectedId = id;
   applyInstanceColor(id, Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(DISC_ALPHA));
-  const entry = createFilosofiSelectedOverlayEntry(record, _payload?.communes || {});
+  const entry = createFilosofiSelectedOverlayEntry(record, found.grid.payload?.communes || {});
   if (entry) {
     _overlayHost.setVisible(FILOSOFI_SELECTED_OVERLAY_SOURCE_ID, true);
     _overlayHost.setEntries(
@@ -641,7 +871,7 @@ function onKeyDown(event) {
  * @returns {'territory'|'cell'|'close'|'ignore'}
  */
 export function filosofiClick(picked) {
-  const territory = resolveTerritoryPickId(picked, (id) => _territoryRecords.has(id));
+  const territory = resolveTerritoryPickId(picked, (id) => Boolean(findTerritoryRecord(id)));
   if (territory) return selectTerritory(territory) ? 'territory' : 'ignore';
   const id = resolveFilosofiPickId(picked);
   if (id) return selectCell(id) ? 'cell' : 'ignore';
@@ -661,31 +891,125 @@ function installClickHandler(viewer) {
 // ---------------------------------------------------------------------------
 // The national regime
 // ---------------------------------------------------------------------------
-function clearPoints() {
-  if (_points && _viewer?.scene) _viewer.scene.primitives.remove(_points);
-  _points = null;
-  _territoryRecords = new Map();
+function territoryList() {
+  return [_territories.DEP, _territories.REG];
 }
 
-/** Drop whatever the other regime had drawn, so only one is ever on screen. */
-function leaveRegime(next) {
+/** The drawn record behind a territory id, at whichever level holds it. */
+function findTerritoryRecord(id) {
+  for (const territory of territoryList()) {
+    const record = territory.records.get(id);
+    if (record) return { territory, record };
+  }
+  return null;
+}
+
+/** The territory level the row describes, with the same fallback as `rowGrid`. */
+function rowTerritory() {
+  const dominant = _territories[_level];
+  if (dominant.payload) return dominant;
+  return territoryList().find((territory) => territory.payload) || dominant;
+}
+
+function territoryShown(territory) {
+  return Boolean(territory.points && territory.records.size);
+}
+
+function gridShown(grid) {
+  return Boolean(grid.primitive && grid.records.size);
+}
+
+/**
+ * Whether a grid's answer for the settled view is ON SCREEN — including an
+ * answer with no cell in it. "Drawn" cannot mean "has discs": an empty 200 m
+ * answer (the sea, a forest) would never count, and the 1 km grid it replaces
+ * would stand at full strength over it for good.
+ */
+function gridReady(grid) {
+  return gridShown(grid) || (Boolean(grid.payload) && !grid.pending && grid.records.size === 0);
+}
+
+/** The same for a territory level: answered and filled, discs or not. */
+function territoryReady(territory) {
+  return Boolean(territory.payload && territory.points);
+}
+
+function clearTerritory(territory) {
+  territory.abort?.abort();
+  territory.abort = null;
+  if (_selectedId && territory.records.has(_selectedId)) clearSelection();
+  if (territory.points && _viewer?.scene) _viewer.scene.primitives.remove(territory.points);
+  territory.points = null;
+  territory.records = new Map();
+  territory.payload = null;
+  territory.loadedKey = null;
+  territory.metricId = null;
+  territory.dirty = false;
+}
+
+function clearTerritories() {
+  for (const territory of territoryList()) clearTerritory(territory);
+}
+
+/**
+ * Make one regime the one arriving.
+ *
+ * Nothing is cleared here any more, and that is the change: the regime being
+ * left holds its drawing until the arriving one has drawn its own, the two
+ * cross over the arrival ramp, and the frame callback retires the old one once
+ * it has faded to nothing. Only one regime is ever on screen at REST.
+ */
+function enterRegime(next) {
   if (_regime === next) return;
   clearSelection();
-  if (next === 'territoires') clearPrimitive();
-  else clearPoints();
   _regime = next;
 }
 
-function drawTerritories(records) {
+/**
+ * Start the arrival ramp of a level that has just been drawn from nothing.
+ *
+ * The REGIME's ramp when nothing of its regime was on screen — it crosses with
+ * the other regime — and the level's own when its partner was, so the two
+ * ramps never multiply into a slower one.
+ *
+ * @param {'grid'|'territory'} kind
+ * @param {string|number} level
+ * @param {boolean} partnerShown
+ */
+function noteArrival(kind, level, partnerShown) {
+  if (!_fade) return;
+  if (partnerShown) _fade.arrive(`${kind}:${level}`);
+  else _fade.arrive(kind === 'grid' ? 'grids' : 'territories');
+}
+
+function drawTerritory(territory, records) {
   if (!_viewer?.scene) return;
-  if (!_points) {
-    _points = new Cesium.PointPrimitiveCollection();
-    _viewer.scene.primitives.add(_points);
+  const wasShown = territoryShown(territory);
+  const partnerShown = territoryList().some((other) => other !== territory && territoryShown(other));
+  if (!territory.points) {
+    territory.points = new Cesium.PointPrimitiveCollection();
+    territory.points.show = false;
+    _viewer.scene.primitives.add(territory.points);
   }
-  const drawn = fillTerritoryCollection(_points, records, currentTerritoryMetric());
-  _territoryRecords = new Map(drawn.map((record) => [record.id, record]));
-  _points.show = _enabled;
+  const drawn = fillTerritoryCollection(territory.points, records, currentTerritoryMetric());
+  territory.records = new Map(drawn.map((record) => [record.id, record]));
+  territory.metricId = currentTerritoryMetric().id;
+  // The refill put every point back at its full alpha; the next frame has to
+  // write the fade again even though the weight has not moved.
+  territory.dirty = true;
+  if (!wasShown && territory.records.size) noteArrival('territory', territory.level, partnerShown);
   governorRequestRender('filosofi-territoires');
+  _fade?.frame();
+}
+
+/** One level's records from the answer in hand, under the indicator in force. */
+function territoryRecordsFor(territory) {
+  if (!territory.payload || !_territoryAnchors) return [];
+  const { records } = joinTerritories(territory.payload.territories, _territoryAnchors, territory.level);
+  // The carreau millésime the proxy says it would serve, carried onto every
+  // record so the card can name it without the client assuming a year.
+  for (const record of records) record.carroyageVintage = territory.payload.vintage?.carroyage ?? null;
+  return records;
 }
 
 /**
@@ -697,26 +1021,25 @@ function drawTerritories(records) {
  * them into one request would re-download the outlines every time INSEE's
  * cache expired.
  *
- * @param {'DEP'|'REG'} level
+ * @param {object} territory `_territories.DEP` or `_territories.REG`.
  * @returns {Promise<boolean>} Whether anything new was drawn.
  */
-async function loadTerritories(level) {
+async function loadTerritory(territory) {
+  const level = territory.level;
   const key = `territoires:${level}`;
-  if (key === _territoryLoadedKey && _territoryPayload && !_error) {
-    // Same level, same figures — but the metric may have changed under us.
-    drawTerritories([..._territoryRecords.values()].length
-      ? [..._territoryRecords.values()]
-      : joinTerritories(_territoryPayload.territories, _territoryAnchors, level).records);
+  if (key === territory.loadedKey && territory.payload && !territory.error) {
+    // Same level, same figures — redrawn only if the indicator changed since.
+    if (territory.metricId !== currentTerritoryMetric().id) drawTerritory(territory, territoryRecordsFor(territory));
     return false;
   }
 
-  _abort?.abort();
-  _abort = new AbortController();
-  const signal = _abort.signal;
-  const timeout = setTimeout(() => _abort?.abort(), REQUEST_TIMEOUT_MS);
-  _loading = true;
-  _status = 'loading';
-  _error = null;
+  territory.abort?.abort();
+  const abort = new AbortController();
+  territory.abort = abort;
+  const signal = abort.signal;
+  const timeout = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  territory.error = null;
+  beginLoad();
   try {
     const [payload, anchors] = await Promise.all([
       fetch(`/api/filosofi/territoires?level=${level}`, { signal })
@@ -732,35 +1055,29 @@ async function loadTerritories(level) {
     ]);
     if (signal.aborted) return false;
     _territoryAnchors = anchors;
-    const { records, unanchored } = joinTerritories(payload.territories, anchors, level);
-    // The carreau millésime the proxy says it would serve, carried onto every
-    // record so the card can name it without the client assuming a year.
-    for (const record of records) record.carroyageVintage = payload.vintage?.carroyage ?? null;
-    drawTerritories(records);
-    _territoryPayload = { ...payload, unanchored, drawn: records.length };
-    _level = level;
-    _territoryLoadedKey = key;
+    const { unanchored } = joinTerritories(payload.territories, anchors, level);
+    territory.payload = { ...payload, unanchored };
+    const records = territoryRecordsFor(territory);
+    territory.payload.drawn = records.length;
+    drawTerritory(territory, records);
+    territory.loadedKey = key;
     _lastUpdate = Date.now();
-    _retryDelayMs = 0;
-    clearRetry();
-    _status = 'ready';
     return true;
   } catch (error) {
     if (error?.name === 'AbortError') return false;
-    _error = error?.message || String(error);
-    _status = 'unavailable';
-    _territoryLoadedKey = null;
-    scheduleRetry();
+    territory.error = error?.message || String(error);
+    territory.loadedKey = null;
     console.warn('[Data:Carroyage INSEE] national view failed:', error);
     return false;
   } finally {
     clearTimeout(timeout);
-    _loading = false;
+    if (territory.abort === abort) territory.abort = null;
+    endLoad();
   }
 }
 
 function selectTerritory(id) {
-  const record = _territoryRecords.get(id);
+  const record = findTerritoryRecord(id)?.record;
   if (!record) return false;
   clearSelection();
   _selectedId = id;
@@ -773,6 +1090,252 @@ function selectTerritory(id) {
   }
   governorRequestRender('filosofi-territory-select');
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// The fade
+// ---------------------------------------------------------------------------
+/**
+ * The measure both bands are on: `max(latitude span, 0.66 × longitude span)`
+ * of a view box — the one `resolutionForBox` and `levelForBox` switch on.
+ *
+ * @param {?{south:number, north:number, west:number, east:number}} box
+ * @returns {number} Infinity without a box: the coarsest view there is.
+ */
+export function filosofiViewScale(box) {
+  if (!box) return Infinity;
+  const lat = box.north - box.south;
+  const lon = box.east - box.west;
+  if (!(lat > 0) || !(lon > 0)) return Infinity;
+  return Math.max(lat, lon * 0.66);
+}
+
+/**
+ * Which grids a settled view loads, and which one owns the row.
+ *
+ * The 200 m grid only where the band gives it weight AND its request is one
+ * the layer was already allowed to make (`resolutionForBox` of the snapped
+ * box); the 1 km grid wherever it has weight, or as the only answer when the
+ * fine one is refused. "Weight" is the weight the `reveal` DRAWS, not the
+ * band's extent: the 1 km grid is gone 70 % into the band, and fetching and
+ * building it below that would buy a drawing nobody sees. The row belongs to the 200 m grid as soon as the
+ * `reveal` has it at half strength — the detail is what the reader zoomed in
+ * for, and Paris from 9 km (0.107 on this measure, where the two grids cross
+ * at 0.7 each) is a 200 m view in the harness as it was on the old switch —
+ * and to the 200 m grid outright for a count, which cuts.
+ *
+ * @param {number} scale `filosofiViewScale` of the camera's box.
+ * @param {object} metric
+ * @param {200|1000} [snappedResolution] `resolutionForBox` of the snapped box.
+ * @returns {{position: number, wanted: Array<200|1000>, dominant: 200|1000}}
+ */
+export function filosofiGridPlan(scale, metric, snappedResolution = 200) {
+  const position = bandPosition(scale, FILOSOFI_GRID_BAND);
+  const target = levelTargets(position, filosofiCountMetric(metric));
+  const fine = levelVisible(true, target.fine) && snappedResolution === 200;
+  const coarse = levelVisible(true, target.coarse) || !fine;
+  const wanted = [];
+  if (fine) wanted.push(200);
+  if (coarse) wanted.push(1000);
+  let dominant = fine ? 200 : 1000;
+  if (fine && coarse) dominant = target.fine >= 0.5 ? 200 : 1000;
+  return { position, wanted, dominant };
+}
+
+/**
+ * Which territory levels a settled view loads, and which one owns the row.
+ * @param {number} scale
+ * @param {object} metric The territory indicator in force.
+ * @returns {{position: number, wanted: Array<'DEP'|'REG'>, dominant: 'DEP'|'REG'}}
+ */
+export function filosofiTerritoryPlan(scale, metric) {
+  const position = bandPosition(scale, FILOSOFI_TERRITORY_BAND);
+  const target = levelTargets(position, filosofiCountMetric(metric));
+  const wanted = [];
+  // The same rule as the grids: what the reveal draws, not the band's extent.
+  if (levelVisible(true, target.fine)) wanted.push('DEP');
+  if (levelVisible(true, target.coarse) || !wanted.length) wanted.push('REG');
+  let dominant = wanted.includes('DEP') ? 'DEP' : 'REG';
+  // And the finer level owns the row from half strength.
+  if (wanted.length === 2) dominant = target.fine >= 0.5 ? 'DEP' : 'REG';
+  return { position, wanted, dominant };
+}
+
+/**
+ * The weights two levels of one regime aim for at a band position: a `reveal`
+ * — or, for a count, a hard cut where the finer level wins as soon as it has
+ * weight, which is where the old switch put it.
+ *
+ * @param {number} position
+ * @param {boolean} cut
+ * @returns {{fine: number, coarse: number}}
+ */
+function levelTargets(position, cut) {
+  if (cut) return position > 0 ? { fine: 1, coarse: 0 } : { fine: 0, coarse: 1 };
+  return reveal(position);
+}
+
+/**
+ * The alpha each of the four levels is drawn at.
+ *
+ * Three pairs, nested. The REGIMES are a hard cut (two datasets): whichever the
+ * last settled view chose takes over once it is drawn. Inside each regime the
+ * two levels `reveal` over their band — or cut, for a count indicator. The
+ * cover rule (`coverAlphas`) applies at every step, so nothing dims that is not
+ * being replaced by something already drawn.
+ *
+ * A level the settled view no longer WANTS aims for zero whatever the band
+ * says, as long as its partner is wanted: it is only the cover now. Without
+ * that, a pan at the top of the grid band — where the snapped box can refuse
+ * the 200 m request — left the previous box's 200 m discs on screen at their
+ * band weight, over the 1 km answer and under a 1 km key, for good.
+ *
+ * @param {{
+ *   regime: 'carreaux'|'territoires',
+ *   gridPosition: number, territoryPosition: number,
+ *   gridCut?: boolean, territoryCut?: boolean,
+ *   ready: {200?: boolean, 1000?: boolean, DEP?: boolean, REG?: boolean},
+ *   wanted?: {200?: boolean, 1000?: boolean, DEP?: boolean, REG?: boolean},
+ *   arrival?: (key: string) => number,
+ * }} state
+ * @returns {{200: number, 1000: number, DEP: number, REG: number}}
+ */
+export function filosofiLevelAlphas(state) {
+  const arrival = state.arrival || (() => 1);
+  const ready = state.ready || {};
+  const gridsReady = Boolean(ready[200] || ready[1000]);
+  const territoriesReady = Boolean(ready.DEP || ready.REG);
+  const regimes = coverAlphas(
+    state.regime === 'territoires' ? { fine: 0, coarse: 1 } : { fine: 1, coarse: 0 },
+    {
+      fineReady: gridsReady,
+      coarseReady: territoriesReady,
+      fineArrival: arrival('grids'),
+      coarseArrival: arrival('territories'),
+    },
+  );
+  const wanted = state.wanted;
+  const grids = coverAlphas(
+    onlyWanted(levelTargets(state.gridPosition, state.gridCut), wanted?.[200], wanted?.[1000], wanted),
+    {
+      fineReady: Boolean(ready[200]),
+      coarseReady: Boolean(ready[1000]),
+      fineArrival: arrival('grid:200'),
+      coarseArrival: arrival('grid:1000'),
+    },
+  );
+  const territories = coverAlphas(
+    onlyWanted(levelTargets(state.territoryPosition, state.territoryCut), wanted?.DEP, wanted?.REG, wanted),
+    {
+      fineReady: Boolean(ready.DEP),
+      coarseReady: Boolean(ready.REG),
+      fineArrival: arrival('territory:DEP'),
+      coarseArrival: arrival('territory:REG'),
+    },
+  );
+  return {
+    200: regimes.fine * grids.fine,
+    1000: regimes.fine * grids.coarse,
+    DEP: regimes.coarse * territories.fine,
+    REG: regimes.coarse * territories.coarse,
+  };
+}
+
+/**
+ * A pair's targets with an unwanted level sent to zero and its wanted partner
+ * to full strength. A pair with neither level wanted is the regime being left:
+ * the regime cut fades it, and it keeps its band targets until then.
+ */
+function onlyWanted(target, fineWanted, coarseWanted, wanted) {
+  if (!wanted || (!fineWanted && !coarseWanted) || (fineWanted && coarseWanted)) return target;
+  return fineWanted ? { fine: 1, coarse: 0 } : { fine: 0, coarse: 1 };
+}
+
+/**
+ * Every rendered frame: promote ready redraws, write each level's alpha, and
+ * retire a level that has faded out and that the settled view no longer wants.
+ *
+ * Retirement waits for every arrival ramp to finish, so a level is never
+ * dropped while it is still the cover for one coming in.
+ *
+ * @param {ReturnType<import('./zoomFade.js').readViewScale>} scale
+ * @param {number} now
+ */
+function onFadeFrame(scale, now) {
+  for (const grid of gridList()) {
+    const wasShown = gridShown(grid);
+    const partnerShown = gridList().some((other) => other !== grid && gridShown(other));
+    if (promotePending(grid) && !wasShown && gridShown(grid)) noteArrival('grid', grid.resolution, partnerShown);
+  }
+  const measure = Math.max(scale.latSpan, scale.lonSpan * 0.66);
+  const alphas = filosofiLevelAlphas({
+    regime: _regime,
+    gridPosition: bandPosition(measure, FILOSOFI_GRID_BAND),
+    territoryPosition: bandPosition(measure, FILOSOFI_TERRITORY_BAND),
+    gridCut: filosofiCountMetric(currentMetric()),
+    territoryCut: filosofiCountMetric(currentTerritoryMetric()),
+    ready: {
+      200: gridReady(_grids[200]),
+      1000: gridReady(_grids[1000]),
+      DEP: territoryReady(_territories.DEP),
+      REG: territoryReady(_territories.REG),
+    },
+    wanted: {
+      200: _grids[200].wanted,
+      1000: _grids[1000].wanted,
+      DEP: _territories.DEP.wanted,
+      REG: _territories.REG.wanted,
+    },
+    arrival: (key) => _fade?.arrival(key, now) ?? 1,
+  });
+
+  for (const grid of gridList()) {
+    const alpha = alphas[grid.resolution];
+    if (grid.appearance) setAppearanceFade(grid.appearance, alpha);
+    if (grid.primitive) grid.primitive.show = levelVisible(_enabled, alpha);
+  }
+  for (const territory of territoryList()) {
+    if (!territory.points) continue;
+    const alpha = alphas[territory.level];
+    fadeCollection(territory.points, alpha, { force: territory.dirty });
+    territory.dirty = false;
+    territory.points.show = levelVisible(_enabled, alpha);
+  }
+
+  if (!_fade?.arriving()) {
+    for (const grid of gridList()) {
+      if (!grid.wanted && (grid.primitive || grid.payload) && quantizeFade(alphas[grid.resolution]) === 0) clearGrid(grid);
+    }
+    for (const territory of territoryList()) {
+      if (!territory.wanted && (territory.points || territory.payload) && quantizeFade(alphas[territory.level]) === 0) {
+        clearTerritory(territory);
+      }
+    }
+  }
+
+  _fade?.report({
+    levels: { 200: alphas[200], 1000: alphas[1000], DEP: alphas.DEP, REG: alphas.REG },
+    dominant: _regime === 'territoires' ? _level : String(_dominantResolution),
+    regime: _regime,
+    // The unit is `filosofiViewScale`: max(latitude span, 0.66 × longitude span).
+    bands: {
+      grid: { ...FILOSOFI_GRID_BAND, unit: 'deg-max66' },
+      territory: { ...FILOSOFI_TERRITORY_BAND, unit: 'deg-max66' },
+    },
+  });
+}
+
+function startFade() {
+  if (_fade || !_viewer) return;
+  _fade = watchZoomFade(_viewer, FILOSOFI_LAYER_ID, onFadeFrame);
+  _fade.frame();
+}
+
+function stopFade() {
+  _fade?.release();
+  _fade = null;
+  for (const grid of gridList()) if (grid.primitive) grid.primitive.show = false;
+  for (const territory of territoryList()) if (territory.points) territory.points.show = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -793,53 +1356,50 @@ function scheduleRetry() {
   _retryTimer = setTimeout(() => { void load(); }, _retryDelayMs);
 }
 
-/** Fetch and draw the carroyage for the current viewport. */
-async function load() {
-  if (!_enabled || !_viewer) return false;
-
-  const { box, reason, raw } = filosofiViewportBox(_viewer);
-  if (!box) {
-    // TOO WIDE IS NOT NOTHING. The grid cannot answer here, but INSEE can: the
-    // layer changes dataset rather than going blank, and says which one it is
-    // on. Off-coverage and no-view still clear — there is no French aggregate
-    // for a view of the Atlantic either.
-    if (reason === 'too-wide') {
-      leaveRegime('territoires');
-      _payload = null;
-      _loadedKey = null;
-      return loadTerritories(levelForBox(raw));
-    }
-    leaveRegime('carreaux');
-    clearPrimitive();
-    _payload = null;
-    _loadedKey = null;
-    _error = null;
-    _status = reason === 'off-coverage' ? 'off-coverage' : 'idle';
-    governorRequestRender('filosofi-clear');
-    return false;
-  }
-  leaveRegime('carreaux');
-
-  const snapped = snapBoxOutward(box, BOX_SNAP_DEG);
-  const resolution = resolutionForBox(snapped);
-  const key = `${resolution}:${boxKey(snapped, 3)}`;
-  if (key === _loadedKey && _payload && !_error) return false;
-
-  _abort?.abort();
-  _abort = new AbortController();
-  const signal = _abort.signal;
-  const timeout = setTimeout(() => _abort?.abort(), REQUEST_TIMEOUT_MS);
+function beginLoad() {
+  _inflight += 1;
   _loading = true;
   _status = 'loading';
-  _error = null;
+}
 
+function endLoad() {
+  _inflight = Math.max(0, _inflight - 1);
+  _loading = _inflight > 0;
+}
+
+/** Drop a redraw nobody wants any more, without touching what is on screen. */
+function dropPending(grid) {
+  grid.abort?.abort();
+  grid.abort = null;
+  removePrimitive(grid.pending);
+  grid.pending = null;
+  grid.pendingRecords = null;
+}
+
+/**
+ * Fetch and draw one grid for a snapped box.
+ * @param {object} grid
+ * @param {{south:number, west:number, north:number, east:number}} snapped
+ * @returns {Promise<boolean>} Whether anything new was drawn.
+ */
+async function loadGrid(grid, snapped) {
+  const key = `${grid.resolution}:${boxKey(snapped, 3)}`;
+  if (key === grid.loadedKey && grid.payload && !grid.error) return false;
+
+  grid.abort?.abort();
+  const abort = new AbortController();
+  grid.abort = abort;
+  const signal = abort.signal;
+  const timeout = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  grid.error = null;
+  beginLoad();
   try {
     const query = new URLSearchParams({
       south: snapped.south.toFixed(5),
       west: snapped.west.toFixed(5),
       north: snapped.north.toFixed(5),
       east: snapped.east.toFixed(5),
-      resolution: String(resolution),
+      resolution: String(grid.resolution),
     });
     const response = await fetch(`/api/filosofi/carreaux?${query}`, { signal });
     if (!response.ok) {
@@ -849,45 +1409,126 @@ async function load() {
     if (signal.aborted) return false;
     if (!payload || payload.error) throw new Error(serverMessage(payload, { fallback: messages().error.cells }));
 
-    const { records, coldGround } = buildRecords(payload.cells || [], resolution);
-    drawRecords(records);
-    _payload = { ...payload, drawn: records.length, coldGround };
+    const vintage = payload.vintage ?? FILOSOFI_VINTAGE;
+    const { records, coldGround } = buildRecords(payload.cells || [], grid.resolution, vintage);
+    drawGrid(grid, records);
+    grid.payload = {
+      ...payload, resolution: payload.resolution ?? grid.resolution, drawn: records.length, coldGround,
+    };
+    grid.loadedKey = key;
     _lastUpdate = Date.now();
-    _loadedKey = key;
-    _retryDelayMs = 0;
-    clearRetry();
-    _status = 'ready';
     return true;
   } catch (error) {
     if (error?.name === 'AbortError') return false;
-    _error = error?.message || String(error);
-    _status = 'unavailable';
-    _loadedKey = null;
-    scheduleRetry();
+    grid.error = error?.message || String(error);
+    grid.loadedKey = null;
     console.warn('[Data:Carroyage INSEE] load failed:', error);
     return false;
   } finally {
     clearTimeout(timeout);
-    _loading = false;
+    if (grid.abort === abort) grid.abort = null;
+    endLoad();
   }
 }
 
 /**
- * Redraw the payload ALREADY IN HAND under a new indicator.
+ * Wait for one settled view's loads and publish what they came to.
  *
- * Not a refetch: the same 146 cells carry every indicator at once, and the
- * only thing that changed is which column drives the colour and which count
- * drives the size. Asking the proxy again would buy the same bytes twice.
+ * A later view supersedes this one: its loads aborted ours, and only the
+ * latest generation writes the row's status.
+ */
+async function settle(generation, loads, levels) {
+  const results = await Promise.all(loads);
+  const drew = results.some(Boolean);
+  if (generation !== _loadGeneration || !_enabled) return drew;
+  const failed = levels.find((level) => level.error);
+  _error = failed ? failed.error : null;
+  if (_error) {
+    _status = 'unavailable';
+    scheduleRetry();
+  } else {
+    _status = 'ready';
+    _retryDelayMs = 0;
+    clearRetry();
+  }
+  _fade?.frame();
+  governorRequestRender('filosofi-settled');
+  _rowControlsListener?.();
+  return drew;
+}
+
+/** Fetch and draw the carroyage for the current viewport. */
+async function load() {
+  if (!_enabled || !_viewer) return false;
+  const generation = ++_loadGeneration;
+
+  const { box, reason, raw } = filosofiViewportBox(_viewer);
+  if (!box) {
+    // TOO WIDE IS NOT NOTHING. The grid cannot answer here, but INSEE can: the
+    // layer changes dataset rather than going blank, and says which one it is
+    // on. Off-coverage and no-view still clear — there is no French aggregate
+    // for a view of the Atlantic either.
+    if (reason === 'too-wide') {
+      enterRegime('territoires');
+      // The grids are not cleared: whichever is drawn holds until the
+      // territories are, then fades out under them and is retired.
+      for (const grid of gridList()) {
+        grid.wanted = false;
+        dropPending(grid);
+      }
+      const plan = filosofiTerritoryPlan(filosofiViewScale(raw), currentTerritoryMetric());
+      for (const territory of territoryList()) territory.wanted = plan.wanted.includes(territory.level);
+      _level = plan.dominant;
+      const levels = plan.wanted.map((level) => _territories[level]);
+      return settle(generation, levels.map(loadTerritory), levels);
+    }
+    enterRegime('carreaux');
+    clearGrids();
+    clearTerritories();
+    _error = null;
+    _status = reason === 'off-coverage' ? 'off-coverage' : 'idle';
+    governorRequestRender('filosofi-clear');
+    return false;
+  }
+
+  enterRegime('carreaux');
+  for (const territory of territoryList()) {
+    territory.wanted = false;
+    territory.abort?.abort();
+  }
+  const snapped = snapBoxOutward(box, BOX_SNAP_DEG);
+  const plan = filosofiGridPlan(filosofiViewScale(raw), currentMetric(), resolutionForBox(snapped));
+  for (const grid of gridList()) {
+    grid.wanted = plan.wanted.includes(grid.resolution);
+    if (!grid.wanted) dropPending(grid);
+  }
+  _dominantResolution = plan.dominant;
+  const levels = plan.wanted.map((resolution) => _grids[resolution]);
+  return settle(generation, levels.map((grid) => loadGrid(grid, snapped)), levels);
+}
+
+/**
+ * Redraw the payloads ALREADY IN HAND under a new indicator.
+ *
+ * Not a refetch: the same cells carry every indicator at once, and the only
+ * thing that changed is which column drives the colour and which count drives
+ * the size. Asking the proxy again would buy the same bytes twice.
  *
  * @returns {boolean}
  */
 function redrawForMetric() {
-  if (!_payload?.cells || !_viewer) return false;
+  if (!_viewer) return false;
   clearSelection();
-  const { records, coldGround } = buildRecords(_payload.cells, _payload.resolution);
-  drawRecords(records);
-  _payload = { ..._payload, drawn: records.length, coldGround };
-  return true;
+  let redrawn = false;
+  for (const grid of gridList()) {
+    if (!grid.payload?.cells) continue;
+    const vintage = grid.payload.vintage ?? FILOSOFI_VINTAGE;
+    const { records, coldGround } = buildRecords(grid.payload.cells, grid.resolution, vintage);
+    drawGrid(grid, records);
+    grid.payload = { ...grid.payload, drawn: records.length, coldGround };
+    redrawn = true;
+  }
+  return redrawn;
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,21 +1659,19 @@ const filosofiCarreauxLayer = {
   init(viewer) {
     _viewer = viewer;
     _enabled = false;
-    _records = new Map();
-    _payload = null;
+    _grids = { 200: emptyGrid(200), 1000: emptyGrid(1000) };
+    _dominantResolution = 200;
     _selectedId = null;
     _loading = false;
+    _inflight = 0;
     _error = null;
     _status = 'idle';
     _lastUpdate = null;
-    _loadedKey = null;
     _retryDelayMs = 0;
     _metric = null;
     _regime = 'carreaux';
     _level = 'DEP';
-    _territoryPayload = null;
-    _territoryRecords = new Map();
-    _territoryLoadedKey = null;
+    _territories = { DEP: emptyTerritory('DEP'), REG: emptyTerritory('REG') };
     _territoryMetric = null;
     _overlayHost.setVisible(FILOSOFI_SELECTED_OVERLAY_SOURCE_ID, false);
     _overlayHost.setVisible(TERRITORY_SELECTED_OVERLAY_SOURCE_ID, false);
@@ -1043,12 +1682,13 @@ const filosofiCarreauxLayer = {
     _enabled = true;
     _error = null;
     if (viewer) _viewer = viewer;
-    if (_primitive) _primitive.show = true;
-    if (_points) _points.show = true;
+    // What was drawn before the layer was switched off comes back through the
+    // fade, at the weight the camera gives it now.
+    startFade();
     _overlayHost.setVisible(FILOSOFI_SELECTED_OVERLAY_SOURCE_ID, true);
     _overlayHost.setVisible(TERRITORY_SELECTED_OVERLAY_SOURCE_ID, true);
     installClickHandler(_viewer);
-    registerPickOwner(FILOSOFI_LAYER_ID, (pickedId) => _records.has(pickedId));
+    registerPickOwner(FILOSOFI_LAYER_ID, (pickedId) => Boolean(findCellRecord(pickedId)));
     if (!_moveEndRemover && _viewer?.camera?.moveEnd) {
       _moveEndRemover = _viewer.camera.moveEnd.addEventListener(scheduleLoad);
     }
@@ -1062,10 +1702,12 @@ const filosofiCarreauxLayer = {
     clearRetry();
     clearTimeout(_debounceTimer);
     _debounceTimer = null;
-    _abort?.abort();
-    _abort = null;
-    if (_primitive) _primitive.show = false;
-    if (_points) _points.show = false;
+    for (const grid of gridList()) dropPending(grid);
+    for (const territory of territoryList()) {
+      territory.abort?.abort();
+      territory.abort = null;
+    }
+    stopFade();
     _overlayHost.setVisible(FILOSOFI_SELECTED_OVERLAY_SOURCE_ID, false);
     _overlayHost.setVisible(TERRITORY_SELECTED_OVERLAY_SOURCE_ID, false);
     if (_clickHandler) { _clickHandler.destroy(); _clickHandler = null; }
@@ -1073,6 +1715,7 @@ const filosofiCarreauxLayer = {
     unregisterPickOwner(FILOSOFI_LAYER_ID);
     if (_moveEndRemover) { _moveEndRemover(); _moveEndRemover = null; }
     _loading = false;
+    _inflight = 0;
     _status = 'idle';
   },
 
@@ -1084,8 +1727,8 @@ const filosofiCarreauxLayer = {
 
   async update() {
     if (!_enabled) return false;
-    _loadedKey = null;
-    _territoryLoadedKey = null;
+    for (const grid of gridList()) grid.loadedKey = null;
+    for (const territory of territoryList()) territory.loadedKey = null;
     const loaded = await load();
     return loaded || !_error;
   },
@@ -1109,19 +1752,15 @@ const filosofiCarreauxLayer = {
     if (!changed) return false;
     _metric = nextCarreau;
     _territoryMetric = nextTerritory;
-    if (_regime === 'territoires') {
-      const rebuilt = _territoryPayload && _territoryAnchors
-        ? joinTerritories(_territoryPayload.territories, _territoryAnchors, _level).records
-        : [];
-      for (const record of rebuilt) {
-        record.carroyageVintage = _territoryPayload?.vintage?.carroyage ?? null;
-      }
-      const records = rebuilt;
-      clearSelection();
-      drawTerritories(records);
-    } else {
-      redrawForMetric();
+    // Every level that is drawn is redrawn, not only the regime that owns the
+    // row: during a swap or inside a band two of them are on screen, and the
+    // one fading out must not keep the old colours.
+    clearSelection();
+    for (const territory of territoryList()) {
+      if (territory.payload) drawTerritory(territory, territoryRecordsFor(territory));
     }
+    redrawForMetric();
+    _fade?.frame();
     governorRequestRender('filosofi-metric');
     return true;
   },
@@ -1151,15 +1790,21 @@ const filosofiCarreauxLayer = {
     return [];
   },
 
+  setRowControlsListener(listener) {
+    _rowControlsListener = typeof listener === 'function' ? listener : null;
+  },
+
   getRowControls() {
     if (_regime === 'territoires') {
-      const records = [..._territoryRecords.values()];
+      const territory = rowTerritory();
+      const records = [...territory.records.values()];
       return {
         chips: territoryChips(currentTerritoryMetric()),
-        legend: territoryLegend(currentTerritoryMetric(), records, _level),
+        legend: territoryLegend(currentTerritoryMetric(), records, territory.level),
       };
     }
-    const cells = _payload?.cells || [];
+    const grid = rowGrid();
+    const cells = grid.payload?.cells || [];
     const current = currentMetric();
     const row = messages().row;
     const chips = filosofiMetrics().map((metric) => ({
@@ -1170,18 +1815,19 @@ const filosofiCarreauxLayer = {
       title: row.chipTitle(metric.label, metric.blurb, metric.unit),
       params: { metric: metric.id },
     }));
-    return { chips, legend: filosofiLegend(current, cells, _payload?.resolution || 200) };
+    return { chips, legend: filosofiLegend(current, cells, grid.payload?.resolution || grid.resolution) };
   },
 
   getStats() {
     if (_regime === 'territoires') {
-      const records = [..._territoryRecords.values()];
-      const stats = territoryStats(records, _level);
+      const shown = rowTerritory();
+      const records = [...shown.records.values()];
+      const stats = territoryStats(records, shown.level);
       const territory = currentTerritoryMetric();
       const result = {
         count: records.length,
         regime: 'territoires',
-        level: _level,
+        level: shown.level,
         levelLabel: stats.levelLabel,
         cells: stats.territories,
         resolution: null,
@@ -1199,11 +1845,11 @@ const filosofiCarreauxLayer = {
         lastUpdate: _lastUpdate,
         loading: _loading,
         status: _status === 'ready' ? 'ok' : _status,
-        stale: Boolean(_territoryPayload?.stale),
+        stale: Boolean(shown.payload?.stale),
         feedSource: messages().row.feedSource,
       };
       const row = messages().row;
-      if (_territoryPayload?.partial) {
+      if (shown.payload?.partial) {
         result.degraded = true;
         result.loadingLabel = row.partial;
       } else if (_loading) {
@@ -1214,13 +1860,14 @@ const filosofiCarreauxLayer = {
       if (_error) result.error = _error;
       return result;
     }
-    const summary = _payload?.summary || null;
+    const payload = rowGrid().payload;
+    const summary = payload?.summary || null;
     const current = currentMetric();
     const row = messages().row;
     const result = {
-      count: _payload?.drawn ?? 0,
+      count: payload?.drawn ?? 0,
       cells: summary?.cells ?? 0,
-      resolution: _payload?.resolution ?? null,
+      resolution: payload?.resolution ?? null,
       people: summary?.people ?? null,
       households: summary?.households ?? null,
       niveau: summary?.niveau ?? null,
@@ -1232,24 +1879,24 @@ const filosofiCarreauxLayer = {
       imputedShare: summary?.imputedShare ?? null,
       // A 0 % imputed share is only good news when nothing was left unsaid.
       imputedUnknown: summary?.imputedUnknown ?? null,
-      truncated: Boolean(_payload?.truncated),
-      matched: _payload?.matched ?? null,
+      truncated: Boolean(payload?.truncated),
+      matched: payload?.matched ?? null,
       metric: current.id,
       metricLabel: current.label,
       regime: 'carreaux',
       // Whatever answered, not what the module was compiled believing.
-      vintage: _payload?.vintage ?? FILOSOFI_VINTAGE,
-      vintageSource: _payload?.source ?? null,
+      vintage: payload?.vintage ?? FILOSOFI_VINTAGE,
+      vintageSource: payload?.source ?? null,
       rampSample: FILOSOFI_RAMP_SAMPLE.cells,
       lastUpdate: _lastUpdate,
       loading: _loading,
       status: _status === 'ready' ? 'ok' : _status,
-      stale: Boolean(_payload?.stale),
+      stale: Boolean(payload?.stale),
       feedSource: 'INSEE Filosofi — Licence Ouverte 2.0',
     };
-    if (_payload?.truncated) {
+    if (payload?.truncated) {
       result.degraded = true;
-      result.loadingLabel = row.truncated(_fmt(_payload.matched), _fmt(_payload.returned));
+      result.loadingLabel = row.truncated(_fmt(payload.matched), _fmt(payload.returned));
     } else if (_status === 'off-coverage') {
       result.status = 'ok';
       result.loadingLabel = row.offCoverage;
@@ -1270,11 +1917,9 @@ const filosofiCarreauxLayer = {
     }
     if (_moveEndRemover) { _moveEndRemover(); _moveEndRemover = null; }
     clearRetry();
-    clearPrimitive();
-    clearPoints();
-    _payload = null;
-    _territoryPayload = null;
-    _territoryLoadedKey = null;
+    stopFade();
+    clearGrids();
+    clearTerritories();
     _viewer = null;
   },
 };
@@ -1284,8 +1929,19 @@ export function _setFilosofiStateForTest({
   viewer, records, payload, overlayHost, metric, enabled = true,
 } = {}) {
   _viewer = viewer || null;
-  if (records) _records = records instanceof Map ? records : new Map(Object.entries(records));
-  if (payload !== undefined) _payload = payload;
+  // One grid at a time, the one the payload (or the first record) is on; the
+  // other is emptied so a seeded state is exactly what the test says it is.
+  const seeded = records instanceof Map ? [...records.values()] : Object.values(records || {});
+  const resolution = payload?.resolution ?? seeded[0]?.resolution ?? 200;
+  if (records || payload !== undefined) {
+    _dominantResolution = resolution;
+    const other = _grids[resolution === 200 ? 1000 : 200];
+    other.records = new Map();
+    other.payload = null;
+  }
+  const grid = _grids[resolution];
+  if (records) grid.records = records instanceof Map ? records : new Map(Object.entries(records));
+  if (payload !== undefined) grid.payload = payload;
   _overlayHost = overlayHost || DEFAULT_OVERLAY_HOST;
   if (metric) _metric = resolveMetric(metric);
   _enabled = enabled;

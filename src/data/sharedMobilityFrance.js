@@ -98,6 +98,16 @@ import {
 } from './sharedMobilityClusters.js';
 import { pickAt } from './pickAt.js';
 import { profileCountBudget } from '../perfProfile.js';
+import {
+  bandPosition,
+  coverAlphas,
+  fadeBand,
+  fadeCollection,
+  levelVisible,
+  quantizeFade,
+  reveal,
+  watchZoomFade,
+} from './zoomFade.js';
 import { cameraFocusPoint, cameraViewBox } from './viewGate.js';
 import { focusedViewBox } from './viewportBox.js';
 
@@ -251,6 +261,50 @@ const SELECTED_VEHICLE_DOT_PX = 10;
  * answers in groups instead (`sharedMobilityClusters.js`).
  */
 const PIN_CEILING_M = 3_500;
+/**
+ * THE BAND WHERE THE GROUPS AND THE VEHICLES ARE BOTH DRAWN (2026-10-01), in
+ * metres of view range — the measure of {@link PIN_CEILING_M}, which is its
+ * coarse end.
+ *
+ * Until then the street view and the city view swapped on that one threshold:
+ * a zoom across 3,500 m over Paris replaced a field of bubbles with two
+ * thousand dots in one frame, and the swap read as the map reloading. A bubble
+ * IS its dots, counted — the same feed, the same vehicles, the proxy's own
+ * count over every one of them — so the two levels are one statistic at two
+ * resolutions and may fade into each other (`zoomFade.js`): between 3,500 m
+ * and 2,100 m both are asked for and drawn, the bubbles fading out as the dots
+ * fade in. Where the screen holds more than the cap the dots are its fair
+ * shares and the row says « plafonné »; the bubble over them still counts
+ * every vehicle — a sample and its total, not two statistics.
+ *
+ * WHERE IT SITS. The coarse end is the old threshold, so the vehicles are asked
+ * for exactly where they were — same box, same cap, same pins. The fine end is
+ * 0.6 of it, 2,100 m: a ratio of 1.67, three quarters of one zoom step. The
+ * band can only sit on that side of the threshold — above it the vehicles are
+ * not asked for — so it is shaped as a REVEAL (`zoomFade.reveal`), not a
+ * symmetric crossfade: the dots are at full strength 30 % of the way in
+ * (3,003 m) and the bubbles gone 70 % of the way (2,448 m), so the street view
+ * the reader knew under 3,500 m is still the dots' and only its top shows the
+ * bubbles fading. There
+ * the group request asks the 0.002° grid (≈ 220 m cells on a 1,440 × 900
+ * desktop: 1.7 m/px × 160 px) about the box the dots are asked about anyway,
+ * and the proxy answers it from the clip it already holds for that box — one
+ * upstream fetch, coalesced, serves both — in numbers rather than objects,
+ * about twenty times fewer bytes than the dots. Two requests per settle in the
+ * band against a 90-a-minute limit and a 450 ms debounce.
+ *
+ * WHAT IS NOT A BAND, AND STAYS A CUT. Whether the proxy groups at all is
+ * decided by a COUNT (`GBFS_CLUSTER_ABOVE`, 1,500 vehicles in the box): a pan
+ * at constant height crosses it, so it is no zoom band, and a group request
+ * the proxy answered in dots is swapped whole (`planSharedMobilityAnswers`).
+ * Above the 0.032° step it groups whatever the count (`GBFS_CLUSTER_ALWAYS_DEG`):
+ * scale-driven, but it only bites in a view the count kept as dots, and drawing
+ * both of its sides would need the proxy to group a box it refuses to group —
+ * it stays a cut. The country view's places (`COUNTRY_VIEW_ALTITUDE_M`) are a
+ * different dataset — the shipped index, names and operators, no number — and
+ * never fade into counts.
+ */
+export const SHARED_MOBILITY_GROUP_BAND = fadeBand(PIN_CEILING_M * 0.6, PIN_CEILING_M);
 /** Pin footprint, CSS px: the 96 × 124 artwork drawn 32 wide. */
 const PIN_WIDTH_PX = 32;
 const PIN_HEIGHT_PX = Math.round((32 * 124) / 96);
@@ -492,9 +546,36 @@ let _truncated = false;
 /** Whether the country view — places, not fleets — is drawn. */
 let _countryView = false;
 let _lastBox = null;
-/** The last viewport answer, kept so a filter change repaints without a
- *  refetch — and so the chips can count the half they are hiding. */
+/** The answer the DOTS are drawn from, kept so a filter change repaints
+ *  without a refetch — and so the chips can count the half they are hiding. */
 let _lastPayload = null;
+/**
+ * Which level `_lastPayload` is: `'vehicles'` for the answer to a request
+ * without a grid (the street level, dots and pins), `'groups'` for the answer
+ * to a grid request — its loose vehicles, or a sparse box the proxy answered
+ * in dots. Null while nothing is in hand. Decided by the REQUEST, never by the
+ * answer's shape: a group request answered in dots is still the city level,
+ * drawn at full strength above the band.
+ * @type {?('vehicles'|'groups')}
+ */
+let _dotsLevel = null;
+/** The grid answer the BUBBLES are drawn from: `_lastPayload` itself above the
+ *  band, the second answer inside it, and null where no group is drawn. */
+let _groupPayload = null;
+/** A grid answer waiting for the vehicles to fade out before its loose dots
+ *  replace them — see `planSharedMobilityAnswers`. */
+let _pendingDots = null;
+/** The level that owns the key, the count and the status line, decided on the
+ *  settled view: the one with the larger zoom weight. */
+let _dominant = 'vehicles';
+/** The per-frame fade — see `onFadeFrame`. Null while the layer is off. */
+let _fadeHandle = null;
+/** The next fade pass writes every item again (items were added or recoloured). */
+let _fadeForce = true;
+/** What the last fade pass wrote, so a still camera writes nothing. */
+const _fadeWritten = { dots: -1, groups: -1, fine: -1, coarse: -1, dominant: '' };
+/** A level waits to be dropped, once at weight zero — see `retireFadedLevels`. */
+let _retireQueued = false;
 /** Active family filter id, or null for the whole fleet. */
 let _kindFilter = null;
 /** Focused operator id, or null for every operator. */
@@ -974,6 +1055,8 @@ function clearSelection({ repin = true } = {}) {
   }
   _selectedId = null;
   _overlayHost.clearSource(SHARED_MOBILITY_FR_OVERLAY_SOURCE_ID);
+  // The restored dot is at full strength until the fade pass writes it again.
+  if (had) _fadeForce = true;
   // The cyan pin goes back to being an ordinary one — or makes room again.
   if (had && repin) refreshPins();
 }
@@ -1003,6 +1086,9 @@ function selectObject(id) {
       SHARED_MOBILITY_FR_OVERLAY_SOURCE_OPTIONS,
     );
   }
+  // The cyan was written at full strength: the fade pass takes it as the
+  // dot's new colour and dims it with its level.
+  _fadeForce = true;
   governorRequestRender('shared-mobility-fr-select');
 }
 
@@ -1193,7 +1279,11 @@ function refreshPins() {
     changed = true;
   }
   _pinnedIds = next;
-  if (changed) governorRequestRender('shared-mobility-fr-pins');
+  if (changed) {
+    // A new pin is drawn at full strength until the fade pass has seen it.
+    _fadeForce = true;
+    governorRequestRender('shared-mobility-fr-pins');
+  }
   return next.size;
 }
 
@@ -1227,13 +1317,34 @@ function metresPerPixel(viewer) {
 }
 
 /**
- * The grid step to ask the proxy for, or null for the dots-and-pins view.
+ * Which levels a settled view asks for, at a view range in metres — see
+ * {@link SHARED_MOBILITY_GROUP_BAND}: the vehicles up to its coarse end, the
+ * groups wherever the reveal still DRAWS them — they are gone 70 % into the
+ * band (2 448 m), and asking below that sent a second `cluster=` request on
+ * every settle, against the 90-a-minute limit, for bubbles built hidden. A
+ * range that is not a number is a camera looking past the limb, the coarsest
+ * view there is.
+ * @param {number} rangeM
+ * @returns {{vehicles: boolean, groups: boolean}}
+ */
+export function sharedMobilityLevelsAt(rangeM) {
+  const range = Number.isFinite(rangeM) ? rangeM : Infinity;
+  return {
+    vehicles: range <= SHARED_MOBILITY_GROUP_BAND.coarse,
+    groups: levelVisible(true, sharedMobilityZoomWeights(range).coarse),
+  };
+}
+
+/**
+ * The grid step to ask the proxy for, or null when the view asks for no group.
  * Decided on the view RANGE, not the altitude: a camera 2 km up that looks at
  * the horizon is looking at a city, and the street view's dots, thinned to
  * the cap over 15 km of it, were the one reading it could not give.
+ * @param {number} [rangeM]
+ * @returns {?number}
  */
-function clusterCellForView() {
-  if (viewRangeM(_viewer) <= PIN_CEILING_M) return null;
+function clusterCellForView(rangeM = viewRangeM(_viewer)) {
+  if (!sharedMobilityLevelsAt(rangeM).groups) return null;
   return sharedMobilityClusterCell(metresPerPixel(_viewer));
 }
 
@@ -1356,19 +1467,22 @@ function answerDocks(payload) {
  * @returns {number} Bubbles drawn.
  */
 function refreshBubbles() {
-  const clusters = _lastPayload?.clusters;
+  const payload = groupedAnswer();
+  const clusters = payload?.clusters;
   if (!_bubbleSprites || !_bubbleLabels || !Array.isArray(clusters)) {
     clearBubbles();
     return 0;
   }
-  const payload = _lastPayload;
   const fleets = foldSharedMobilityClusters(clusters, {
     keep: (system, kind) => (!_kindFilter || familyOfKind(kind) === _kindFilter)
       && (!_operatorFilter || payloadOperator(payload, system).id === _operatorFilter),
     operatorOf: (system) => payloadOperator(payload, system),
   });
   // The docks of the row's other layer join the groups of their cells, and
-  // stop drawing themselves — see `mobilityDockBridge.js`. They arrive already
+  // stop drawing themselves — see `mobilityDockBridge.js` — unless the street
+  // level is drawn too, inside the fade band: there the docks belong to the
+  // dots' level and keep drawing, while the fading bubble over them counts
+  // their bikes like every other vehicle of its cell. They arrive already
   // under the row's filters, which `bikeshare.js` holds too.
   const box = _viewer ? cameraSharedMobilityBox(_viewer) : null;
   const docks = [...readMobilityDocks(), ...answerDocks(payload)];
@@ -1396,11 +1510,18 @@ function refreshBubbles() {
   _bubbles = next;
   _bubbleTotal = total;
   // Only now, with the bubbles drawn: the key the signal refreshes reads them.
-  setMobilityDocksGrouped(true);
+  setMobilityDocksGrouped(_dotsLevel !== 'vehicles');
   // The key's note is there only while bubbles are.
   if (appeared) _rowControlsListener?.();
+  // New bubbles and every bar were just added at full strength.
+  _fadeForce = true;
   governorRequestRender('shared-mobility-fr-groups');
   return next.size;
+}
+
+/** The grid answer the bubbles are drawn from, when it carries groups. */
+function groupedAnswer() {
+  return Array.isArray(_groupPayload?.clusters) ? _groupPayload : null;
 }
 
 function clearBubbles() {
@@ -1417,9 +1538,10 @@ function clearBubbles() {
 /** Unsubscribe from the docks' « count again » signal. */
 let _unsubscribeDocks = null;
 
-/** The answer's groups, the biggest first — the proxy already sorts them. */
+/** The owning answer's groups, the biggest first — the proxy already sorts them. */
 function groupedAnalystClusters() {
-  return Array.isArray(_lastPayload?.clusters) ? _lastPayload.clusters : [];
+  const owner = ownerPayload();
+  return Array.isArray(owner?.clusters) ? owner.clusters : [];
 }
 
 /** The bubble a pick landed on, or null. */
@@ -1437,7 +1559,7 @@ function pickedBubble(picked) {
 function flyToBubble(entry) {
   const camera = _viewer?.camera;
   if (!camera || !entry?.position) return;
-  const cellM = (_lastPayload?.clusterDeg || 0.004) * 111_320;
+  const cellM = (groupedAnswer()?.clusterDeg || 0.004) * 111_320;
   const range = Math.min(40_000, Math.max(1_500, cellM * 1.5));
   const pitch = Math.min(camera.pitch ?? -Math.PI / 2, Cesium.Math.toRadians(-40));
   camera.flyToBoundingSphere(new Cesium.BoundingSphere(entry.position, 1), {
@@ -1619,6 +1741,9 @@ function refreshPlaces() {
   }
   _places = next;
   _placesInView = inView;
+  // Place labels share the bubbles' collections and are never faded: the next
+  // fade pass writes them back to full strength.
+  _fadeForce = true;
   // The row counts the labels drawn: a zoom that made room changes it.
   _count = next.size;
   governorRequestRender('shared-mobility-fr-places');
@@ -1653,10 +1778,19 @@ function flyToPlace(entry) {
 /**
  * The country view: the places, from the `/networks` answer fetched once.
  * Clears the fleet — no fleet answer describes a view this wide.
+ *
+ * A HARD CUT, NOT A FADE, and on purpose (see `zoomFade.js`). A place is the
+ * shipped index's — where a network runs and who runs it, no number — and a
+ * group is the live feed's count. Two datasets and two statements: a place
+ * label fading into a « 1,2 k » bubble would read as the same mark gaining a
+ * number it never had.
  */
 async function loadPlaces() {
   if (_records.size || _bubbles.size) clearFleet();
   _lastPayload = null;
+  _groupPayload = null;
+  _pendingDots = null;
+  _dotsLevel = null;
   _systems = [];
   _systemsMatched = 0;
   _truncated = false;
@@ -1830,14 +1964,17 @@ function reconcile(payload) {
     });
   }
 
-  // The groups stand on the ground like the dots, and are grounded with them.
-  const groundedClusters = Array.isArray(payload.clusters) ? payload.clusters : [];
+  // The groups stand on the ground like the dots, and are grounded with them —
+  // the answer's own, or the second answer's inside the fade band.
+  const groundedClusters = groupedAnswer()?.clusters || [];
   if (groundedClusters.length) {
     const probed = sampleProvisionalFloors(_viewer?.scene, groundedClusters, { fillKm: FLOOR_FILL_KM });
     if (probed.pending) scheduleFloorRetry();
   }
   refreshBubbles();
-  _count = _records.size + _bubbleTotal;
+  _count = fleetCount();
+  // Every dot was just added at full strength: the fade pass writes them all.
+  _fadeForce = true;
   warmGroundFloor([...groundedClusters, ...objects].slice(0, MAX_FLOOR_WARM));
   // Two reasons to come back, and neither of them produces a frame on its own:
   // the tiles under a cell may not have streamed yet, and the DEM warm above
@@ -1955,6 +2092,360 @@ function clearFleet() {
   if (_points) _points.removeAll();
   _records.clear();
   _count = 0;
+  _groupPayload = null;
+  _pendingDots = null;
+  _dotsLevel = null;
+  _dominant = 'vehicles';
+}
+
+// --- The two levels, and the fade between them ------------------------------
+//
+// See {@link SHARED_MOBILITY_GROUP_BAND} for why the groups and the vehicles may
+// fade into each other at all. What follows is the bookkeeping: which answer
+// draws the dots, which draws the bubbles, which one owns the key — and the
+// per-frame pass that writes the two weights.
+
+/**
+ * What the layer draws once a settle's answers are in, from what it drew
+ * before. Pure, so the transitions can be pinned without a scene.
+ *
+ * `fine` is the answer to the request without a grid (the street level), and
+ * `coarse` the answer to the grid request (the city level) — either may be
+ * absent, depending on where the view sits against the band.
+ *
+ * Three rules, one per transition:
+ *
+ *   - THE VEHICLES ARRIVE OVER THE GROUPS. A street answer always draws the
+ *     dots. Inside the band the grid answer draws the bubbles beside them; under
+ *     it, the bubbles already on screen are KEPT, so they can fade out while the
+ *     dots fade in — the frame drops them once their weight is zero.
+ *   - THE GROUPS ARRIVE OVER THE VEHICLES. A grid answer that lands, above the
+ *     band, on dots of the street level draws its bubbles and leaves the dots
+ *     where they are, its own loose vehicles PENDING: the dots fade out as the
+ *     bubbles fade in, and only then are they replaced.
+ *   - A GRID ANSWER IN DOTS IS SWAPPED WHOLE. When the proxy answered the grid
+ *     request in vehicles — a box under `GBFS_CLUSTER_ABOVE`, a COUNT and not a
+ *     scale — there is no second level to fade to: the dots it carries replace
+ *     the ones on screen, which are the same vehicles. That is the count-driven
+ *     cut, kept on purpose. Inside the band such an answer adds nothing the
+ *     street answer does not already draw, and is dropped.
+ *
+ * @param {{dots?: ?object, dotsLevel?: ?string, groups?: ?object}} drawn
+ * @param {{fine?: ?object, coarse?: ?object}} answers
+ * @returns {{dots: ?object, dotsLevel: ?string, groups: ?object, pendingDots: ?object}}
+ */
+export function planSharedMobilityAnswers(drawn = {}, answers = {}) {
+  const dots = drawn.dots ?? null;
+  const dotsLevel = dots ? (drawn.dotsLevel ?? null) : null;
+  const groups = drawn.groups ?? null;
+  const fine = answers.fine ?? null;
+  const coarse = answers.coarse ?? null;
+  const grouped = Array.isArray(coarse?.clusters) ? coarse : null;
+  if (fine) {
+    return {
+      dots: fine,
+      dotsLevel: 'vehicles',
+      groups: coarse ? grouped : (Array.isArray(groups?.clusters) ? groups : null),
+      pendingDots: null,
+    };
+  }
+  if (!coarse) return { dots, dotsLevel, groups, pendingDots: null };
+  if (grouped && dotsLevel === 'vehicles') {
+    return { dots, dotsLevel, groups: grouped, pendingDots: grouped };
+  }
+  return { dots: coarse, dotsLevel: 'groups', groups: grouped, pendingDots: null };
+}
+
+/** The street answer in hand, or null. */
+function fineAnswer() {
+  return _dotsLevel === 'vehicles' ? _lastPayload : null;
+}
+
+/** The city answer in hand — the bubbles', or the dots' above the band — or null. */
+function coarseAnswer() {
+  return groupedAnswer() || (_dotsLevel === 'groups' ? _lastPayload : null);
+}
+
+/**
+ * The answer that owns the key, the count and the status line: the dominant
+ * level's. Decided on the settled view by {@link settleOwnership}, never per
+ * frame, so the key does not flicker under a moving camera.
+ * @returns {?object}
+ */
+function ownerPayload() {
+  if (_dominant === 'groups') return coarseAnswer() || _lastPayload;
+  return fineAnswer() || _lastPayload;
+}
+
+/**
+ * Pick the dominant level for the view the camera settled on, and take the
+ * row's state — operators matched, the « capped » flag — from its answer.
+ * With both levels in hand the larger zoom weight wins; with one, that one.
+ * @param {number} rangeM
+ * @returns {boolean} Whether the owner changed.
+ */
+function settleOwnership(rangeM) {
+  const before = _dominant;
+  const fine = fineAnswer();
+  const coarse = coarseAnswer();
+  if (fine && coarse) {
+    const weights = sharedMobilityZoomWeights(rangeM);
+    _dominant = weights.coarse > weights.fine ? 'groups' : 'vehicles';
+  } else {
+    _dominant = coarse ? 'groups' : 'vehicles';
+  }
+  const owner = ownerPayload();
+  if (owner) {
+    _systems = owner.systems || [];
+    _systemsMatched = Number(owner.systemsMatched) || 0;
+    _truncated = owner.objectsTruncated === true || owner.systemsTruncated === true;
+  }
+  return _dominant !== before;
+}
+
+/** The loose vehicles of an answer the dots are not drawn from, under the filters. */
+function looseVehicles(payload) {
+  const out = [];
+  for (const vehicle of Array.isArray(payload?.vehicles) ? payload.vehicles : []) {
+    if (out.length >= MAX_RENDERED_OBJECTS) break;
+    if (!matchesKindFilter(_kindFilter, 'vehicle', vehicle)) continue;
+    if (!matchesOperatorFilter(payload, vehicle)) continue;
+    out.push(vehicle);
+  }
+  return out;
+}
+
+/**
+ * How many objects the owning level stands for: its dots and, for the city
+ * level, what its bubbles count. Inside the band the two levels draw the same
+ * vehicles twice, so only the owner's are counted.
+ * @returns {number}
+ */
+function fleetCount() {
+  const owner = ownerPayload();
+  if (!owner) return _records.size + _bubbleTotal;
+  const bubbles = owner === groupedAnswer() ? _bubbleTotal : 0;
+  const dots = owner === _lastPayload ? _records.size : looseVehicles(owner).length;
+  return dots + bubbles;
+}
+
+/**
+ * Take a settle's answers: decide what draws what, draw it, start the arrival
+ * ramp of a level that just came on screen over the other, and hand the key to
+ * the dominant level.
+ * @param {{fine?: ?object, coarse?: ?object}} answers
+ * @param {number} rangeM The view range the answers were asked for.
+ */
+function applyFleetAnswers(answers, rangeM) {
+  const hadVehicles = Boolean(fineAnswer());
+  const hadBubbles = _bubbles.size > 0;
+  const previousDots = _lastPayload;
+  const plan = planSharedMobilityAnswers(
+    { dots: _lastPayload, dotsLevel: _dotsLevel, groups: _groupPayload },
+    answers,
+  );
+  _lastPayload = plan.dots;
+  _dotsLevel = plan.dotsLevel;
+  _groupPayload = plan.groups;
+  _pendingDots = plan.pendingDots;
+  settleOwnership(rangeM);
+  if (_lastPayload && _lastPayload !== previousDots) {
+    reconcile(_lastPayload);
+  } else {
+    // The dots stay — the vehicles hold while the groups come in over them.
+    refreshBubbles();
+    _count = fleetCount();
+  }
+  // An arrival ramp only where the other level is on screen to hand over from:
+  // a level that appears over nothing, or replaces itself, just appears.
+  if (!hadVehicles && fineAnswer() && hadBubbles && _bubbles.size > 0) _fadeHandle?.arrive('vehicles');
+  if (!hadBubbles && _bubbles.size > 0 && hadVehicles) _fadeHandle?.arrive('groups');
+  _fadeForce = true;
+  governorRequestRender('shared-mobility-fr-levels');
+}
+
+/**
+ * Drop what the fade has finished with, out of the frame that noticed it:
+ * bubbles whose weight reached zero under the band, and dots of the street
+ * level whose replacement was pending above it.
+ */
+function retireFadedLevels() {
+  _retireQueued = false;
+  if (!_enabled) return;
+  const range = viewRangeM(_viewer);
+  const alphas = currentAlphas(range, globalThis.performance?.now?.() ?? Date.now());
+  let changed = false;
+  if (_groupPayload && _groupPayload !== _lastPayload && quantizeFade(alphas.coarse) === 0
+    && !sharedMobilityLevelsAt(range).groups) {
+    _groupPayload = null;
+    clearBubbles();
+    changed = true;
+  }
+  // Pending dots replace the street level once it has faded out — or at once
+  // when the filters left no bubble to hand over to.
+  if (_pendingDots && (quantizeFade(alphas.fine) === 0 || _bubbles.size === 0)) {
+    _lastPayload = _pendingDots;
+    _dotsLevel = 'groups';
+    _pendingDots = null;
+    reconcile(_lastPayload);
+    changed = true;
+  }
+  if (!changed) return;
+  settleOwnership(range);
+  _count = fleetCount();
+  if (_status === 'ready' || _status === 'empty') _status = _count > 0 ? 'ready' : 'empty';
+  _fadeForce = true;
+  _rowControlsListener?.();
+  governorRequestRender('shared-mobility-fr-retire');
+}
+
+/**
+ * The two levels' zoom weights at a view range: the band's reveal — see
+ * {@link SHARED_MOBILITY_GROUP_BAND}.
+ * @param {number} rangeM
+ * @returns {{fine: number, coarse: number}}
+ */
+export function sharedMobilityZoomWeights(rangeM) {
+  return reveal(bandPosition(rangeM, SHARED_MOBILITY_GROUP_BAND));
+}
+
+/**
+ * The two levels' drawn alphas now: the zoom weights at this view range, held
+ * by whichever level is on screen until its partner has arrived.
+ * @param {number} rangeM
+ * @param {number} nowMs
+ * @returns {{fine: number, coarse: number}}
+ */
+function currentAlphas(rangeM, nowMs) {
+  return coverAlphas(sharedMobilityZoomWeights(rangeM), {
+    fineReady: Boolean(fineAnswer()),
+    coarseReady: _bubbles.size > 0 || _dotsLevel === 'groups',
+    fineArrival: _fadeHandle?.arrival('vehicles', nowMs) ?? 1,
+    coarseArrival: _fadeHandle?.arrival('groups', nowMs) ?? 1,
+  });
+}
+
+/** label -> what `fadeLabelCollection` last remembered of it. */
+const _labelAlpha = new WeakMap();
+/** collection -> the last weight written. */
+const _labelWeight = new WeakMap();
+const _labelScratch = new Cesium.Color();
+
+/**
+ * Fade every label of a collection by one weight, from the alpha the layer
+ * gave its fill (and its outline).
+ *
+ * `zoomFade.fadeCollection` does points and billboards, whose tint is `color`;
+ * a label's is `fillColor`. The same rules: quantised, nothing written while
+ * the weight has not moved a step, and the base re-read whenever the layer
+ * recoloured the label since. A count over a bubble that faded without it
+ * would float, white, on nothing.
+ *
+ * @param {Cesium.LabelCollection} collection
+ * @param {number} weight
+ * @param {{force?: boolean}} [options]
+ * @returns {boolean} Whether anything was written.
+ */
+export function fadeLabelCollection(collection, weight, { force = false } = {}) {
+  if (!collection || typeof collection.get !== 'function') return false;
+  const w = quantizeFade(weight);
+  if (!force && _labelWeight.get(collection) === w) return false;
+  _labelWeight.set(collection, w);
+  const length = collection.length ?? 0;
+  for (let i = 0; i < length; i += 1) {
+    const label = collection.get(i);
+    if (!label?.fillColor) continue;
+    let memo = _labelAlpha.get(label);
+    if (!memo) {
+      memo = { fill: label.fillColor.alpha, fillWritten: null, outline: label.outlineColor?.alpha ?? null, outlineWritten: null };
+      _labelAlpha.set(label, memo);
+    }
+    if (memo.fillWritten !== null && Math.abs(label.fillColor.alpha - memo.fillWritten) > 1e-6) memo.fill = label.fillColor.alpha;
+    const fill = memo.fill * w;
+    if (memo.fillWritten !== fill) {
+      Cesium.Color.clone(label.fillColor, _labelScratch);
+      _labelScratch.alpha = fill;
+      label.fillColor = _labelScratch;
+      memo.fillWritten = fill;
+    }
+    if (memo.outline !== null && label.outlineColor) {
+      if (memo.outlineWritten !== null && Math.abs(label.outlineColor.alpha - memo.outlineWritten) > 1e-6) {
+        memo.outline = label.outlineColor.alpha;
+      }
+      const outline = memo.outline * w;
+      if (memo.outlineWritten !== outline) {
+        Cesium.Color.clone(label.outlineColor, _labelScratch);
+        _labelScratch.alpha = outline;
+        label.outlineColor = _labelScratch;
+        memo.outlineWritten = outline;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * The per-frame fade: the two levels' alphas at this view range, written into
+ * the four collections. Weight arithmetic and adapter writes only — nothing is
+ * fetched here, and a camera that has not moved a step writes nothing.
+ *
+ * The dots take the alpha of the level whose answer they are drawn from; the
+ * pins stand on the dots and take theirs; the bubbles and their counts take
+ * the city level's. In the country view the same two collections carry the
+ * place labels, which are not a level of this band and stay at full strength.
+ */
+function onFadeFrame(_scale, nowMs) {
+  if (!_enabled) return;
+  const range = viewRangeM(_viewer);
+  const alphas = currentAlphas(range, nowMs);
+  const fine = quantizeFade(alphas.fine);
+  const coarse = quantizeFade(alphas.coarse);
+  let dots = 1;
+  if (_dotsLevel === 'vehicles') dots = fine;
+  else if (_dotsLevel === 'groups') dots = coarse;
+  const groups = _countryView ? 1 : coarse;
+  const force = _fadeForce;
+  _fadeForce = false;
+  if (!force && dots === _fadeWritten.dots && groups === _fadeWritten.groups
+    && fine === _fadeWritten.fine && coarse === _fadeWritten.coarse && _dominant === _fadeWritten.dominant) {
+    return;
+  }
+  fadeCollection(_points, dots, { force });
+  fadeCollection(_pins, dots, { force });
+  fadeCollection(_bubbleSprites, groups, { force });
+  fadeLabelCollection(_bubbleLabels, groups, { force });
+  // A level at weight zero is hidden, not drawn transparent: it would still
+  // cost its draw call and still answer picks.
+  if (_points) _points.show = levelVisible(_enabled, dots);
+  if (_pins) _pins.show = levelVisible(_enabled, dots);
+  if (_bubbleSprites) _bubbleSprites.show = levelVisible(_enabled, groups);
+  if (_bubbleLabels) _bubbleLabels.show = levelVisible(_enabled, groups);
+  _fadeWritten.dots = dots;
+  _fadeWritten.groups = groups;
+  _fadeWritten.fine = fine;
+  _fadeWritten.coarse = coarse;
+  _fadeWritten.dominant = _dominant;
+  _fadeHandle?.report({
+    levels: { vehicles: fine, groups: coarse },
+    dominant: _dominant,
+    bands: {
+      'groups-vehicles': {
+        fine: SHARED_MOBILITY_GROUP_BAND.fine, coarse: SHARED_MOBILITY_GROUP_BAND.coarse, unit: 'm',
+      },
+    },
+    // The band is in VIEW RANGE (altitude over the sine of the pitch), not in
+    // the altitude the shared read carries — reported so a harness can check.
+    viewRangeM: Math.round(range),
+    dotsLevel: _dotsLevel,
+    pending: Boolean(_pendingDots),
+  });
+  // A level the fade has finished with is dropped outside the frame.
+  const groupsDone = _groupPayload && _groupPayload !== _lastPayload && coarse === 0
+    && !sharedMobilityLevelsAt(range).groups;
+  if (!_retireQueued && (groupsDone || (_pendingDots && (fine === 0 || _bubbles.size === 0)))) {
+    _retireQueued = true;
+    setTimeout(retireFadedLevels, 0);
+  }
 }
 
 async function loadViewport({ force = false } = {}) {
@@ -1991,15 +2482,23 @@ async function loadViewport({ force = false } = {}) {
     _loading = false;
     _lastPayload = null;
     if (_records.size || _bubbles.size) clearFleet();
+    _groupPayload = null;
+    _pendingDots = null;
+    _dotsLevel = null;
     if (changed) _rowControlsListener?.();
     return;
   }
 
-  // Above the pins' ceiling the proxy is asked for GROUPS on its grid instead
-  // of objects — the numbers are then its own, over every vehicle it holds.
-  const cluster = clusterCellForView();
+  // Above the band the proxy is asked for GROUPS on its grid instead of
+  // objects — the numbers are then its own, over every vehicle it holds; under
+  // it, for the vehicles; inside it, for both (`SHARED_MOBILITY_GROUP_BAND`).
+  const range = viewRangeM(_viewer);
+  const cluster = clusterCellForView(range);
+  // A grid the camera cannot be solved for (no canvas yet) falls back on the
+  // vehicles, as it always has.
+  const wantVehicles = sharedMobilityLevelsAt(range).vehicles || !cluster;
   const boxKey = [box.south, box.west, box.north, box.east].map((v) => v.toFixed(3)).join(',')
-    + (cluster ? `@${cluster}` : '');
+    + (cluster ? `@${cluster}` : '') + (cluster && wantVehicles ? '+vehicles' : '');
   if (!force && boxKey === _lastBox && _inFlight) return;
   _lastBox = boxKey;
 
@@ -2021,25 +2520,30 @@ async function loadViewport({ force = false } = {}) {
       // so a light device loses margin and even thinning, not the view.
       limit: String(profileCountBudget(GBFS_MAX_OBJECTS)),
     });
-    if (cluster) params.set('cluster', String(cluster));
-    const response = await fetch(`/api/shared-mobility-fr/objects?${params}`, { signal: controller.signal });
-    if (generation !== _requestGeneration) return;
-    if (!response.ok) {
-      let detail = `HTTP ${response.status}`;
-      try {
-        const body = await response.json();
-        if (body?.error) detail = body.missingIndex ? 'system index missing' : String(body.error);
-      } catch { /* keep the status-code detail */ }
-      throw new Error(detail);
-    }
-    const payload = await response.json();
+    // Both requests name the same box, so the proxy serves them from one
+    // coalesced upstream fetch; they land together, and are drawn together,
+    // or neither is — a half-applied band would fade toward a stale level.
+    const ask = async (cell) => {
+      const query = new URLSearchParams(params);
+      if (cell) query.set('cluster', String(cell));
+      const response = await fetch(`/api/shared-mobility-fr/objects?${query}`, { signal: controller.signal });
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          if (body?.error) detail = body.missingIndex ? 'system index missing' : String(body.error);
+        } catch { /* keep the status-code detail */ }
+        throw new Error(detail);
+      }
+      return response.json();
+    };
+    const [fine, coarse] = await Promise.all([
+      wantVehicles ? ask(null) : null,
+      cluster ? ask(cluster) : null,
+    ]);
     if (generation !== _requestGeneration || !_enabled) return;
 
-    _lastPayload = payload;
-    reconcile(payload);
-    _systems = payload.systems || [];
-    _systemsMatched = Number(payload.systemsMatched) || 0;
-    _truncated = payload.objectsTruncated === true || payload.systemsTruncated === true;
+    applyFleetAnswers({ fine, coarse }, range);
     _lastUpdate = Date.now();
     _error = null;
     _status = _count > 0 ? 'ready' : 'empty';
@@ -2103,7 +2607,14 @@ function onCameraSettled() {
   // and it is exactly what moves the vehicles across the screen. So the pins
   // are chosen again here, on arrival, and not only on the load path.
   refreshPins();
+  // A zoom inside the band that asks the same boxes again still moves the
+  // weights: the level that owns the key is decided again on every settle.
+  const ownerMoved = !_countryView && settleOwnership(viewRangeM(_viewer));
   refreshBubbles();
+  if (ownerMoved) {
+    _count = fleetCount();
+    _rowControlsListener?.();
+  }
   // A zoom inside the country view makes room for the labels that yielded.
   if (_countryView) refreshPlaces();
   void loadViewport();
@@ -2165,7 +2676,9 @@ function collectDetectableObjects(options = {}) {
  *   operators: Map<string, {operator: object, count: number}>, stations: number, shown: number}}
  */
 function legendTally() {
-  const payload = _lastPayload;
+  // The dominant level's answer: inside the fade band the two levels hold the
+  // same vehicles, and the key counts them once.
+  const payload = ownerPayload();
   const box = _viewer ? cameraSharedMobilityBox(_viewer) : null;
   const key = [_kindFilter, _operatorFilter, box ? [box.south, box.west, box.north, box.east].map((v) => v.toFixed(4)).join(',') : '']
     .join('|');
@@ -2293,7 +2806,8 @@ function buildLoadingLabel() {
   if (_status === 'empty') {
     // A filter that hides everything has to own it: « aucun véhicule ne se
     // signale ici » would blame the feed for the reader's own choice.
-    const held = (_lastPayload?.stations?.length || 0) + (_lastPayload?.vehicles?.length || 0);
+    const owner = ownerPayload();
+    const held = (owner?.stations?.length || 0) + (owner?.vehicles?.length || 0);
     if ((_kindFilter || _operatorFilter) && held > 0) return m.filteredOut;
     return _systemsMatched > 0 ? m.nothingReporting : m.noSystem;
   }
@@ -2368,6 +2882,10 @@ const sharedMobilityFranceLayer = {
     _countryView = false;
     _lastBox = null;
     _lastPayload = null;
+    _groupPayload = null;
+    _pendingDots = null;
+    _dotsLevel = null;
+    _dominant = 'vehicles';
     resetFloorRetries();
 
     _overlayHost.setVisible(SHARED_MOBILITY_FR_OVERLAY_SOURCE_ID, false);
@@ -2390,9 +2908,9 @@ const sharedMobilityFranceLayer = {
     // New availability or a filter on the docks: the groups count again,
     // from the answer in hand.
     _unsubscribeDocks = onMobilityDocksChanged(() => {
-      if (!_enabled || !Array.isArray(_lastPayload?.clusters)) return;
+      if (!_enabled || !groupedAnswer()) return;
       refreshBubbles();
-      _count = _records.size + _bubbleTotal;
+      _count = fleetCount();
     });
 
     if (!_cameraChangedAttached) {
@@ -2405,6 +2923,9 @@ const sharedMobilityFranceLayer = {
     if (!_preRenderRemover) {
       _preRenderRemover = viewer.scene.preRender.addEventListener(onPreRender);
     }
+    // The groups ↔ vehicles fade — see `onFadeFrame`.
+    _fadeHandle = watchZoomFade(viewer, SHARED_MOBILITY_FR_LAYER_ID, onFadeFrame);
+    _fadeForce = true;
     void loadViewport({ force: true });
     restoreSpriteOrder(viewer);
   },
@@ -2441,6 +2962,8 @@ const sharedMobilityFranceLayer = {
       _preRenderRemover();
       _preRenderRemover = null;
     }
+    _fadeHandle?.release();
+    _fadeHandle = null;
 
     _points.show = false;
     _pins.show = false;
@@ -2548,10 +3071,30 @@ const sharedMobilityFranceLayer = {
     if (!_enabled) return [];
     const limit = Number.isFinite(maxCount) ? Math.max(1, Math.floor(maxCount)) : 2000;
     const out = [];
-    for (const record of _records.values()) {
-      if (out.length >= limit) break;
-      const readout = sharedMobilityReadout(record);
-      if (readout && Number.isFinite(readout.lat) && Number.isFinite(readout.lon)) out.push(readout);
+    // The owning level's objects: inside the fade band the dots and the
+    // bubbles are the same vehicles twice, and the engine counts rows.
+    const owner = ownerPayload();
+    if (!owner || owner === _lastPayload) {
+      for (const record of _records.values()) {
+        if (out.length >= limit) break;
+        const readout = sharedMobilityReadout(record);
+        if (readout && Number.isFinite(readout.lat) && Number.isFinite(readout.lon)) out.push(readout);
+      }
+    } else {
+      // The city level owns the band's upper half while the dots are the
+      // street answer's: its loose vehicles are read from its own answer.
+      const systemsById = new Map((owner.systems || []).map((system) => [system.id, system]));
+      for (const vehicle of looseVehicles(owner)) {
+        if (out.length >= limit) break;
+        const readout = sharedMobilityReadout({
+          id: vehicle.id || `${vehicle.system}:${vehicle.lat},${vehicle.lon}`,
+          type: 'vehicle',
+          object: vehicle,
+          system: systemsById.get(vehicle.system) || {},
+          operator: payloadOperator(owner, vehicle.system),
+        });
+        if (readout && Number.isFinite(readout.lat) && Number.isFinite(readout.lon)) out.push(readout);
+      }
     }
     // While the groups are drawn the answer carries numbers, not vehicles, and
     // the engine counts ROWS: without these it would have said « 20 » over a
@@ -2564,9 +3107,9 @@ const sharedMobilityFranceLayer = {
         const system = tag.slice(0, cut);
         const kind = tag.slice(cut + 1);
         if (_kindFilter && familyOfKind(kind) !== _kindFilter) continue;
-        const operator = payloadOperator(_lastPayload, system);
+        const operator = payloadOperator(owner, system);
         if (_operatorFilter && operator.id !== _operatorFilter) continue;
-        const systemName = (_lastPayload?.systems || []).find((entry) => entry.id === system)?.name || null;
+        const systemName = (owner?.systems || []).find((entry) => entry.id === system)?.name || null;
         for (let i = 0; i < count && out.length < limit; i++) {
           out.push({
             id: `group:${cluster.id}:${tag}:${i}`,
@@ -2638,6 +3181,9 @@ const sharedMobilityFranceLayer = {
     if (_countryView) return countryRowControls();
     const tally = legendTally();
     const om = operatorMessages().legend;
+    // The key is the dominant level's: inside the fade band the city level's
+    // only from the band's upper half, where its bubbles outweigh the dots.
+    const ownerGrouped = _bubbles.size > 0 && ownerPayload() === groupedAnswer();
     const legend = [];
 
     const ranked = [...tally.operators.values()]
@@ -2688,7 +3234,7 @@ const sharedMobilityFranceLayer = {
     // One dock key per row: the Vélib' block above prints it when it has docks
     // on screen (`mobilityDockKeyShown`), and a second copy was noise. None
     // under the groups either: no dock is drawn there.
-    if (tally.stations > 0 && !_bubbles.size && !mobilityDockKeyShown()) legend.push(...dockFillLegend());
+    if (tally.stations > 0 && !ownerGrouped && !mobilityDockKeyShown()) legend.push(...dockFillLegend());
 
     const present = SHARED_MOBILITY_KIND_FILTERS
       .filter((filter) => tally.familiesAll[filter.id] > 0 || filter.id === _kindFilter);
@@ -2721,7 +3267,7 @@ const sharedMobilityFranceLayer = {
       legend,
       // Only while the groups are drawn: a bubble is the one mark here that
       // does not say what it is, and « 156 » alone could be anything.
-      note: _bubbles.size ? messages().legend.groupsNote : undefined,
+      note: ownerGrouped ? messages().legend.groupsNote : undefined,
       legendSegments,
       legendSegmentsLabel: messages().legend.segmentsLabel,
       // A block a filter emptied is not « hors de cette vue »: its objects are
@@ -2749,6 +3295,8 @@ const sharedMobilityFranceLayer = {
       _preRenderRemover();
       _preRenderRemover = null;
     }
+    _fadeHandle?.release();
+    _fadeHandle = null;
     if (_points) {
       unregisterSpriteCollection(SHARED_MOBILITY_FR_LAYER_ID, _points);
       viewer.scene.primitives.remove(_points);
@@ -2774,6 +3322,9 @@ const sharedMobilityFranceLayer = {
     resetFloorRetries();
     _records.clear();
     _lastPayload = null;
+    _groupPayload = null;
+    _pendingDots = null;
+    _dotsLevel = null;
     _rowControlsListener = null;
     _viewer = null;
   },
@@ -2784,9 +3335,12 @@ const sharedMobilityFranceLayer = {
  * `pins` stands in for the billboard collection, `project` for Cesium's
  * world-to-window transform and `chrome` for the overlay host's UI rectangles.
  */
-export function _setSharedMobilityStateForTest({ viewer, records, overlayHost, pins, project, chrome, groups, enabled = false }) {
+export function _setSharedMobilityStateForTest({
+  viewer, records, overlayHost, pins, project, chrome, groups, points, enabled = false,
+}) {
   _viewer = viewer || null;
   _enabled = enabled === true;
+  if (points !== undefined) _points = points;
   _records = new Map((records || []).map((record) => [record.id, record]));
   _selectedId = null;
   _pinnedIds = new Set();
@@ -2850,7 +3404,60 @@ export function _reanchorSharedMobilityForTest() {
 
 /** Seed the viewport answer the chips count and a filter repaints from. */
 export function _setSharedMobilityPayloadForTest(payload) {
+  // One answer, as above or under the band: it draws the dots, and the
+  // bubbles too when it carries groups.
+  const grouped = Array.isArray(payload?.clusters);
   _lastPayload = payload;
+  _dotsLevel = payload ? (grouped ? 'groups' : 'vehicles') : null;
+  _groupPayload = grouped ? payload : null;
+  _pendingDots = null;
+  _dominant = grouped ? 'groups' : 'vehicles';
+}
+
+/**
+ * Seed the two levels as a settle inside the band leaves them, and the owner
+ * the settled view picked — `rangeM` runs the production choice.
+ */
+export function _setSharedMobilityLevelsForTest({ dots = null, dotsLevel = null, groups = null, pending = null, rangeM = null }) {
+  _lastPayload = dots;
+  _dotsLevel = dots ? dotsLevel : null;
+  _groupPayload = groups;
+  _pendingDots = pending;
+  if (Number.isFinite(rangeM)) settleOwnership(rangeM);
+  return { dominant: _dominant, count: fleetCount() };
+}
+
+/**
+ * Run one frame of the production fade against the seeded state, with a
+ * stand-in for the shared frame read: `arrivals` is each level's ramp (1 when
+ * absent). Returns what the frame reported and which collections it showed.
+ */
+export function _runSharedMobilityFadeForTest({ arrivals = {} } = {}) {
+  let reported = null;
+  const stub = {
+    arrive() {},
+    arrival: (key) => arrivals[key] ?? 1,
+    report(state) { reported = state; },
+    release() {},
+  };
+  const previous = _fadeHandle;
+  _fadeHandle = stub;
+  _fadeForce = true;
+  try {
+    onFadeFrame(null, 0);
+  } finally {
+    _fadeHandle = previous;
+  }
+  return {
+    state: reported,
+    shown: {
+      points: _points?.show ?? null,
+      pins: _pins?.show ?? null,
+      sprites: _bubbleSprites?.show ?? null,
+      labels: _bubbleLabels?.show ?? null,
+    },
+    groupsInHand: Boolean(_groupPayload),
+  };
 }
 
 /** Row-control legend, for tests that do not construct a viewer. */

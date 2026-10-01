@@ -37,6 +37,13 @@ import sharedMobilityFranceLayer, {
   _sharedMobilityPinGeometryForTest,
   _setSharedMobilityPlacesForTest,
   _refreshSharedMobilityPlacesForTest,
+  _runSharedMobilityFadeForTest,
+  _setSharedMobilityLevelsForTest,
+  fadeLabelCollection,
+  planSharedMobilityAnswers,
+  sharedMobilityLevelsAt,
+  sharedMobilityZoomWeights,
+  SHARED_MOBILITY_GROUP_BAND,
   sharedMobilityBoxDegForAltitude,
   SHARED_MOBILITY_KIND_FILTERS,
   SHARED_MOBILITY_FR_OVERLAY_SOURCE_ID,
@@ -53,6 +60,7 @@ import {
   publishMobilityDocks,
 } from './mobilityDockBridge.js';
 import { SHARED_MOBILITY_PIN_SPACING_PX } from './sharedMobilityPins.js';
+import { sharedMobilityClusterCell } from './sharedMobilityClusters.js';
 
 function viewerWithView(degrees) {
   return {
@@ -979,4 +987,266 @@ test('under the groups a station is counted into its bubble, and the row prints 
     'the three dock lines once per row');
   _resetMobilityDockBridgeForTest();
   clearKindFilter();
+});
+
+// --- Fade on zoom: the groups and the vehicles ---------------------------------
+//
+// Between 3,500 m and 2,100 m of view range both levels are drawn, the bubbles
+// fading out as the dots fade in (`SHARED_MOBILITY_GROUP_BAND`). The rest stay
+// cuts: the proxy's count threshold, and the country view's places.
+
+/** A camera looking straight down from `rangeM`: its view range IS its altitude. */
+function fadeViewer(rangeM) {
+  return {
+    camera: {
+      positionCartographic: { height: rangeM },
+      positionWC: Cesium.Cartesian3.fromDegrees(2.35, 48.86, rangeM),
+      pitch: -Math.PI / 2,
+      computeViewRectangle: () => undefined,
+    },
+  };
+}
+
+/** A collection whose items keep their own colours, as Cesium's setters do. */
+function fadeableCollection() {
+  const items = [];
+  const colorProperty = (item, name, initial) => {
+    let value = initial ? Cesium.Color.clone(initial) : initial;
+    Object.defineProperty(item, name, {
+      get: () => value,
+      set: (next) => { value = next ? Cesium.Color.clone(next) : next; },
+      enumerable: true,
+    });
+  };
+  return {
+    items,
+    show: true,
+    get length() { return items.length; },
+    get(i) { return items[i]; },
+    add(options) {
+      const { color, fillColor, outlineColor, ...rest } = options;
+      const item = { ...rest };
+      colorProperty(item, 'color', color ?? Cesium.Color.WHITE);
+      if (fillColor) colorProperty(item, 'fillColor', fillColor);
+      if (outlineColor) colorProperty(item, 'outlineColor', outlineColor);
+      items.push(item);
+      return item;
+    },
+    remove(item) {
+      const at = items.indexOf(item);
+      if (at >= 0) items.splice(at, 1);
+      return at >= 0;
+    },
+    removeAll() { items.length = 0; },
+  };
+}
+
+/** Seed both levels on real-shaped collections, the bubbles drawn. */
+function seedBand(rangeM, levels) {
+  const points = new Cesium.PointPrimitiveCollection();
+  const dot = points.add({
+    position: Cesium.Cartesian3.fromDegrees(2.35, 48.86),
+    color: Cesium.Color.RED,
+    outlineColor: Cesium.Color.BLACK.withAlpha(0.9),
+  });
+  const sprites = fadeableCollection();
+  const labels = fadeableCollection();
+  const pins = fadeableCollection();
+  _setSharedMobilityStateForTest({
+    viewer: fadeViewer(rangeM), records: [], pins, groups: { sprites, labels }, points, enabled: true,
+  });
+  const seeded = _setSharedMobilityLevelsForTest({ ...levels, rangeM });
+  _refreshSharedMobilityBubblesForTest();
+  return { points, dot, sprites, labels, pins, ...seeded };
+}
+
+function unseedBand() {
+  _setSharedMobilityLevelsForTest({});
+  _setSharedMobilityStateForTest({ viewer: null, records: [], points: null });
+  _resetMobilityDockBridgeForTest();
+  clearKindFilter();
+}
+
+test('the band runs from 0.6 of the pins\' ceiling up to it, where the vehicles always started loading', () => {
+  const { ceilingM } = _sharedMobilityPinGeometryForTest();
+  assert.equal(SHARED_MOBILITY_GROUP_BAND.coarse, ceilingM, 'the vehicles are asked for exactly where they were');
+  assert.equal(SHARED_MOBILITY_GROUP_BAND.fine, 2_100);
+  const ratio = SHARED_MOBILITY_GROUP_BAND.coarse / SHARED_MOBILITY_GROUP_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `coarse/fine ${ratio}`);
+  // What the groups cost to keep down to the fine end: on a 1,440 × 900
+  // desktop (60° across, so tan(fovy/2) = tan 30° / 1.6) the grid there is the
+  // 0.002° step — ≈ 220 m cells, numbers rather than objects.
+  const metresPerPixel = (rangeM) => (2 * rangeM * (Math.tan(Math.PI / 6) / 1.6)) / 900;
+  assert.equal(sharedMobilityClusterCell(metresPerPixel(SHARED_MOBILITY_GROUP_BAND.fine)), 0.002);
+  assert.equal(sharedMobilityClusterCell(metresPerPixel(SHARED_MOBILITY_GROUP_BAND.coarse)), 0.004);
+});
+
+test('a settled view asks for the vehicles under the band, the groups over it, and both inside it', () => {
+  assert.deepEqual(sharedMobilityLevelsAt(1_300), { vehicles: true, groups: false });
+  assert.deepEqual(sharedMobilityLevelsAt(2_100), { vehicles: true, groups: false }, 'the groups weigh nothing at the fine end');
+  // Nor anywhere past 70 % of the band, where the reveal has drawn them out:
+  // no second request is spent on bubbles nobody would see.
+  assert.deepEqual(sharedMobilityLevelsAt(2_300), { vehicles: true, groups: false });
+  assert.deepEqual(sharedMobilityLevelsAt(2_700), { vehicles: true, groups: true });
+  assert.deepEqual(sharedMobilityLevelsAt(3_500), { vehicles: true, groups: true }, 'the old ceiling still asks for the vehicles');
+  assert.deepEqual(sharedMobilityLevelsAt(5_000), { vehicles: false, groups: true });
+  assert.deepEqual(sharedMobilityLevelsAt(Infinity), { vehicles: false, groups: true }, 'past the limb is the coarsest view');
+});
+
+test('a settle inside the band draws the dots from the street answer and the bubbles from the grid answer', () => {
+  const street = parisPayload();
+  const grid = groupsPayload();
+  const plan = planSharedMobilityAnswers({}, { fine: street, coarse: grid });
+  assert.equal(plan.dots, street);
+  assert.equal(plan.dotsLevel, 'vehicles');
+  assert.equal(plan.groups, grid);
+  assert.equal(plan.pendingDots, null);
+  // A pan inside the band replaces both, side by side.
+  const next = planSharedMobilityAnswers(plan, { fine: parisPayload(), coarse: groupsPayload() });
+  assert.notEqual(next.dots, street);
+  assert.notEqual(next.groups, grid);
+});
+
+test('the band is a reveal: the street view under 3,500 m stays the dots\' once 30 % in', () => {
+  // The band can only sit under the old ceiling, so the dots come in first.
+  assert.deepEqual(sharedMobilityZoomWeights(3_500), { fine: 0, coarse: 1 });
+  const lead = sharedMobilityZoomWeights(3_003);
+  assert.ok(lead.fine > 0.99 && lead.coarse > 0.5, 'dots full, bubbles still fading');
+  assert.deepEqual(sharedMobilityZoomWeights(2_440), { fine: 1, coarse: 0 }, 'the bubbles are gone 70 % in');
+  for (let range = 3_500; range >= 2_100; range -= 50) {
+    const weights = sharedMobilityZoomWeights(range);
+    assert.ok(weights.fine + weights.coarse >= 1 - 1e-9, `the layer dipped at ${range} m`);
+  }
+});
+
+test('inside the band both levels are drawn at their zoom weights, the counts fading with their bubbles', () => {
+  const { dot, sprites, labels } = seedBand(3_242, { dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload() });
+  const { state, shown } = _runSharedMobilityFadeForTest();
+  const zoom = sharedMobilityZoomWeights(3_242);
+  assert.ok(Math.abs(state.levels.vehicles - zoom.fine) < 1 / 64);
+  assert.ok(Math.abs(state.levels.groups - zoom.coarse) < 1 / 64);
+  assert.ok(state.levels.vehicles > 0.4 && state.levels.vehicles < 0.6, `dots coming in: ${state.levels.vehicles}`);
+  assert.ok(state.levels.groups > 0.7 && state.levels.groups < 0.9, `bubbles going: ${state.levels.groups}`);
+  assert.deepEqual(state.bands['groups-vehicles'], { fine: 2_100, coarse: 3_500, unit: 'm' });
+  assert.equal(state.viewRangeM, 3_242);
+  assert.deepEqual(shown, { points: true, pins: true, sprites: true, labels: true });
+  assert.ok(Math.abs(dot.color.alpha - state.levels.vehicles) < 1e-9, 'the dots carry the street level\'s weight');
+  assert.ok(Math.abs(dot.outlineColor.alpha - 0.9 * state.levels.vehicles) < 1e-9, 'and so does their rim');
+  assert.ok(sprites.items.length > 0 && labels.items.length > 0);
+  for (const item of sprites.items) assert.ok(Math.abs(item.color.alpha - state.levels.groups) < 1e-9);
+  for (const label of labels.items) {
+    assert.ok(Math.abs(label.fillColor.alpha - state.levels.groups) < 1e-9, 'a count never floats on a faded bubble');
+  }
+  unseedBand();
+});
+
+test('the heavier level owns the key: the bubbles\' count high in the band, the dots\' low in it', () => {
+  seedBand(3_200, { dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload() });
+  assert.equal(_setSharedMobilityLevelsForTest({
+    dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload(), rangeM: 3_200,
+  }).dominant, 'groups');
+  _refreshSharedMobilityBubblesForTest();
+  const operatorRows = () => Object.fromEntries(sharedMobilityFranceLayer.getRowControls().legend
+    .filter((row) => row.channel === 'Fournisseurs').map((row) => [row.label, row.count]));
+  assert.deepEqual(operatorRows(), { Lime: 700, Dott: 500, YEGO: 74 }, 'the proxy\'s count, counted once');
+  assert.match(sharedMobilityFranceLayer.getRowControls().note, /bulle/);
+  const grouped = sharedMobilityFranceLayer.getAnalystRecords(5_000);
+  assert.equal(grouped.length, 1_274, 'every grouped vehicle once, not the street answer\'s on top');
+
+  assert.equal(_setSharedMobilityLevelsForTest({
+    dots: parisPayload(), dotsLevel: 'vehicles', groups: groupsPayload(), rangeM: 2_400,
+  }).dominant, 'vehicles');
+  _refreshSharedMobilityBubblesForTest();
+  assert.deepEqual(operatorRows(), { Lime: 2, "Clem'": 1, Dott: 1, YEGO: 1 }, 'the street answer\'s, docks included');
+  assert.equal(sharedMobilityFranceLayer.getRowControls().note, undefined, 'the dots need no note on bubbles');
+  assert.ok(sharedMobilityFranceLayer.getAnalystRecords(5_000).every((row) => !row.grouped));
+  unseedBand();
+});
+
+test('under the band the bubbles fade out over the arriving dots, then are dropped at zero weight', async () => {
+  // The grid answer drew the bubbles from higher up; the street answer has
+  // just landed on a settle under the band, and the bubbles were kept for it.
+  const grid = groupsPayload();
+  const plan = planSharedMobilityAnswers({ dots: grid, dotsLevel: 'groups', groups: grid }, { fine: parisPayload() });
+  assert.equal(plan.groups, grid, 'kept, to fade out');
+  const { sprites } = seedBand(1_500, { dots: plan.dots, dotsLevel: plan.dotsLevel, groups: plan.groups });
+  let run = _runSharedMobilityFadeForTest({ arrivals: { vehicles: 0.5 } });
+  assert.equal(run.state.levels.vehicles, 0.5, 'the dots ramp in');
+  assert.equal(run.state.levels.groups, 0.5, 'the bubbles step down in the same proportion');
+  assert.equal(run.shown.sprites, true);
+  run = _runSharedMobilityFadeForTest();
+  assert.equal(run.state.levels.groups, 0);
+  assert.equal(run.shown.sprites, false, 'at zero the bubbles are hidden, not drawn transparent');
+  await new Promise((resolve) => { setTimeout(resolve, 5); });
+  assert.equal(_runSharedMobilityFadeForTest().groupsInHand, false, 'and dropped outside the frame');
+  assert.equal(sprites.items.length, 0);
+  unseedBand();
+});
+
+test('over the band the bubbles arrive over the dots, which hold until they are in', () => {
+  const street = parisPayload();
+  const grid = groupsPayload();
+  const plan = planSharedMobilityAnswers({ dots: street, dotsLevel: 'vehicles' }, { coarse: grid });
+  assert.equal(plan.dots, street, 'the dots stay while the bubbles come in');
+  assert.equal(plan.pendingDots, grid, 'the grid answer\'s loose vehicles take over after');
+  seedBand(5_000, { dots: plan.dots, dotsLevel: plan.dotsLevel, groups: plan.groups, pending: plan.pendingDots });
+  const before = _runSharedMobilityFadeForTest({ arrivals: { groups: 0 } });
+  assert.equal(before.state.levels.vehicles, 1, 'nothing goes dim before its replacement is drawn');
+  const middle = _runSharedMobilityFadeForTest({ arrivals: { groups: 0.5 } });
+  assert.equal(middle.state.levels.vehicles, 0.5);
+  assert.equal(middle.state.levels.groups, 0.5);
+  assert.equal(middle.state.pending, true);
+  unseedBand();
+});
+
+test('the count threshold and the country view stay hard cuts', () => {
+  // A grid request the proxy answered in dots — under 1,500 vehicles, a count
+  // and not a scale — has no second level to fade to: swapped whole.
+  const sparse = parisPayload();
+  const swap = planSharedMobilityAnswers({ dots: parisPayload(), dotsLevel: 'vehicles' }, { coarse: sparse });
+  assert.equal(swap.dots, sparse);
+  assert.equal(swap.dotsLevel, 'groups');
+  assert.equal(swap.groups, null);
+  assert.equal(swap.pendingDots, null, 'no hand-over: the same vehicles, redrawn');
+  // Inside the band such an answer adds nothing the street answer draws already.
+  const band = planSharedMobilityAnswers({}, { fine: parisPayload(), coarse: sparse });
+  assert.equal(band.groups, null);
+  // And over Paris, the same request answered in groups is swapped whole too
+  // when the dots on screen were already the city level's.
+  const grid = groupsPayload();
+  const dense = planSharedMobilityAnswers({ dots: sparse, dotsLevel: 'groups' }, { coarse: grid });
+  assert.equal(dense.dots, grid);
+  assert.equal(dense.pendingDots, null);
+
+  // The country view's places share the bubbles' collections and are never
+  // faded: they are the index's, not a level of this band.
+  const sprites = fadeableCollection();
+  const labels = fadeableCollection();
+  _setSharedMobilityStateForTest({
+    viewer: fadeViewer(1_100_000), records: [], groups: { sprites, labels }, chrome: [], enabled: true,
+  });
+  _setSharedMobilityPlacesForTest({ places: [{ id: 'lyon', name: 'Lyon', lat: 45.76, lon: 4.84, weight: 1, systems: [{ id: 'e', name: 'Dott Lyon' }] }] });
+  _refreshSharedMobilityPlacesForTest();
+  const { state, shown } = _runSharedMobilityFadeForTest();
+  assert.equal(state.levels.groups, 0, 'no group is drawn up there');
+  assert.equal(shown.sprites, true);
+  assert.ok(labels.items.length === 1 && labels.items[0].fillColor.alpha === 1);
+  _setSharedMobilityPlacesForTest(null, { countryView: false });
+  unseedBand();
+});
+
+test('a label collection fades fill and outline from the layer\'s own alpha, and follows a recolour', () => {
+  const labels = fadeableCollection();
+  const label = labels.add({ text: '156', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK.withAlpha(0.5) });
+  assert.equal(fadeLabelCollection(labels, 0.5), true);
+  assert.equal(label.fillColor.alpha, 0.5);
+  assert.equal(label.outlineColor.alpha, 0.25);
+  assert.equal(fadeLabelCollection(labels, 0.5), false, 'an unchanged weight writes nothing');
+  label.fillColor = Cesium.Color.YELLOW.withAlpha(0.8);
+  fadeLabelCollection(labels, 0.25, { force: true });
+  assert.ok(Math.abs(label.fillColor.alpha - 0.2) < 1e-9);
+  assert.equal(label.fillColor.green, 1, 'the hue is the layer\'s');
+  fadeLabelCollection(labels, 1);
+  assert.ok(Math.abs(label.fillColor.alpha - 0.8) < 1e-9, 'full strength gives the layer\'s own alpha back');
+  assert.equal(fadeLabelCollection(null, 1), false);
 });

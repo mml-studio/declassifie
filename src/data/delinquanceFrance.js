@@ -43,6 +43,7 @@ import {
   projectDelinquanceNational,
 } from './delinquanceDepartements.js';
 import { pickAt } from './pickAt.js';
+import { coverAlphas, levelVisible, watchZoomFade } from './zoomFade.js';
 import { formatDecimal, formatNumber } from '../i18n/format.js';
 import messages from './delinquanceFrance.i18n.js';
 import { serverFailureMessage } from '../i18n/serverMessages.js';
@@ -227,6 +228,33 @@ const DEPARTEMENTS_URL = new URL(
  *
  * The exit threshold is higher than the entry one so a camera resting on the
  * boundary does not swap the whole map back and forth on sub-pixel drift.
+ *
+ * ── Why this is still a HARD CUT and not a fade ─────────────────────────────
+ * Layers that change aggregation level with the camera can crossfade the two
+ * levels across a band of scale (`zoomFade.js`). That is honest only between
+ * two resolutions of ONE statistic on ONE set of colour breaks, and the two
+ * levels of this layer are not that, for three reasons the code makes:
+ *   1. Different breaks. The département ramp is cut in the browser over the
+ *      96 metropolitan département rates (`projectDelinquanceNational`); the
+ *      commune ramp is cut ONCE in the proxy over every published commune rate
+ *      in France and shipped in each pack (`thresholds`, vite.config.js). Six
+ *      colours, two sets of quantiles over two populations: under the total,
+ *      the départements run from 24.4 ‰ (Cantal) to 109.9 ‰ (Paris) while the
+ *      communes reach 1 512 ‰ (Roissy-en-France). A crimson département and a
+ *      crimson commune are not the same rate, and inside a band one would be
+ *      drawn through the other.
+ *   2. A different total. The indicator the layer opens on sums 16
+ *      contributors at département grain and is exact there; at commune grain
+ *      it sums 14 and is a floor in 9 428 of the 9 606 communes that carry one.
+ *   3. A state the coarse level does not have. Withheld (slate) exists only at
+ *      commune grain. That the national map looks complete and one zoom later
+ *      half of it is slate is the finding, and a crossfade would blur it into a
+ *      gradual greying.
+ * So the swap stays on this 0.75° / 1.1° hysteresis. What changed is that it
+ * no longer goes blank while the next level is fetched and built: the level
+ * being left stays fully drawn until the one replacing it is ready, and the
+ * two then trade places in one frame — never a blend, never a resting state
+ * with both on screen. See {@link delinquanceLevelAlphas}.
  */
 export const COMMUNE_ENTER_SPAN_DEG = 0.75;
 export const COMMUNE_EXIT_SPAN_DEG = 1.1;
@@ -355,8 +383,21 @@ let _depEntities = new Map();
 let _depMeta = new Map();
 let _depIndex = null;
 let _depShapesPromise = null;
+/**
+ * One material per fill key, kept across repaints. Assigning a NEW material
+ * object to an entity rebuilds its ground batch, so a repaint that hands every
+ * département the object it already has is free — and showing the level again
+ * after the commune regime is a show-attribute write, not a rebuild.
+ */
+const _depMaterials = new Map();
+/** Codes the current indicator paints; the rest are drawn as absence. */
+let _depPaintedCodes = new Set();
+/** The département level carries the current indicator's fills. */
+let _depPainted = false;
+/** Whether the département level is shown, as the swap last decided. */
+let _depShown = false;
 
-/** Commune regime. */
+/** Commune regime: the drawing on screen. */
 let _packs = new Map();
 let _packPromises = new Map();
 let _packErrors = new Map();
@@ -364,8 +405,24 @@ let _communeRecords = new Map();
 let _fills = null;
 let _outlines = null;
 let _suppressedOutlines = null;
+/** Whether the commune drawing on screen is shown, as the swap last decided. */
+let _communesShown = false;
+/**
+ * The commune level is drawn for the view the regime asked about — possibly
+ * as nothing at all, over the sea or after a failed fetch. An empty answer is
+ * an answer: the départements do not hold the screen at commune zoom for it.
+ */
+let _communeLevelDrawn = false;
+/**
+ * The commune drawing being built to replace the one on screen: built hidden,
+ * promoted by the frame callback once every primitive in it is ready.
+ * @type {?{fills:?object, outlines:?object, suppressedOutlines:?object, records:Map}}
+ */
+let _pendingCommunes = null;
 let _visibleDeps = [];
 let _classificationType = Cesium.ClassificationType.BOTH;
+/** `watchZoomFade` handle while the layer is enabled. */
+let _fade = null;
 
 // --- Formatting ------------------------------------------------------------
 
@@ -528,6 +585,28 @@ export function delinquanceRegimeFor(spanDeg, current = 'departements') {
   if (current === 'communes') return span > COMMUNE_EXIT_SPAN_DEG ? 'departements' : 'communes';
   return span <= COMMUNE_ENTER_SPAN_DEG ? 'communes' : 'departements';
   // i18n-ignore-end
+}
+
+/**
+ * Which of the two levels is drawn, given the regime and what is on screen.
+ *
+ * The regime is the TARGET and stays a hard cut (see
+ * {@link COMMUNE_ENTER_SPAN_DEG} for why it may not fade). What this adds is
+ * the cover rule: the level being left holds full strength until the level
+ * replacing it is actually drawn, so the swap never shows an empty globe for
+ * the length of a pack fetch — up to six packs of ~276 KB gzipped on the way
+ * in, a ground-batch build on the way out. The layer runs no arrival ramp, so
+ * every alpha here is 0 or 1: the two levels trade places in one frame and are
+ * never blended, not even for the 260 ms a fade layer would take.
+ *
+ * @param {{regime: string, departementsReady: boolean, communesReady: boolean}} state
+ * @returns {{departements: number, communes: number}}
+ */
+export function delinquanceLevelAlphas({ regime, departementsReady = false, communesReady = false } = {}) {
+  // i18n-ignore-next-line — a regime key, compared.
+  const target = regime === 'communes' ? { fine: 1, coarse: 0 } : { fine: 0, coarse: 1 };
+  const alphas = coverAlphas(target, { fineReady: communesReady, coarseReady: departementsReady });
+  return { departements: alphas.coarse, communes: alphas.fine };
 }
 
 /** The camera rectangle as a plain box, padded. */
@@ -1067,43 +1146,64 @@ async function ensureDepartementShapes() {
   return _depShapesPromise;
 }
 
+/**
+ * Give every département the fill of the current indicator.
+ *
+ * Paints, and does not decide visibility: whether the level is on screen is
+ * the swap's call ({@link delinquanceLevelAlphas}), made per frame. It runs in
+ * BOTH regimes, so the level that covers a zoom-out already carries the
+ * indicator the reader picked while they were looking at communes.
+ */
 function repaintDepartements() {
-  if (!_national) return;
-  const materials = new Map();
+  if (!_national || !_depEntities.size) return;
   const painted = new Set();
   for (const row of _national.departements || []) {
     if (row.state === null || row.state === undefined) continue;
     const fill = delinquanceFill(row.state, row.bin);
     const key = `${fill.css}|${fill.alpha}`;
-    let material = materials.get(key);
+    let material = _depMaterials.get(key);
     if (!material) {
       material = new Cesium.ColorMaterialProperty(
         Cesium.Color.fromCssColorString(fill.css).withAlpha(fill.alpha),
       );
-      materials.set(key, material);
+      _depMaterials.set(key, material);
     }
     const parts = _depEntities.get(row.code);
     if (!parts) continue;
     painted.add(row.code);
     for (const entity of parts) {
       if (!entity.polygon) continue;
-      entity.polygon.material = material;
-      entity.show = true;
+      // The same object again is no change at all; a new one is a rebuild.
+      if (entity.polygon.material !== material) entity.polygon.material = material;
     }
   }
   // A département with no row at all is drawn as absence, not as the bottom
-  // of the scale.
-  for (const [code, parts] of _depEntities) {
-    if (painted.has(code)) continue;
-    for (const entity of parts) entity.show = false;
-  }
+  // of the scale: it stays hidden whatever the swap decides.
+  _depPaintedCodes = painted;
+  _depPainted = true;
+  applyDepartementShow();
   _viewer?.scene?.requestRender?.();
 }
 
-function hideDepartements() {
-  for (const parts of _depEntities.values()) {
-    for (const entity of parts) entity.show = false;
+/** Write `_depShown` onto the entities — at a transition, never per frame. */
+function applyDepartementShow() {
+  for (const [code, parts] of _depEntities) {
+    const show = _depShown && _depPaintedCodes.has(code);
+    for (const entity of parts) {
+      if (entity.show !== show) entity.show = show;
+    }
   }
+}
+
+function setDepartementsShown(show) {
+  if (show === _depShown) return;
+  _depShown = show;
+  applyDepartementShow();
+}
+
+function hideDepartements() {
+  _depShown = false;
+  applyDepartementShow();
   _overlayHost.clearSource(DELINQUANCE_FR_LABEL_SOURCE_ID);
 }
 
@@ -1204,14 +1304,73 @@ async function ensurePack(dep) {
 
 // --- Commune regime ---------------------------------------------------------
 
-function clearCommunePrimitives() {
-  for (const primitive of [_fills, _outlines, _suppressedOutlines]) {
+function removePrimitives(list) {
+  for (const primitive of list) {
     if (primitive && _viewer?.scene?.primitives) _viewer.scene.primitives.remove(primitive);
   }
+}
+
+/** Drop the commune drawing on screen. The one being built is left alone. */
+function clearCommuneDrawing() {
+  removePrimitives([_fills, _outlines, _suppressedOutlines]);
   _fills = null;
   _outlines = null;
   _suppressedOutlines = null;
+  _communesShown = false;
+  _communeLevelDrawn = false;
   _communeRecords = new Map();
+}
+
+/** The view has no commune to draw: that, too, replaces the départements. */
+function drawNoCommunes() {
+  discardPendingCommunes();
+  clearCommuneDrawing();
+  _communeLevelDrawn = true;
+}
+
+function discardPendingCommunes() {
+  if (!_pendingCommunes) return;
+  removePrimitives([_pendingCommunes.fills, _pendingCommunes.outlines, _pendingCommunes.suppressedOutlines]);
+  _pendingCommunes = null;
+}
+
+function clearCommunePrimitives() {
+  discardPendingCommunes();
+  clearCommuneDrawing();
+}
+
+function setCommunesShown(show) {
+  if (show === _communesShown) return;
+  _communesShown = show;
+  for (const primitive of [_fills, _outlines, _suppressedOutlines]) {
+    if (primitive) primitive.show = show;
+  }
+}
+
+/**
+ * Whether every primitive of a drawing has been built. A `GroundPrimitive`
+ * built with `asynchronous: true` is ready a few frames after it is added —
+ * and it builds while hidden, which is what lets the next drawing wait out of
+ * sight instead of the old one being cleared first.
+ */
+function communeDrawingReady(drawing) {
+  if (!drawing) return false;
+  const primitives = [drawing.fills, drawing.outlines, drawing.suppressedOutlines].filter(Boolean);
+  return primitives.length > 0 && primitives.every((primitive) => primitive.ready === true);
+}
+
+/** Put the drawing that has finished building in place of the one on screen. */
+function promotePendingCommunes() {
+  const next = _pendingCommunes;
+  _pendingCommunes = null;
+  clearCommuneDrawing();
+  _fills = next.fills;
+  _outlines = next.outlines;
+  _suppressedOutlines = next.suppressedOutlines;
+  _communeRecords = next.records;
+  _communeLevelDrawn = true;
+  // Hidden as built; the swap shows it in this same frame.
+  _communesShown = false;
 }
 
 /** Flat `[lon, lat, …]` to Cartesian positions. */
@@ -1272,9 +1431,21 @@ export function buildDelinquanceCommuneRecords({ packs, indicator }) {
   return { records, states };
 }
 
+/**
+ * Build the commune drawing for one view, HIDDEN, as the pending drawing.
+ *
+ * The drawing on screen — the previous view's communes on a pan, the
+ * départements on the way in — stays until this one is ready; the frame
+ * callback then swaps them in one frame. Clearing first, as this used to,
+ * showed an empty globe for the whole build, and on the way in for the pack
+ * fetch before it.
+ */
 function drawCommunes(records) {
-  clearCommunePrimitives();
-  if (!records.length || !_viewer) return;
+  discardPendingCommunes();
+  if (!records.length || !_viewer) {
+    drawNoCommunes();
+    return;
+  }
 
   const fillInstances = [];
   const outlineInstances = [];
@@ -1282,9 +1453,10 @@ function drawCommunes(records) {
   const outlineColor = Cesium.Color.fromCssColorString(OUTLINE_COLOR).withAlpha(OUTLINE_ALPHA);
   const suppressedOutlineColor = Cesium.Color
     .fromCssColorString(SUPPRESSED_OUTLINE_COLOR).withAlpha(SUPPRESSED_OUTLINE_ALPHA);
+  const pending = { fills: null, outlines: null, suppressedOutlines: null, records: new Map() };
 
   for (const record of records) {
-    _communeRecords.set(record.id, record);
+    pending.records.set(record.id, record);
     const fill = delinquanceFill(record.state, record.bin);
     const color = Cesium.Color.fromCssColorString(fill.css).withAlpha(fill.alpha);
     for (const part of record.parts) {
@@ -1319,17 +1491,20 @@ function drawCommunes(records) {
       else outlineInstances.push(outline);
     }
   }
-  if (!fillInstances.length) return;
+  if (!fillInstances.length) {
+    drawNoCommunes();
+    return;
+  }
 
-  _fills = new Cesium.GroundPrimitive({
+  pending.fills = new Cesium.GroundPrimitive({
     geometryInstances: fillInstances,
     appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true }),
     classificationType: _classificationType,
     asynchronous: true,
     releaseGeometryInstances: false,
   });
-  _fills.show = _enabled;
-  _viewer.scene.primitives.add(_fills);
+  pending.fills.show = false;
+  _viewer.scene.primitives.add(pending.fills);
 
   for (const [instances, target] of [[outlineInstances, 'plain'], [suppressedOutlineInstances, 'suppressed']]) {
     if (!instances.length) continue;
@@ -1340,12 +1515,53 @@ function drawCommunes(records) {
       asynchronous: true,
       releaseGeometryInstances: false,
     });
-    primitive.show = _enabled;
+    primitive.show = false;
     _viewer.scene.primitives.add(primitive);
-    if (target === 'suppressed') _suppressedOutlines = primitive;
-    else _outlines = primitive;
+    if (target === 'suppressed') pending.suppressedOutlines = primitive;
+    else pending.outlines = primitive;
   }
+  _pendingCommunes = pending;
   governorRequestRender('delinquance-draw');
+}
+
+// --- The swap between the two levels -----------------------------------------
+
+/**
+ * Per frame: promote a commune drawing that finished building, then show the
+ * level the regime asks for — or, until it is drawn, the one it replaces.
+ *
+ * Nothing here fetches or builds. While a drawing is pending this asks for the
+ * next frame itself: a ground primitive turns `ready` in an after-render
+ * callback that requests no further frame, so in request-render mode the swap
+ * would otherwise wait for the next camera move with both drawings built.
+ */
+function onLevelFrame() {
+  if (_pendingCommunes && communeDrawingReady(_pendingCommunes)) promotePendingCommunes();
+  const alphas = delinquanceLevelAlphas({
+    regime: _regime,
+    departementsReady: _depPainted,
+    communesReady: _communeLevelDrawn,
+  });
+  setDepartementsShown(levelVisible(_enabled, alphas.departements));
+  setCommunesShown(levelVisible(_enabled, alphas.communes));
+  // A level at zero is dropped, not kept invisible: once the départements
+  // have taken over, the commune drawing is released.
+  // i18n-ignore-next-line — a regime key, compared.
+  if (_regime === 'departements' && _communeLevelDrawn && !levelVisible(true, alphas.communes)) {
+    clearCommuneDrawing();
+  }
+  if (_pendingCommunes) governorRequestRender('delinquance-fr-pending');
+  _fade?.report({
+    levels: { departements: alphas.departements, communes: alphas.communes },
+    dominant: _regime,
+    bands: {},
+    hardCuts: {
+      'departements-communes': {
+        enter: COMMUNE_ENTER_SPAN_DEG, exit: COMMUNE_EXIT_SPAN_DEG, unit: 'deg-lat',
+      },
+    },
+    pending: Boolean(_pendingCommunes),
+  });
 }
 
 // --- Reconciliation ---------------------------------------------------------
@@ -1375,11 +1591,14 @@ async function loadViewport({ force = false } = {}) {
   _loading = true;
   _error = null;
   try {
-    await Promise.all([ensureBase(), ensureDepartementShapes().catch((error) => {
+    const [, shapes] = await Promise.all([ensureBase(), ensureDepartementShapes().catch((error) => {
       console.warn('[Data:Délinquance-FR] département shapes unavailable:', error?.message || error);
       _error = messages().errors.departementShapes;
       return null;
     })]);
+    // No outlines is an answer too, and the row already says so: the commune
+    // drawing must not hold the national view for a level that cannot come.
+    if (!shapes) _depPainted = true;
     if (!_base) {
       _status = 'empty';
       _count = 0;
@@ -1388,34 +1607,47 @@ async function loadViewport({ force = false } = {}) {
     recomputeNational();
 
     const span = delinquanceViewSpanDeg(_viewer);
-    const next = delinquanceRegimeFor(span, _regime);
-    const changed = next !== _regime;
-    _regime = next;
+    _regime = delinquanceRegimeFor(span, _regime);
+
+    // Both regimes repaint: the département level is the one that covers a
+    // zoom-out, and it must already carry the indicator picked meanwhile.
+    repaintDepartements();
 
     if (_regime === 'departements') {
-      if (changed || force) clearCommunePrimitives();
-      repaintDepartements();
+      // The commune drawing is NOT cleared here. It stays on screen until the
+      // départements are shown, and the frame callback drops it then; a
+      // commune build still in flight is for a view the camera has left.
+      discardPendingCommunes();
       publishDepartementOverlay();
       _count = _national?.painted || 0;
       _status = 'ok';
       _lastUpdate = new Date();
+      _fade?.frame();
       return;
     }
 
-    hideDepartements();
+    // The ambient labels belong to the département regime and leave with it;
+    // the département FILLS stay until the communes are ready to replace them.
+    _overlayHost.clearSource(DELINQUANCE_FR_LABEL_SOURCE_ID);
     const box = delinquanceViewBox(_viewer);
     const deps = departementsInBox(_depIndex, box, COMMUNE_MAX_PACKS);
     _visibleDeps = deps;
     if (!deps.length) {
-      clearCommunePrimitives();
+      drawNoCommunes();
       _count = 0;
       _status = 'empty';
+      _fade?.frame();
       return;
     }
     await Promise.all(deps.map((dep) => ensurePack(dep)));
+    // The camera may have left the commune regime while the packs were in
+    // flight; a drawing for that view would only be built to be dropped.
+    // i18n-ignore-next-line — a regime key, compared.
+    if (!_enabled || _regime !== 'communes') return;
     const packs = deps.map((dep) => _packs.get(dep)).filter(Boolean);
     const { records, states } = buildDelinquanceCommuneRecords({ packs, indicator: _indicator });
     drawCommunes(records);
+    _fade?.frame();
     _count = records.length;
     _status = records.length ? 'ok' : 'empty';
     if (_packErrors.size && !records.length) _error = messages().errors.communeContours;
@@ -1499,9 +1731,10 @@ const delinquanceFranceLayer = {
     _enabled = true;
     _error = null;
     if (_depDataSource) _depDataSource.show = true;
-    for (const primitive of [_fills, _outlines, _suppressedOutlines]) {
-      if (primitive) primitive.show = true;
-    }
+    // Which level is shown is the swap's call, made per frame — and nothing
+    // else here is: arrivals are instant, so the handle only paces the swap
+    // and publishes what is drawn for the harness.
+    _fade = watchZoomFade(viewer, DELINQUANCE_FR_LAYER_ID, onLevelFrame, { arrivalMs: 0 });
     _overlayHost.setVisible(DELINQUANCE_FR_OVERLAY_SOURCE_ID, true);
     _overlayHost.setVisible(DELINQUANCE_FR_LABEL_SOURCE_ID, true);
     installClickHandler(viewer);
@@ -1518,6 +1751,8 @@ const delinquanceFranceLayer = {
 
   disable(viewer) {
     _enabled = false;
+    _fade?.release();
+    _fade = null;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
     clearSelection();
@@ -1753,6 +1988,10 @@ const delinquanceFranceLayer = {
       _depDataSource = null;
     }
     _depEntities.clear();
+    _depMaterials.clear();
+    _depPaintedCodes = new Set();
+    _depPainted = false;
+    _depShown = false;
     _depMeta = new Map();
     _depIndex = null;
     _depShapesPromise = null;
@@ -1816,6 +2055,55 @@ export function _clearDelinquanceSelectionForTest() {
   _regime = 'departements';
   _visibleDeps = [];
   _enabled = false;
+  _pendingCommunes = null;
+  _fills = null;
+  _outlines = null;
+  _suppressedOutlines = null;
+  _communesShown = false;
+  _communeLevelDrawn = false;
+  _depEntities = new Map();
+  _depPaintedCodes = new Set();
+  _depPainted = false;
+  _depShown = false;
+}
+
+/**
+ * Seed the two levels as the swap sees them, with stand-ins for the Cesium
+ * objects: entities are `{show}`, primitives `{ready, show}`. The production
+ * frame callback then runs against them through {@link _delinquanceLevelFrameForTest}.
+ */
+export function _setDelinquanceLevelsForTest({
+  viewer, regime = 'departements', depEntities = [], depPaintedCodes = null,
+  depPainted = false, depShown = false, current = null, pending = null, communeLevelDrawn = null,
+} = {}) {
+  _viewer = viewer || null;
+  _enabled = true;
+  _regime = regime;
+  _depEntities = new Map(depEntities);
+  _depPaintedCodes = new Set(depPaintedCodes || _depEntities.keys());
+  _depPainted = depPainted;
+  _depShown = depShown;
+  _fills = current?.fills || null;
+  _outlines = current?.outlines || null;
+  _suppressedOutlines = current?.suppressedOutlines || null;
+  _communeRecords = current?.records || new Map();
+  _communesShown = Boolean(current?.fills?.show);
+  _communeLevelDrawn = communeLevelDrawn ?? Boolean(current);
+  _pendingCommunes = pending
+    ? { fills: null, outlines: null, suppressedOutlines: null, records: new Map(), ...pending }
+    : null;
+}
+
+/** One production frame of the level swap; returns what it decided. */
+export function _delinquanceLevelFrameForTest() {
+  onLevelFrame();
+  return {
+    departementsShown: _depShown,
+    communesShown: _communesShown,
+    communeLevelDrawn: _communeLevelDrawn,
+    fills: _fills,
+    pending: _pendingCommunes,
+  };
 }
 
 /** Row controls, for tests that do not construct a viewer. */

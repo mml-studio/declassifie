@@ -49,8 +49,10 @@ let points;
 test.beforeEach(() => {
   _resetJoinsForTest();
   points = stubPoints();
+  // One stub for both the exact marks and the maillage's own: these tests ask
+  // what is drawn, not which of the fade classes it is drawn in.
   _setAmenitiesStateForTest({
-    enabled: true, regime: 'sites', points, records: new Map(),
+    enabled: true, regime: 'sites', points, meshPoints: points, records: new Map(),
     medecinsDrawing: false, truncated: 0, meshPick: null,
   });
   _amenitiesWatchMedecinsForTest(true);

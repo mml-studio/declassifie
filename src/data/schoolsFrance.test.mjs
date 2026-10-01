@@ -37,8 +37,15 @@ import schoolsFranceLayer, {
   _schoolsRowControlsForTest,
   _selectSchoolsDepartementForTest,
   _setSchoolsStateForTest,
+  SCHOOLS_SITE_FADE_BAND,
+  cameraSchoolsBox,
+  schoolsSiteFadeScale,
+  _composeSchoolsPointsForTest,
+  _schoolsFadeFrameForTest,
+  _setSchoolsRegimeForTest,
 } from './schoolsFrance.js';
-import { SCHOOL_LEVELS } from './schoolsFeed.js';
+import { SCHOOL_LEVELS, SCHOOLS_MAX_BOX_DEG } from './schoolsFeed.js';
+import { ROLE_MESH, ROLE_SHARED, ROLE_SITES, wantedPointLevels } from './prismMeshSitesFade.js';
 
 /**
  * Collapse every kind of space to a plain one before matching.
@@ -1101,4 +1108,118 @@ test('the level ladder and the dot sizes are untouched by the IPS join', () => {
   const { legend } = _schoolsRowControlsForTest();
   assert.deepEqual(legend.map((row) => row.label), ['École']);
   assert.deepEqual(legend.map((row) => row.count), [2]);
+});
+
+// --- Fade on zoom -------------------------------------------------------------
+
+const viewOf = (box) => ({
+  camera: {
+    computeViewRectangle: () => Cesium.Rectangle.fromDegrees(box.west, box.south, box.east, box.north),
+  },
+});
+
+test('the mesh ↔ sites band starts exactly where the proxy starts answering', () => {
+  assert.equal(SCHOOLS_SITE_FADE_BAND.coarse, SCHOOLS_MAX_BOX_DEG);
+  assert.equal(SCHOOLS_SITE_FADE_BAND.fine, 0.21);
+  const ratio = SCHOOLS_SITE_FADE_BAND.coarse / SCHOOLS_SITE_FADE_BAND.fine;
+  assert.ok(ratio >= 1.5 && ratio <= 2, `×${ratio.toFixed(2)}`);
+  // The widest view the band draws schools for is one the proxy answers.
+  const inside = { south: 47.8, west: 1.8, north: 47.95, east: 1.8 + SCHOOLS_MAX_BOX_DEG - 0.001 };
+  assert.ok(cameraSchoolsBox(viewOf(inside)));
+  assert.equal(wantedPointLevels(schoolsSiteFadeScale(SCHOOLS_MAX_BOX_DEG - 0.001, 25_000), SCHOOLS_SITE_FADE_BAND).sites, true);
+  assert.equal(cameraSchoolsBox(viewOf({ ...inside, east: 1.8 + SCHOOLS_MAX_BOX_DEG + 0.001 })), null);
+});
+
+test('a settled view in the band keeps both levels, and a view outside it one', () => {
+  const levels = (span, altitude) => wantedPointLevels(schoolsSiteFadeScale(span, altitude), SCHOOLS_SITE_FADE_BAND);
+  assert.deepEqual(levels(0.28, 20_000), { mesh: true, sites: true });
+  assert.deepEqual(levels(0.5, 35_000), { mesh: true, sites: false });
+  assert.deepEqual(levels(0.12, 9_000), { mesh: false, sites: true });
+  assert.deepEqual(levels(0.3, 46_000), { mesh: true, sites: false }, 'the altitude guard');
+});
+
+/**
+ * Two mesh dots standing on schools the viewport answer also holds — one of
+ * them at an address it shares with a SEGPA — and one the answer lacks.
+ */
+function schoolsBandFixture() {
+  const meshPick = {
+    picked: [
+      [47.9, 1.9, 214, SCHOOL_LEVELS.indexOf('ecole')],
+      [47.91, 1.91, 600, SCHOOL_LEVELS.indexOf('college')],
+      [47.99, 1.99, 80, SCHOOL_LEVELS.indexOf('ecole')],
+    ],
+    inBox: 6,
+    thinned: true,
+  };
+  const sites = [
+    site(),
+    site({ id: '0451111A', uai: '0451111A', lat: 47.91, lon: 1.91, level: 'college', enrolled: 600, name: 'Collège A' }),
+    // The SEGPA inside that collège: same address, counted inside its parent.
+    site({ id: '0451111B', uai: '0451111B', lat: 47.91, lon: 1.91, level: 'adapte', enrolled: 40, name: 'SEGPA A' }),
+    site({ id: '0452222C', uai: '0452222C', lat: 47.905, lon: 1.905, level: 'lycee', enrolled: 900, name: 'Lycée C' }),
+  ];
+  return { meshPick, sites };
+}
+
+test('inside the band the school a mesh dot stands on is ONE dot, on the site scale, held whole', () => {
+  const { meshPick, sites } = schoolsBandFixture();
+  const points = new Cesium.PointPrimitiveCollection();
+  _setSchoolsStateForTest({ records: [] });
+  const records = _composeSchoolsPointsForTest({ points, meshPick, sites, scale: 0.33 });
+  // Four schools and three mesh dots are FIVE dots: two of the mesh dots are
+  // schools the sites already draw.
+  assert.equal(records.size, 5);
+  assert.equal(points.length, 5, 'one dot per school, never two on one roof');
+  assert.equal(records.get('0450922H').fadeRole, ROLE_SHARED);
+  // The join a mesh click makes: the level the dot claimed, not the SEGPA.
+  assert.equal(records.get('0451111A').fadeRole, ROLE_SHARED);
+  assert.equal(records.get('0451111B').fadeRole, ROLE_SITES);
+  assert.equal(records.get('0452222C').fadeRole, ROLE_SITES);
+  assert.equal(records.get('47.99000,1.99000').fadeRole, ROLE_MESH);
+  // A shared dot is sized as the site it is; the mesh-only one keeps the
+  // smaller mesh scale, and it is the one fading out.
+  assert.equal(records.get('0451111A').baseSize, schoolPointSize(600));
+  assert.equal(records.get('47.99000,1.99000').baseSize, schoolsMeshPointSize(80));
+
+  const alphas = _schoolsFadeFrameForTest({ latSpan: 0.14, lonSpan: 0.33, heightM: 22_000 });
+  assert.equal(alphas.shared, 1);
+  assert.ok(alphas.sites > 0 && alphas.sites < 1);
+  assert.ok(alphas.mesh > 0 && alphas.mesh < 1);
+  assert.equal(records.get('0450922H').point.color.alpha, 1);
+  assert.ok(Math.abs(records.get('0452222C').point.color.alpha - alphas.sites) < 1e-9);
+  // The outline fades with the fill, so a faint dot is not a dark ring.
+  assert.ok(Math.abs(records.get('0452222C').point.outlineColor.alpha - 0.35 * alphas.sites) < 1e-6);
+
+  // Past the fine end, once the mesh is gone, every dot is a site at full.
+  const fine = _schoolsFadeFrameForTest({ latSpan: 0.05, lonSpan: 0.12, heightM: 8_000 });
+  assert.equal(fine.sites, 1);
+  assert.equal(fine.mesh, 0);
+  assert.equal(records.get('47.99000,1.99000').point.show, false, 'a dot at zero is hidden, not transparent');
+});
+
+test('the key follows the level that owns the band', () => {
+  const { meshPick, sites } = schoolsBandFixture();
+  const points = new Cesium.PointPrimitiveCollection();
+  _setSchoolsStateForTest({ records: [] });
+  _composeSchoolsPointsForTest({ points, meshPick, sites, scale: 0.33 });
+  const meshKey = _schoolsRowControlsForTest();
+  assert.equal(meshKey.legend.reduce((sum, row) => sum + row.count, 0), 3, 'the sample: three mesh dots');
+  assert.ok(meshKey.note, 'and the sample says it is one');
+  _composeSchoolsPointsForTest({ points, meshPick, sites, scale: 0.22 });
+  const siteKey = _schoolsRowControlsForTest();
+  assert.equal(siteKey.legend.reduce((sum, row) => sum + row.count, 0), 4, 'the inventory: four schools');
+  assert.equal(siteKey.note, undefined);
+});
+
+test('the national cut stays a cut: the dots hold until the prisms are drawn', () => {
+  const { meshPick } = schoolsBandFixture();
+  const points = new Cesium.PointPrimitiveCollection();
+  _setSchoolsStateForTest({ records: [] });
+  const records = _composeSchoolsPointsForTest({ points, meshPick, scale: 3 });
+  _setSchoolsRegimeForTest('national');
+  const alphas = _schoolsFadeFrameForTest({ latSpan: 10, lonSpan: 24, heightM: 1_500_000 });
+  assert.equal(alphas.mesh, 1);
+  assert.equal(alphas.nationalShown, false);
+  for (const record of records.values()) assert.equal(record.point.show, true);
 });

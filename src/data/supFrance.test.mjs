@@ -11,6 +11,7 @@
 // the status line are where they have to live.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as Cesium from 'cesium';
 
 import supFranceLayer, {
   SUP_FR_LABEL_COHORT_LIMIT,
@@ -36,6 +37,9 @@ import supFranceLayer, {
   _setSupStateForTest,
   _supDepartementOverlayForTest,
   _supRowControlsForTest,
+  _paintSupForTest,
+  _setSupRegimeForTest,
+  _supFadeFrameForTest,
 } from './supFrance.js';
 import {
   PRISM_MAX_HEIGHT_M,
@@ -1081,4 +1085,59 @@ test('band labels are French and every band has one', () => {
     assert.ok(supKindLabel(kind).length > 0);
   }
   assert.equal(supKindLabel('inconnu'), supKindLabel('autre'));
+});
+
+// --- Fade on zoom: the one cut, with a cover ----------------------------------
+
+/** Two dots on a real point collection, as the sites regime draws them. */
+function drawnDots() {
+  const points = new Cesium.PointPrimitiveCollection();
+  return ['a', 'b'].map((id, index) => ({
+    id,
+    rentree: '2024',
+    site: site({ id, lat: 48.8 + index / 100 }),
+    baseColor: supKindColor('universite'),
+    baseSize: 8,
+    point: points.add({
+      id,
+      position: Cesium.Cartesian3.fromDegrees(2.3, 48.8 + index / 100),
+      color: Cesium.Color.fromCssColorString(supKindColor('universite')),
+      outlineColor: Cesium.Color.WHITE.withAlpha(0.55),
+      pixelSize: 8,
+    }),
+  }));
+}
+
+test('the prisms and the dots never rest on screen together: the cut stays a cut', () => {
+  // A share at bac+4 and beyond above dots coloured by kind of establishment:
+  // two indicators, so no view, however close to the threshold, may show both
+  // at rest. Both sides drawn, no ramp running — each regime shows its own.
+  const records = drawnDots();
+  _setSupStateForTest({ regime: 'sites', records });
+  for (const latSpan of [7.9, 8.5, 9.4]) {
+    _setSupRegimeForTest('sites');
+    _paintSupForTest();
+    const sites = _supFadeFrameForTest({ latSpan, lonSpan: latSpan * 2.4, heightM: 1_200_000 });
+    assert.equal(sites.nationalShown, false, `prisms off under the dots at ${latSpan}°`);
+    assert.equal(records[0].point.show, true);
+    assert.equal(records[0].point.color.alpha, 1);
+    // Leaving the regime unpainted its prisms; coming back paints them again,
+    // as `loadNational` does.
+    _setSupRegimeForTest('national');
+    _paintSupForTest();
+    const national = _supFadeFrameForTest({ latSpan, lonSpan: latSpan * 2.4, heightM: 1_200_000 });
+    assert.equal(national.nationalShown, true, `prisms on at ${latSpan}°`);
+    assert.equal(records[0].point.show, false, 'and the dots hidden, not drawn transparent');
+  }
+});
+
+test('the cut never shows an empty globe while the other side loads', () => {
+  // Zooming out with the rollup still in flight: nothing painted yet, so the
+  // dots stay whole. They used to be cleared before the rollup was asked for.
+  const records = drawnDots();
+  _setSupStateForTest({ regime: 'national', records });
+  const alphas = _supFadeFrameForTest({ latSpan: 10, lonSpan: 24, heightM: 1_500_000 });
+  assert.equal(alphas.sites, 1);
+  assert.equal(alphas.nationalShown, false);
+  for (const record of records) assert.equal(record.point.show, true);
 });

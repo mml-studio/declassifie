@@ -999,3 +999,21 @@ test('a section card keeps its own lines in the key', () => {
   assert.equal(panel.title, 'Section AH · Lyon 6e');
   assert.deepEqual(panel.lines, card.details);
 });
+
+test('inside the fade band a plot is read against its own answer, whichever level owns the key', () => {
+  // From 1 700 m the sections own the key, and their box names another commune
+  // first; a plot clicked through them still divides by its own commune.
+  const plot = {
+    id: '69386000AB0001', communeCode: '69386', count: 5, ratio: 1.2,
+    sale: { ...PORT_DU_TEMPLE, prixM2: 6_600, address: '12 RUE GARIBALDI' },
+  };
+  const plots = { years: [2025, 2024, 2023], plots: [plot], summary: { references: LYON_REFERENCES } };
+  const sections = { years: [2025, 2024, 2023], sections: [], summary: { references: [LYON_REFERENCES[1]] } };
+  const shape = { kind: 'plot', record: plot, parts: square(4.85, 45.77), level: 'fine' };
+  const selection = { card: { id: 'dvf-sales:ground' }, sale: plot.sale, parcelId: null, shape, payload: plots };
+  const panel = dvfSelectionPanel(selection, sections);
+  assert.match(panel.metric.caption[1], /^1,20 × le médian de Lyon 6e/u);
+  // Without its own answer it falls back on the one drawn, as before the band.
+  const fallback = dvfSelectionPanel({ ...selection, payload: undefined }, plots);
+  assert.match(fallback.metric.caption[1], /Lyon 6e/u);
+});

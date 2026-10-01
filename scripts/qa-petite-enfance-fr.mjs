@@ -70,8 +70,14 @@ const HEADFUL = args.includes('--headful');
  * cut out of.
  */
 const CITY = { lon: 4.8357, lat: 45.764 };
-/** Camera range for the commune grain — about a 0,3° span, well inside 0,45°. */
-const CLOSE_RANGE_M = 45_000;
+/**
+ * Camera range for the commune grain — about a 0,23° span at 1600×1000, past
+ * the commune band's fine end (0,27°). Inside the band (0,27° to 0,45°) the
+ * ground of the cut-out communes is drawn once per grain while one fades into
+ * the other, so the tiling and batching checks below would count it twice;
+ * past it the commune grain is drawn alone, as these checks expect.
+ */
+const CLOSE_RANGE_M = 36_000;
 /** Camera range above the hand-over, where the choropleth answers. */
 const WIDE_RANGE_M = 400_000;
 /** The most fill primitives a correct draw can hold: one per band colour. */
@@ -356,10 +362,13 @@ async function main() {
 
     // vii. above the hand-over, the choropleth answers and nothing is left over.
     await park(page, WIDE_RANGE_M);
+    // The territories now fade out as the choropleth fades in, and hold the
+    // screen until it is painted; wait for them to reach zero, then check
+    // they were DROPPED rather than kept invisible.
     const wide = await poll(page, () => {
       const layer = window.__godsEyeView.dataManager.layers.get('petite-enfance-fr').module;
       const state_ = layer.getTerritoriesForQa();
-      return state_.regime === 'national' ? state_ : null;
+      return state_.regime === 'national' && state_.levels?.epci === 0 ? state_ : null;
     }, 'the choropleth to take over');
     await pump(page, 12);
     await page.screenshot({ path: path.join(SHOTS_DIR, 'national.png') });

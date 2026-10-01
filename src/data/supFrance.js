@@ -31,6 +31,11 @@
  *              about the window's shape.
  *   sites    — every site in view, from the pack, with its card.
  *
+ * The two never rest on screen together — the prism's hue is a share, a dot's
+ * a kind — and the switch stays a hard cut on the latitude span; it only
+ * stopped going blank while the other side loads (see
+ * {@link NATIONAL_ENTER_SPAN_DEG}).
+ *
  * ── The national regime was a flat count fill, and that was the worst one ───
  * Until this pass the national view painted 2.96 million students as SIX
  * QUANTILE COLOURS over the 96 département polygons. That is the figure the
@@ -188,6 +193,13 @@ import {
   supPlacementLabel,
 } from './supFeed.js';
 import { supAdvancedShare } from './supDepartements.js';
+import { ARRIVAL_MS, watchZoomFade } from './zoomFade.js';
+import {
+  ARRIVAL_NATIONAL,
+  createRecordFader,
+  familyAlphas,
+  pointArrivalKey,
+} from './prismMeshSitesFade.js';
 import { pickAt } from './pickAt.js';
 import { formatDecimal, formatNumber } from '../i18n/format.js';
 import messages from './supFrance.i18n.js';
@@ -216,9 +228,27 @@ const DEPARTEMENTS_URL = new URL(
  * one so a camera resting on the boundary does not swap the whole map back and
  * forth on sub-pixel drift. The same pair `schools-fr` settled on, because it
  * is a fact about France and the screen rather than about either register.
+ *
+ * THIS IS THE LAYER'S ONLY LEVEL CHANGE, AND IT STAYS A HARD CUT. Of the three
+ * prism layers this is the one where fading would be plainest wrong: the
+ * prism's hue is a SHARE — the students at bac+4 and beyond — and a dot's hue
+ * is the KIND of establishment. A share above points of sites is the case
+ * `zoomFade.js` names as one that keeps its cut: for as long as a camera
+ * rested in a band, one key would be read against two indicators. The height
+ * is the same student count the dots sum to, and that does not change the
+ * colour's meaning. What changed is that the cut no longer goes BLANK: the
+ * dots used to be cleared before the polygons and the rollup were asked for,
+ * and the prisms hidden before the 0.62 MB pack was — now the side going out
+ * holds until the side coming in is drawn, and the two hand over in one
+ * 260 ms ramp carried by the dots (`prismMeshSitesFade.js`).
  */
 const NATIONAL_ENTER_SPAN_DEG = 9.5;
 const NATIONAL_EXIT_SPAN_DEG = 8;
+/** What the frame reports to the browser harness: one cut, no band. */
+const SUP_FADE_CUTS_REPORT = Object.freeze({
+  'national-sites': Object.freeze({ enter: NATIONAL_ENTER_SPAN_DEG, exit: NATIONAL_EXIT_SPAN_DEG, unit: 'deg-lat' }),
+});
+const SUP_FADE_BANDS_REPORT = Object.freeze({});
 const CAMERA_DEBOUNCE_MS = 450;
 /**
  * Poll cadence (ms). Very long on purpose: the register is published ONCE A
@@ -433,7 +463,6 @@ let _loading = false;
 let _error = null;
 let _status = 'idle';
 let _regime = 'national';
-let _requestGeneration = 0;
 
 let _national = null;
 let _nationalPromise = null;
@@ -449,6 +478,30 @@ let _packPromise = null;
 let _packError = null;
 let _inView = 0;
 let _studentsInView = 0;
+
+// Fade on zoom — the cut's cover, and nothing else: this layer has no band.
+/** Whether `_records` holds the dots of a drawn view. */
+let _sitesDrawn = false;
+/** Whether the département prisms are on screen right now. */
+let _depShown = false;
+/** Incremented on every settle, so a slow pack never draws over a newer view. */
+let _viewGeneration = 0;
+let _fade = null;
+let _retireTimer = null;
+let _fadeReportDirty = true;
+const _fadeAlphas = {
+  national: 0, nationalShown: false, shared: 1, sites: 1, mesh: 1, meshLevel: 0, sitesLevel: 0,
+};
+let _fadeNow = 0;
+const _fadeState = {
+  national: false,
+  nationalReady: false,
+  meshDrawn: false,
+  sitesDrawn: false,
+  scale: Infinity,
+  band: null,
+  arrival: (key) => (_fade ? _fade.arrival(key, _fadeNow) : 1),
+};
 
 // --- Colour and size --------------------------------------------------------
 
@@ -772,11 +825,40 @@ export function selectSupLabelCohort(entries, limit = SUP_FR_LABEL_COHORT_LIMIT)
 
 // --- Selection --------------------------------------------------------------
 
+/** A record's fade weight — 1 for a record no fade has touched. */
+function fadeWeightOf(record) {
+  return record?.fadeWeight ?? 1;
+}
+
 function restoreRecordStyle(record) {
   if (!record?.point) return;
-  record.point.color = Cesium.Color.fromCssColorString(record.baseColor);
+  record.point.color = Cesium.Color.fromCssColorString(record.baseColor).withAlpha(fadeWeightOf(record));
   record.point.pixelSize = record.baseSize;
 }
+
+const SELECTED_INK = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+/** Scratch for the per-frame writer: a point copies the colour it is given. */
+const _dotFadeScratch = new Cesium.Color();
+
+/**
+ * Write the cut's weight onto one dot: fill and white outline at their own
+ * alpha times the weight, and `show` off at zero — a dot faded out is hidden,
+ * not drawn transparent, because it would still answer a pick.
+ */
+function writeDotFade(record, weight) {
+  const point = record.point;
+  if (!point) return;
+  if (!record.inkValue) record.inkValue = Cesium.Color.fromCssColorString(record.baseColor);
+  Cesium.Color.clone(record.id === _selectedId ? SELECTED_INK : record.inkValue, _dotFadeScratch);
+  _dotFadeScratch.alpha = weight;
+  point.color = _dotFadeScratch;
+  Cesium.Color.clone(OUTLINE_COLOR, _dotFadeScratch);
+  _dotFadeScratch.alpha = OUTLINE_COLOR.alpha * weight;
+  point.outlineColor = _dotFadeScratch;
+  point.show = weight > 0;
+}
+
+const _dotFader = createRecordFader(writeDotFade);
 
 /**
  * Recolour the selected prism, height untouched.
@@ -810,6 +892,9 @@ function dropDepartementSelection() {
   if (_selectedId?.startsWith?.('dep:')) {
     _selectedId = null;
     _overlayHost.clearSource(SUP_FR_OVERLAY_SOURCE_ID);
+    // The prisms now stay on screen as the cover until the dots are drawn, so
+    // a cyan prism would outlive its card by that long: put its class back.
+    if (_depShown) repaintDepartements();
   }
 }
 
@@ -822,7 +907,9 @@ function clearSelection() {
   const departement = _selectedId?.startsWith?.('dep:') === true;
   const record = departement || !_selectedId ? null : _records.get(_selectedId);
   _selectedId = null;
-  if (departement) repaintDepartements();
+  // Not while the prisms are off screen: the repaint SHOWS what it paints, and
+  // only the national side of the cut decides that (`applyNationalVisibility`).
+  if (departement && (_depShown || !_enabled)) repaintDepartements();
   else if (record) restoreRecordStyle(record);
   _overlayHost.clearSource(SUP_FR_OVERLAY_SOURCE_ID);
   governorRequestRender('sup-fr-deselect');
@@ -834,7 +921,7 @@ function selectSite(id) {
   if (_selectedId && _selectedId !== id) clearSelection();
   _selectedId = id;
   if (record.point) {
-    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR);
+    record.point.color = Cesium.Color.fromCssColorString(SELECTED_COLOR).withAlpha(fadeWeightOf(record));
     record.point.pixelSize = SELECTED_POINT_PX;
   }
   const entry = createSupSelectedOverlayEntry(record);
@@ -902,6 +989,34 @@ function installClickHandler(viewer) {
     if (_selectedId) clearSelection();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   document.addEventListener('keydown', onKeyDown);
+}
+
+/**
+ * The per-frame half of the cut: the dots' weight over its 260 ms hand-over,
+ * and the prisms toggled at its ends. Nothing is fetched or built here, and a
+ * frame in which the weight did not move a step costs three comparisons.
+ */
+function onZoomFadeFrame(scale, nowMs) {
+  if (!_enabled) return;
+  _fadeNow = nowMs;
+  _fadeState.national = _regime === 'national';
+  _fadeState.nationalReady = _nationalPainted;
+  _fadeState.sitesDrawn = _sitesDrawn;
+  familyAlphas(_fadeState, _fadeAlphas);
+  const dots = _dotFader.apply(_records, _fadeAlphas);
+  const national = applyNationalVisibility(_fadeAlphas.nationalShown);
+  if (dots.changed || national || _fadeReportDirty) reportFade();
+}
+
+/** Publish the drawn state for the browser harness — on change only. */
+function reportFade() {
+  _fadeReportDirty = false;
+  _fade?.report({
+    levels: { national: _depShown ? 1 : 0, sites: _fadeAlphas.sitesLevel },
+    dominant: _regime,
+    bands: SUP_FADE_BANDS_REPORT,
+    cuts: SUP_FADE_CUTS_REPORT,
+  });
 }
 
 /** Keep the selected card pinned to its dot as the camera moves. */
@@ -1242,17 +1357,58 @@ function hideDepartements() {
     for (const entity of parts) entity.show = false;
   }
   _overlayHost.clearSource(SUP_FR_LABEL_SOURCE_ID);
+  _depShown = false;
 }
 
+/**
+ * Put the prisms on screen or take them off — the national side of the cut.
+ * TOGGLED, NEVER FADED, as in `irve-fr` and `schools-fr`: the hand-over is
+ * carried by the dots, and the entities are written at its two ends only.
+ *
+ * @param {boolean} show
+ * @returns {boolean} Whether anything changed.
+ */
+function applyNationalVisibility(show) {
+  if (show === _depShown) return false;
+  if (show) {
+    repaintDepartements();
+    _depShown = true;
+    publishDepartementOverlay();
+  } else {
+    hideDepartements();
+    if (_regime !== 'national') _nationalPainted = false;
+  }
+  governorRequestRender('sup-fr-national-cut');
+  return true;
+}
+
+/** Drop the dots once the prisms have finished arriving over them. */
+function retireSites() {
+  if (!_enabled || _regime !== 'national' || !_sitesDrawn || !_nationalPainted) return;
+  if (_fade && _fade.arrival(ARRIVAL_NATIONAL) < 1) return;
+  clearSites();
+  governorRequestRender('sup-fr-retire');
+}
+
+function scheduleRetire() {
+  clearTimeout(_retireTimer);
+  _retireTimer = setTimeout(() => {
+    _retireTimer = null;
+    retireSites();
+  }, ARRIVAL_MS + 60);
+}
+
+/**
+ * Enter (or refresh) the national regime. The dots are no longer cleared on
+ * the way in: they hold until the prisms are painted, step down over one
+ * arrival ramp, and go when it ends. A forced refresh leaves the painted
+ * prisms up until the new rollup repaints them.
+ */
 async function loadNational({ force = false } = {}) {
   _error = null;
-  clearSites();
-  if (force) {
-    _national = null;
-    _nationalPainted = false;
-  }
+  if (force) _national = null;
   _loading = !_national;
-  const generation = _requestGeneration;
+  const generation = _viewGeneration;
   try {
     await ensureDepartementShapes();
   } catch (error) {
@@ -1263,7 +1419,7 @@ async function loadNational({ force = false } = {}) {
     return;
   }
   await ensureNational();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'national') return;
+  if (generation !== _viewGeneration || !_enabled || _regime !== 'national') return;
   _loading = false;
   if (!_national) {
     _error = _nationalError || 'national rollup unavailable';
@@ -1273,10 +1429,19 @@ async function loadNational({ force = false } = {}) {
   _count = _national.painted || 0;
   _lastUpdate = Number(_national.fetchedAt) || Date.now();
   _status = _count > 0 ? 'ready' : 'empty';
-  if (_nationalPainted) return;
+  if (_nationalPainted && !force) {
+    retireSites();
+    return;
+  }
   _nationalPainted = true;
   repaintDepartements();
+  _depShown = true;
   publishDepartementOverlay();
+  if (_sitesDrawn) {
+    _fade?.arrive(ARRIVAL_NATIONAL);
+    scheduleRetire();
+  }
+  _fadeReportDirty = true;
   governorRequestRender('sup-fr-national');
 }
 
@@ -1356,6 +1521,13 @@ function reconcile(box) {
   _studentsInView = students;
   _count = _records.size;
   warmGroundFloor(warm.slice(0, GROUND_WARM_LIMIT));
+  // A pan redraws a level already on screen and owes no ramp; dots arriving
+  // where there were none — over the prisms, or over nothing — owe one.
+  const arrival = pointArrivalKey({ sites: _sitesDrawn }, { sites: true });
+  _sitesDrawn = true;
+  _dotFader.invalidate();
+  _fadeReportDirty = true;
+  if (arrival) _fade?.arrive(arrival);
   governorRequestRender('sup-fr-reconcile');
 }
 
@@ -1363,21 +1535,26 @@ function clearSites() {
   if (_selectedId && !_selectedId.startsWith('dep:')) clearSelection();
   if (_points) _points.removeAll();
   _records.clear();
-  _count = 0;
+  _count = _regime === 'national' ? (_national?.painted || 0) : 0;
   _inView = 0;
   _studentsInView = 0;
+  _sitesDrawn = false;
+  _fadeReportDirty = true;
 }
 
+/**
+ * Enter (or refresh) the sites regime. The prisms are no longer hidden on the
+ * way in: they hold until the dots are drawn — the first time, until the
+ * 0.62 MB pack has arrived — and go on the last frame of the dots' ramp.
+ */
 async function loadSites(box, { force = false } = {}) {
-  hideDepartements();
-  _nationalPainted = false;
   dropDepartementSelection();
   _error = null;
   if (force) _pack = null;
   _loading = !_pack;
-  const generation = ++_requestGeneration;
+  const generation = _viewGeneration;
   await ensurePack();
-  if (generation !== _requestGeneration || !_enabled || _regime !== 'sites') return;
+  if (generation !== _viewGeneration || !_enabled || _regime !== 'sites') return;
   _loading = false;
   if (!_pack) {
     _error = _packError || 'national register unavailable';
@@ -1395,6 +1572,8 @@ async function loadViewport({ force = false } = {}) {
   // it concludes it about the view the camera is showing right now. See
   // `cameraSettle.js`: an arrival on any other view has to be read afresh.
   markViewportRead(_viewer, SUP_FR_LAYER_ID);
+  _viewGeneration += 1;
+  _fadeReportDirty = true;
   const regime = updateRegime(_viewer);
   const box = regime === 'national' ? null : cameraSupBox(_viewer);
   // A camera that is inside the sites regime but gives no usable rectangle —
@@ -1529,6 +1708,8 @@ const supFranceLayer = {
     _status = 'idle';
     _regime = 'national';
     _nationalPainted = false;
+    _depShown = false;
+    _sitesDrawn = false;
 
     _overlayHost.setVisible(SUP_FR_OVERLAY_SOURCE_ID, false);
     _overlayHost.setVisible(SUP_FR_LABEL_SOURCE_ID, false);
@@ -1555,17 +1736,26 @@ const supFranceLayer = {
     if (!_preRenderRemover) {
       _preRenderRemover = viewer.scene.preRender.addEventListener(onPreRender);
     }
+    // The cut's cover: one shared per-frame read of the camera, held only
+    // while the layer is on. See `onZoomFadeFrame`.
+    _fade = watchZoomFade(viewer, SUP_FR_LAYER_ID, onZoomFadeFrame);
+    _dotFader.invalidate();
+    _fadeReportDirty = true;
     void loadViewport({ force: true });
     restoreSpriteOrder(viewer);
   },
 
   disable(viewer) {
     _enabled = false;
-    _requestGeneration += 1;
+    _viewGeneration += 1;
     _regime = 'national';
     _nationalPainted = false;
     clearTimeout(_cameraDebounceTimer);
     _cameraDebounceTimer = null;
+    clearTimeout(_retireTimer);
+    _retireTimer = null;
+    _fade?.release();
+    _fade = null;
 
     clearSelection();
     clearSites();
@@ -1770,6 +1960,27 @@ export function _setSupStateForTest({
   _depEntities = new Map(depEntities || []);
   _depMeta = new Map(depMeta || []);
   _enabled = true;
+  // A seeded national regime is one whose prisms are on screen; seeded
+  // records are dots on screen.
+  _depShown = _regime === 'national';
+  _sitesDrawn = _records.size > 0;
+  _nationalPainted = false;
+}
+
+/** Mark the seeded prisms as painted, as `loadNational` does once they are. */
+export function _paintSupForTest() {
+  _nationalPainted = true;
+}
+
+/** Move the settled regime without touching what is drawn. */
+export function _setSupRegimeForTest(regime) {
+  _regime = regime;
+}
+
+/** Run one fade frame at a given view, as `zoomFade.js` would. */
+export function _supFadeFrameForTest(scale) {
+  onZoomFadeFrame(scale, 0);
+  return { ..._fadeAlphas };
 }
 
 /** Exercise the production selection path in focused runtime tests. */
@@ -1802,6 +2013,8 @@ export function _clearSupSelectionForTest() {
   _depMeta = new Map();
   _regime = 'sites';
   _enabled = false;
+  _depShown = false;
+  _sitesDrawn = false;
 }
 
 /** Row-control legend, for tests that do not construct a viewer. */
