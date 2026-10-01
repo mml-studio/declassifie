@@ -19,20 +19,32 @@ import { defineMessages } from '../i18n/messages.js';
 
 export default defineMessages({
   /**
-   * The three window chips. The rungs are years, and the ACTIVE one carries
-   * the truncation: widening the window is what causes it.
+   * The window chips. The rungs are months, read as months under a year and
+   * as years from one up, and the ACTIVE one carries the truncation: widening
+   * the window is what causes it.
    */
   window: {
-    years: {
-      fr: (years) => `${years} ANS`,
-      en: (years) => `${years} YEARS`,
-      note: 'The chip itself. Capitals, as every chip on the rail is.',
-      sample: [3],
+    span: {
+      fr: (months) => (months < 12 ? `${months} MOIS`
+        : `${months / 12} ${plural(months / 12, 'AN', 'ANS')}`),
+      en: (months) => (months < 12 ? `${months} ${plural(months, 'MONTH', 'MONTHS')}`
+        : `${months / 12} ${plural(months / 12, 'YEAR', 'YEARS')}`),
+      note: 'The chip itself, given the window in MONTHS. Capitals, as every chip on the rail is.',
+      sample: [36],
     },
     title: {
-      fr: (years) => `Autorisations des ${years} dernières années`,
-      en: (years) => `Permits from the last ${years} years`,
-      sample: [3],
+      fr: (months) => {
+        if (months < 12) return `Autorisations des ${months} derniers mois`;
+        if (months === 12) return 'Autorisations de la dernière année';
+        return `Autorisations des ${months / 12} dernières années`;
+      },
+      en: (months) => {
+        if (months < 12) return `Permits from the last ${months} months`;
+        if (months === 12) return 'Permits from the last year';
+        return `Permits from the last ${months / 12} years`;
+      },
+      note: 'Given the window in MONTHS.',
+      sample: [36],
     },
     truncated: {
       fr: (served, found) => ` — ${served} dossiers servis sur `
@@ -48,15 +60,17 @@ export default defineMessages({
       sample: [58],
     },
     pipeline: { fr: ' — le pipeline en cours', en: ' — the pipeline under way' },
+    latest: { fr: ' — les derniers dépôts et décisions', en: ' — the latest filings and decisions' },
     finished: { fr: ', chantiers achevés compris', en: ', completed sites included' },
   },
 
-  /** The same three windows as a menu under the row's tiles (« Période »). */
+  /** The same windows as a menu under the row's tiles (« Période »). */
   period: {
     label: { fr: 'Période', en: 'Period' },
     options: {
+      6: { fr: '6 derniers mois', en: 'Last 6 months' },
+      12: { fr: 'Dernière année', en: 'Last year' },
       36: { fr: '3 dernières années', en: 'Last 3 years' },
-      72: { fr: '6 dernières années', en: 'Last 6 years' },
       156: {
         fr: 'Toutes les dates',
         en: 'All dates',

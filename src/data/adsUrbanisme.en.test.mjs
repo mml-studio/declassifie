@@ -41,6 +41,7 @@ import adsUrbanismeLayer, {
   adsEmpriseLine,
   adsPrecisionLine,
   adsRowControls,
+  adsPeriodSelect,
   adsWindowChips,
   empriseCard,
   empriseProvenanceLine,
@@ -67,23 +68,34 @@ const PUBLISHED = ['Bordeaux Métropole'];
 
 /* ── the chips ───────────────────────────────────────────────────────────── */
 
-test('the three window chips and their titles answer in English', (t) => {
+test('the four window chips and their titles answer in English', (t) => {
   useTestLocale('en', t);
   const chips = adsWindowChips(ADS_WINDOW_DEFAULT, null);
-  assert.deepEqual(chips.map((chip) => chip.label), ['3 YEARS', '6 YEARS', '13 YEARS']);
-  assert.equal(chips[0].title, 'Permits from the last 3 years — the pipeline under way');
-  assert.equal(chips[1].title, 'Permits from the last 6 years, completed sites included');
+  assert.deepEqual(chips.map((chip) => chip.label), ['6 MONTHS', '1 YEAR', '3 YEARS', '13 YEARS']);
+  assert.equal(chips[0].title, 'Permits from the last 6 months — the latest filings and decisions');
+  assert.equal(chips[1].title, 'Permits from the last year — the latest filings and decisions');
+  assert.equal(chips[2].title, 'Permits from the last 3 years — the pipeline under way');
+  assert.equal(chips[3].title, 'Permits from the last 13 years, completed sites included');
   // The window is a share-link token and never moves with the language.
-  assert.deepEqual(chips.map((chip) => chip.params.months), ['36', '72', '156']);
+  assert.deepEqual(chips.map((chip) => chip.params.months), ['6', '12', '36', '156']);
   assertNoFrench(chips);
+});
+
+test('the period menu names its four windows in English', (t) => {
+  useTestLocale('en', t);
+  const select = adsPeriodSelect(ADS_WINDOW_DEFAULT, null);
+  assert.deepEqual(select.options.map((option) => option.label),
+    ['Last 6 months', 'Last year', 'Last 3 years', 'All dates']);
+  assertNoFrench(select);
 });
 
 test('the ACTIVE chip carries the truncation, in English too', (t) => {
   useTestLocale('en', t);
-  const [chip] = adsWindowChips('36', { truncated: true, permitsFound: 400, permitsInRadius: 912 });
+  const active = (chips) => chips.find((chip) => chip.active);
+  const chip = active(adsWindowChips('36', { truncated: true, permitsFound: 400, permitsInRadius: 912 }));
   assert.equal(chip.title,
     'Permits from the last 3 years — 400 files served out of 912 in the radius, nearest first');
-  const [counted] = adsWindowChips('36', { permitsFound: 58 });
+  const counted = active(adsWindowChips('36', { permitsFound: 58 }));
   assert.equal(counted.title, 'Permits from the last 3 years — 58 files on this block');
 });
 

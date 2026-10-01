@@ -482,6 +482,8 @@ test('the period keeps the permits authorised inside it, and costs no request', 
   const now = Date.parse('2026-09-23T12:00:00Z');
   const pack = {
     permits: [
+      { i: 'august', da: '2026-08-10' },
+      { i: 'january', da: '2026-01-10' },
       { i: 'recent', da: '2025-06-01' },
       { i: 'older', da: '2021-01-15' },
       { i: 'oldest', da: '2014-03-02' },
@@ -490,17 +492,21 @@ test('the period keeps the permits authorised inside it, and costs no request', 
     parcels: [],
   };
   const ids = (months) => sitadelPayloadForPeriod(pack, months, now).permits.map((permit) => permit.i);
-  assert.deepEqual(ids('36'), ['recent']);
-  assert.deepEqual(ids('72'), ['recent', 'older']);
+  // Six months back from 2026-09-23 is 2026-03-23; a year back, 2025-09-23.
+  assert.deepEqual(ids('6'), ['august']);
+  assert.deepEqual(ids('12'), ['august', 'january']);
+  assert.deepEqual(ids('36'), ['august', 'january', 'recent']);
   // The whole register keeps everything, the undated permit included.
-  assert.deepEqual(ids('156'), ['recent', 'older', 'oldest', 'undated']);
+  assert.deepEqual(ids('156'), ['august', 'january', 'recent', 'older', 'oldest', 'undated']);
   assert.equal(sitadelPayloadForPeriod(null, '36'), null);
 
   // The same closed set as `ads-fr`'s window, whose share-link option this
   // layer mirrors; anything else is refused, never clamped.
-  assert.deepEqual([...SITADEL_WINDOWS], ['36', '72', '156']);
+  assert.deepEqual([...SITADEL_WINDOWS], ['6', '12', '36', '156']);
   assert.equal(SITADEL_WINDOW_DEFAULT, '36');
-  assert.equal(sitadelFranceLayer.acceptsParams({ months: '72' }), true);
+  assert.equal(sitadelFranceLayer.acceptsParams({ months: '6' }), true);
+  // Six years was a window until 2026-10-01; a fan-out carrying it is refused.
+  assert.equal(sitadelFranceLayer.acceptsParams({ months: '72' }), false);
   assert.equal(sitadelFranceLayer.acceptsParams({ months: '24' }), false);
   assert.equal(sitadelFranceLayer.acceptsParams({ plu: 'on' }), false);
   assert.equal(sitadelFranceLayer.setParams({ months: '24' }), false);

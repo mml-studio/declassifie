@@ -630,6 +630,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   image.
 
 ### Changed
+- **« Urbanisme » (“Planning”) can now look back six months or one year.**
+  The « Période » (“Period”) menu offers « 6 derniers mois » (“Last 6
+  months”), « Dernière année » (“Last year”), « 3 dernières années » (“Last 3
+  years”, still the default) and « Toutes les dates » (“All dates”); « 6
+  dernières années » (“Last 6 years”) is gone. A shared link that asked for six
+  years opens on all dates, so every permit it showed is still there.
 - **The traffic cars have their frames back.** Each simulated car on « Trafic
   routier » is framed again, in the colour of its road (coral when jammed,
   amber when slowed, mint when free), and a few carry their `VEH-…` number —

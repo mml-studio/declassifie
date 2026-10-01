@@ -34,6 +34,7 @@ import adsUrbanismeLayer, {
   adsPermitStyle,
   adsPermitTarget,
   adsRowControls,
+  adsPeriodSelect,
   adsWindowChips,
   adsEmpriseLine,
   clearAdsBuildingTheme,
@@ -279,39 +280,53 @@ test('a plot whose every dossier fell outside the cut is not drawn', () => {
   assert.equal(drawAdsEmprises(source, { permits: [] }, Cesium.ClassificationType.BOTH), 0);
 });
 
-test('the three windows are the register`s own span, and the middle one is not decoration', () => {
-  assert.deepEqual(ADS_WINDOWS.map((window) => window.months), ['36', '72', '156']);
+test('the four windows run from the latest filings to the register`s own span', () => {
+  assert.deepEqual(ADS_WINDOWS.map((window) => window.months), ['6', '12', '36', '156']);
   // 36 stays the default — nobody who touches nothing sees a different map.
   assert.equal(ADS_WINDOW_DEFAULT, '36');
-  // 156 is Sitadel's whole span and the proxy's own ceiling; a fourth rung
-  // beyond it would be a window the register cannot fill.
+  // 156 is Sitadel's whole span and the proxy's own ceiling; a rung beyond it
+  // would be a window the register cannot fill.
   assert.equal(ADS_WINDOWS.at(-1).months, String(ADS_MAX_MONTHS));
-  // And 72 exists because a finished house outlives the window that shows it:
+  // And a finished house outlives the default window that shows it:
   // Ustaritz's `06454721B0009` was authorised 2021-07-20 and read 2026-09, so
-  // 36 months floors at 2023-09-01 and hides the permit that built it.
+  // 36 months floors at 2023-09-01 and hides the permit that built it. With
+  // six years gone, the whole register is the rung that reaches it.
   const monthsSince = (2026 - 2021) * 12 + (9 - 7);
-  assert.ok(Number(ADS_WINDOWS[0].months) < monthsSince, 'three years does not reach it');
-  assert.ok(Number(ADS_WINDOWS[1].months) > monthsSince, 'six years does');
+  assert.ok(Number(ADS_WINDOW_DEFAULT) < monthsSince, 'three years does not reach it');
+  assert.ok(Number(ADS_WINDOWS.at(-1).months) > monthsSince, 'the whole register does');
 });
 
 test('the chips mark the window in force and hand back what a click would set', () => {
-  const chips = adsWindowChips('72');
-  assert.deepEqual(chips.map((chip) => chip.label), ['3 ANS', '6 ANS', '13 ANS']);
-  assert.deepEqual(chips.map((chip) => chip.active), [false, true, false]);
-  assert.deepEqual(chips.map((chip) => chip.state), ['idle', 'active', 'idle']);
+  const chips = adsWindowChips('12');
+  assert.deepEqual(chips.map((chip) => chip.label), ['6 MOIS', '1 AN', '3 ANS', '13 ANS']);
+  assert.deepEqual(chips.map((chip) => chip.active), [false, true, false, false]);
+  assert.deepEqual(chips.map((chip) => chip.state), ['idle', 'active', 'idle', 'idle']);
   // The chip's params must be values the layer's `runtimeParams` accepts —
   // the row control and the parameter gate are one mechanism from two ends.
   assert.deepEqual(chips.map((chip) => chip.params), [
-    { months: '36' }, { months: '72' }, { months: '156' },
+    { months: '6' }, { months: '12' }, { months: '36' }, { months: '156' },
   ]);
+});
+
+test('the period menu offers the four windows by name, shortest first', () => {
+  const select = adsPeriodSelect('6');
+  assert.equal(select.value, '6');
+  assert.deepEqual(select.options.map((option) => option.label), [
+    '6 derniers mois', 'Dernière année', '3 dernières années', 'Toutes les dates',
+  ]);
+  // A short window chosen before its first scan says what it is about, not
+  // that it reaches finished sites.
+  assert.equal(select.title, 'Autorisations des 6 derniers mois — les derniers dépôts et décisions');
+  assert.equal(adsPeriodSelect('12').title, 'Autorisations de la dernière année — les derniers dépôts et décisions');
+  assert.equal(adsPeriodSelect('156').title, 'Autorisations des 13 dernières années, chantiers achevés compris');
 });
 
 test('a window nobody chose falls back to the default rather than lighting nothing', () => {
   const chips = adsWindowChips(null);
-  assert.deepEqual(chips.map((chip) => chip.active), [true, false, false]);
+  assert.deepEqual(chips.map((chip) => chip.active), [false, false, true, false]);
   // A value from a build that offered something else lights no chip, which is
   // honest: the layer refused it too, so no chip describes what is on screen.
-  assert.deepEqual(adsWindowChips('24').map((chip) => chip.active), [false, false, false]);
+  assert.deepEqual(adsWindowChips('72').map((chip) => chip.active), [false, false, false, false]);
 });
 
 /**
@@ -324,14 +339,14 @@ test('the active chip carries the truncation the window would cause', () => {
   const truncated = adsWindowChips('156', {
     truncated: true, permitsFound: 400, permitsInRadius: 913,
   });
-  assert.match(truncated[2].title, /400 dossiers servis sur 913/);
-  assert.match(truncated[2].title, /les plus proches d’abord/);
+  assert.match(truncated[3].title, /400 dossiers servis sur 913/);
+  assert.match(truncated[3].title, /les plus proches d’abord/);
   // An untruncated scan says what it found instead of warning about nothing.
   const whole = adsWindowChips('156', { truncated: false, permitsFound: 38 });
-  assert.match(whole[2].title, /38 dossiers sur ce bloc/);
+  assert.match(whole[3].title, /38 dossiers sur ce bloc/);
   // And the inactive chips describe what choosing them would mean.
-  assert.match(whole[0].title, /3 dernières années/);
-  assert.match(whole[1].title, /chantiers achevés compris/);
+  assert.match(whole[0].title, /6 derniers mois — les derniers dépôts/);
+  assert.match(whole[2].title, /3 dernières années — le pipeline en cours/);
 });
 
 test('a chip title never invents a count the scan did not report', () => {

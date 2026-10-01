@@ -1735,21 +1735,37 @@ test('one- and two-character tokens coexist, and old links still decode', () => 
 /**
  * The permit window is the first option any of the six ADDRESS layers owns,
  * and it is an option rather than a layer-local setting for one reason: a
- * window is a question. A link that reopens the same block over six years
- * instead of three is a different answer, and `au.w.6` is the whole of it.
+ * window is a question. A link that reopens the same block over the last year
+ * instead of three is a different answer, and `au.w.1` is the whole of it.
  */
 test('the permit window rides the share link and comes back as itself', () => {
   const defaults = createDefaultLayerState();
   assert.deepEqual(defaults.options['ads-fr'], { months: '36' });
 
+  for (const [months, code] of [['6', 'h'], ['12', '1'], ['156', 'd']]) {
+    const params = new URLSearchParams({ v: '2' });
+    encodeLayerStateParams(params, {
+      ...defaults,
+      enabledLayerIds: ['ads-fr'],
+      options: { ...defaults.options, 'ads-fr': { months } },
+    });
+    assert.equal(params.get('lo'), `au.w.${code}_f.e.1`);
+    assert.deepEqual(decodeLayerStateParams(params).options['ads-fr'], { months });
+  }
+});
+
+/**
+ * Six years was a window until 2026-10-01. A link that still carries it opens
+ * on the whole register, the window that still holds every permit its author
+ * saw, and `6` is never written again.
+ */
+test('a link written with the retired six-year window opens on the whole register', () => {
+  const decoded = decodeLayerStateParams(new URLSearchParams('v=2&l=au&lo=au.w.6'));
+  assert.deepEqual(decoded.options['ads-fr'], { months: '156' });
+
   const params = new URLSearchParams({ v: '2' });
-  encodeLayerStateParams(params, {
-    ...defaults,
-    enabledLayerIds: ['ads-fr'],
-    options: { ...defaults.options, 'ads-fr': { months: '72' } },
-  });
-  assert.equal(params.get('lo'), 'au.w.6_f.e.1');
-  assert.deepEqual(decodeLayerStateParams(params).options['ads-fr'], { months: '72' });
+  encodeLayerStateParams(params, decoded);
+  assert.match(params.get('lo'), /au\.w\.d/);
 });
 
 test('a link that names no window means the default, not the widest', () => {

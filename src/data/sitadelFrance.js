@@ -109,7 +109,7 @@
  * ── The period ──────────────────────────────────────────────────────────────
  *
  * The pack is the whole commune since 2013; the row's « Période » (the same
- * three windows as `ads-fr`, whose share-link option this layer mirrors)
+ * four windows as `ads-fr`, whose share-link option this layer mirrors)
  * keeps the permits AUTHORISED inside the window and draws nothing else. The
  * filter runs on the pack in hand: changing the period costs a redraw and no
  * request.
@@ -310,11 +310,11 @@ const SELECTED_WIDTH_PX = 5;
 const BADGE_SCALE = new Cesium.NearFarScalar(500, 1, 10_000, 0.4);
 
 /**
- * The windows of the row's « Période », the same three as `ads-fr`: 3 years,
- * 6 years, and the whole of Sitadel (13 years). A closed set, like every
- * param reachable from a share link.
+ * The windows of the row's « Période », the same four as `ads-fr`: 6 months,
+ * 1 year, 3 years, and the whole of Sitadel (13 years). A closed set, like
+ * every param reachable from a share link.
  */
-export const SITADEL_WINDOWS = Object.freeze(['36', '72', '156']);
+export const SITADEL_WINDOWS = Object.freeze(['6', '12', '36', '156']);
 /** The window a reader who has chosen nothing is on — `ads-fr`'s. */
 export const SITADEL_WINDOW_DEFAULT = '36';
 

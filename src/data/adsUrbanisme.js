@@ -134,28 +134,35 @@ import { gpuClassificationTypeForScene } from './urbanismeGpu.js';
 const UPDATE_INTERVAL_MS = 600_000;
 
 /**
- * How far back a scan looks, as the three rungs a reader can choose between.
+ * How far back a scan looks, as the four rungs a reader can choose between,
+ * shortest first.
  *
- * THREE, AND THESE THREE, because each answers a different question and the
- * middle one exists for a measured reason rather than for symmetry:
- *
+ * - **6 mois** is what moved lately: the files still under review, the
+ *   decisions whose two-month objection period is open or just closed. The
+ *   communes' own boards answer within days; Sitadel runs about six weeks
+ *   behind, so its share of this rung is four and a half months, not six.
+ * - **1 an** is the last year of a block, one full building season.
  * - **3 ans** is the default and it stays the default. A block's current
  *   pipeline — what is being instructed, what is granted, what has a crane on
  *   it — is a three-year story, and it is the window under which
  *   `ADS_MAX_PERMITS` does not bite in a dense arrondissement.
- * - **6 ans** is the shortest rung that reaches a FINISHED house. Ustaritz's
- *   `06454721B0009` was authorised 2021-07-20 and read 2026-09; at 36 months
- *   the floor is 2023-09-01 and the permit that built the house is invisible,
- *   at 72 it is not. A permit's chantier outlives the window that shows it.
  * - **13 ans** is the whole of Sitadel — `ADS_MAX_MONTHS`, the register's own
- *   2013 start — for reading a plot's entire paperwork history.
+ *   2013 start — for reading a plot's entire paperwork history, FINISHED
+ *   houses included: Ustaritz's `06454721B0009` was authorised 2021-07-20 and
+ *   read 2026-09, so a 36-month floor of 2023-09-01 hides the permit that
+ *   built it. A permit's chantier outlives the window that shows it.
+ *
+ * A six-year rung sat between the last two until 2026-10-01; the operator
+ * traded it for the two short ones, and a link that still carries it opens on
+ * the whole register (`layerState.js`).
  *
  * NOT a free number, and `addressScanLayer.js` says why: everything reachable
  * here is reachable from a share link too.
  */
 export const ADS_WINDOWS = Object.freeze([
+  Object.freeze({ months: '6' }),
+  Object.freeze({ months: '12' }),
   Object.freeze({ months: '36' }),
-  Object.freeze({ months: '72' }),
   Object.freeze({ months: String(ADS_MAX_MONTHS) }),
 ]);
 
@@ -163,7 +170,8 @@ export const ADS_WINDOWS = Object.freeze([
 export const ADS_WINDOW_DEFAULT = String(ADS_DEFAULT_MONTHS);
 
 /**
- * The three chips on the layer's row, and what each one warns about.
+ * One chip per window, and what each one warns about. The row no longer draws
+ * them; the active one's title is the tooltip of the « Période » menu.
  *
  * THE ACTIVE CHIP CARRIES THE TRUNCATION, because widening the window is the
  * thing that causes it. `ADS_MAX_PERMITS` serves the 400 nearest dossiers, so
@@ -181,20 +189,22 @@ export function adsWindowChips(months, summary = null) {
   const current = String(months ?? ADS_WINDOW_DEFAULT);
   return ADS_WINDOWS.map((window) => {
     const active = window.months === current;
-    const years = Math.round(Number(window.months) / 12);
-    let title = m.title(years);
+    const months = Number(window.months);
+    let title = m.title(months);
     if (active && summary?.truncated) {
       title += m.truncated(summary.permitsFound, summary.permitsInRadius);
     } else if (active && Number.isFinite(summary?.permitsFound)) {
       title += m.counted(summary.permitsFound);
     } else if (window.months === ADS_WINDOW_DEFAULT) {
       title += m.pipeline;
+    } else if (months < Number(ADS_WINDOW_DEFAULT)) {
+      title += m.latest;
     } else {
       title += m.finished;
     }
     return {
       id: `months:${window.months}`,
-      label: m.years(years),
+      label: m.span(months),
       active,
       state: active ? 'active' : 'idle',
       title,
@@ -204,7 +214,7 @@ export function adsWindowChips(months, summary = null) {
 }
 
 /**
- * The period select on the row (« Période »), the same three windows as
+ * The period select on the row (« Période »), the same windows as
  * {@link adsWindowChips} in the form the approved mock draws them: one menu
  * under the row's tiles. `fanOut`, because `sitadel-fr` takes the same window
  * and one period for the two permit layers is the only honest reading of one
