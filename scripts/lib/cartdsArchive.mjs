@@ -240,6 +240,11 @@ export async function openCartdsSession(instance, http) {
  * A JSON answer without a `data` array is a failure, not an empty board: an
  * instance that lost the session answers its error PAGE with HTTP 200.
  *
+ * The request says where it comes from, as the board page's own form does:
+ * the page as `Referer`, its origin as `Origin`. Grand Reims's front refuses
+ * the POST without them (HTTP 403, 2026-10-01), a same-origin check and no
+ * challenge; the user agent stays the project's own.
+ *
  * @param {object} instance
  * @param {string} commune What the menu sends (`cartdsCommuneValue`).
  * @param {string} board
@@ -258,6 +263,8 @@ export async function readCartdsBoard(instance, commune, board, session, http) {
         Cookie: session.cookie,
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'X-Requested-With': 'XMLHttpRequest',
+        Referer: cartdsPageUrl(instance),
+        Origin: new URL(instance.base).origin,
       },
     });
     if (!response?.ok) return null;
