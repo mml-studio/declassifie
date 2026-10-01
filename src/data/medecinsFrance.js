@@ -1184,6 +1184,14 @@ export function createMedecinsLayer({
   function selectSite(id) {
     const record = _records.get(id);
     if (!record) return;
+    // A mesh dot is one of a SAMPLE drawn to show where practices are, and
+    // carries no address of its own (`site: null`): there is no card for it,
+    // and building one threw on `site[SITE_VILLE]`. Inside the mesh → sites
+    // band only the dots the sites did not replace are still mesh records.
+    if (!record.site && !record.etab) {
+      if (_selectedId) clearSelection();
+      return;
+    }
     _selectedId = id;
     // A hospital has no `/praticiens` index to fetch and no names to fill in:
     // FINESS publishes establishments, not people. Its card is complete the
