@@ -4661,7 +4661,8 @@ Charenton-le-Pont, Maisons-Alfort, Porto-Vecchio, Châtillon, Soultz-Haut-Rhin,
 Conches-en-Ouche and Sainte-Marie on La Réunion; the eight added on
 2026-10-01 brought 65 communes and 1.13 million inhabitants. The four
 `pemb.fr` hosts send their certificate without the Sectigo intermediate that
-signed it, which Node refuses; the server adds that one intermediate to its
+signed it, and so has `ads.lecotentin.fr` since it renewed its certificate on
+2026-09-30, which Node refuses; the server adds that one intermediate to its
 default CA list at start (`trustCartdsIntermediates`), and the chain must
 still end at a root Node ships. Toulouse Métropole's board sits behind a
 JavaScript challenge and is not read. The proxy honours each host's `robots.txt`,

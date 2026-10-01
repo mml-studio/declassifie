@@ -485,6 +485,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **The six communes of the Cotentin stopped updating on 2026-09-30, the day
+  the agglomeration renewed its certificate**: the new one is served without
+  the Sectigo intermediate that signed it, so the board answered every request
+  with a TLS error and the daily archive kept nothing new (6 of 129 communes
+  failed on staging that night). The server now supplies that intermediate, as
+  it already did for the four Val-de-Marne boards; read again on 2026-10-01,
+  740 postings across the six communes.
 - **Turning on the defibrillators of « Santé & secours » (“Health &
   emergency services”) flashed LOAD FAILED and drew none**, anywhere in
   France: on 2026-10-01 GeoDAE replaced its two hours columns with one

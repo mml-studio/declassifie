@@ -236,9 +236,9 @@ test('the intermediates are added to the default CA list once, after what is alr
     getCACertificates: (which) => { assert.equal(which, 'default'); return [...list]; },
     setDefaultCACertificates: (certificates) => { sets += 1; list = [...certificates]; },
   };
-  const pemb = CARTDS_INSTANCES.filter((instance) => instance.intermediate);
-  assert.deepEqual(pemb.map((instance) => new URL(instance.base).host.split('.').slice(-2).join('.')),
-    ['pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr']);
+  const incomplete = CARTDS_INSTANCES.filter((instance) => instance.intermediate);
+  assert.deepEqual(incomplete.map((instance) => new URL(instance.base).host.split('.').slice(-2).join('.')),
+    ['lecotentin.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr']);
   assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36']);
   assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate]);
   // A second server start in the same process adds nothing.

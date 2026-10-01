@@ -159,7 +159,9 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  *
  * `intermediate` names a certificate the host does not send. The four
  * `pemb.fr` hosts present their own certificate without the Sectigo
- * intermediate that signed it: a browser fetches the missing link from the
+ * intermediate that signed it, and so has `ads.lecotentin.fr` since its
+ * certificate was renewed on 2026-09-30 — its six communes went unread from
+ * the next sweep on. A browser fetches the missing link from the
  * address the certificate gives, Node does not, and refuses the connection
  * (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`). The reader supplies that intermediate
  * (`trustCartdsIntermediates` in `scripts/lib/cartdsArchive.mjs`); the chain
@@ -258,6 +260,7 @@ export const CARTDS_INSTANCES = Object.freeze([
     label: 'Le Cotentin — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
     codes: 'number',
     robots: 'overridden',
+    intermediate: 'sectigo-dv-r36',
     communes: Object.freeze(['50082', '50129', '50238', '50041', '50480', '50643']),
   }),
   Object.freeze({
