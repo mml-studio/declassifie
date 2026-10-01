@@ -27,6 +27,7 @@ const COMMUNES = indexCommunes([
   { code: '83118', nom: 'Saint-Raphaël', codeDepartement: '83', codeEpci: '248300543' },
   { code: '93066', nom: 'Saint-Denis', codeDepartement: '93', codeEpci: '200057867' },
   { code: '97411', nom: 'Saint-Denis', codeDepartement: '974', codeEpci: '249740119' },
+  { code: '92024', nom: 'Clichy', codeDepartement: '92', codeEpci: '200054781' },
 ]);
 
 test('the archive names the tenants and the board path each one uses', () => {
@@ -65,6 +66,8 @@ test('a menu entry is matched by code, by number and name, or by unpadded code',
   assert.equal(resolveMenuCommune({ value: 'x', name: 'SAINT-DENIS' }, COMMUNES), null);
   assert.equal(resolveMenuCommune({ value: 'x', name: 'SAINT-DENIS' }, COMMUNES, new Set(['93'])), '93066');
   assert.equal(resolveMenuCommune({ value: '999', name: 'NE PAS UTILISER' }, COMMUNES), null);
+  // Clichy's board calls it by the name everyone uses, which the COG does not.
+  assert.equal(resolveMenuCommune({ value: '24', name: 'Clichy-la-Garenne' }, COMMUNES), '92024');
 });
 
 test('an instance is written with the one way its menu sends communes', () => {
@@ -92,6 +95,9 @@ test('the key is the tenant on a hosting family and the city on its own host', (
   assert.equal(instanceKey('guichet-unique-bobigny.siib.fr'), 'bobigny');
   assert.equal(instanceKey('demarches-urbanisme.ville-massy.fr'), 'massy');
   assert.equal(instanceKey('urbanisme.mairie-hyeres.com'), 'hyeres');
+  assert.equal(instanceKey('dia.neuillysurseine.fr'), 'neuillysurseine');
+  assert.equal(instanceKey('portail-urbanisme.sanarysurmer.com'), 'sanarysurmer');
+  assert.equal(instanceKey('clicurba.ivry94.fr'), 'ivry94');
 });
 
 const entry = (value, name, filings, decisions, latestFiling, latestDecision = null) => ({

@@ -160,7 +160,14 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  * board, and this host is outside the family. Its front refuses a board's
  * POST that does not name the page it comes from (see `readCartdsBoard`).
  *
- * Five of the twenty-two kept answer `robots.txt` with `Disallow: /` and carry
+ * The Grand Narbonne gives each commune its own path on one host,
+ * `guichet-unique-<commune>`, and the scan reads one path per host: it kept
+ * Leucate's. Narbonne's, linked from the city's site, was found on
+ * 2026-10-01 by checking the communes ranked 61 to 200 by hand; asking the
+ * path of each of the 37 communes the same day found no third board. Both
+ * are written here, so that the scan leaves the host to them.
+ *
+ * Five of the twenty-four kept answer `robots.txt` with `Disallow: /` and carry
  * `robots: 'overridden'` — Le Cotentin, Grand Libournais, Conches-en-Ouche,
  * Sainte-Marie (La Réunion), Brie Nangissienne; see Trap 5. They added 37
  * communes and 1 850 rows, 99.1 % of them naming their parcel.
@@ -390,6 +397,20 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     // Bétheny, Cormicy, Hermonville, Taissy, Witry-lès-Reims: the menu's
     // five, Reims itself not among them.
     communes: Object.freeze(['51055', '51171', '51291', '51562', '51662']),
+  }),
+  Object.freeze({
+    key: 'grandnarbonne',
+    base: 'https://grandnarbonne.geosphere.fr/guichet-unique-leucate',
+    label: 'Leucate — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['11202']),
+  }),
+  Object.freeze({
+    key: 'narbonne',
+    base: 'https://grandnarbonne.geosphere.fr/guichet-unique-narbonne',
+    label: 'Narbonne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['11262']),
   }),
 ]);
 

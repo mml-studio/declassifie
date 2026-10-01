@@ -68,8 +68,17 @@ const SCRIPT = 'const x=1;mC=async()=>{const e="https://auth.clicmap.fr/oauth2/t
   + 'r.append("grant_type","client_credentials"),r.append("client_id",t),'
   + 'r.append("client_secret",n),r.append("scope","openid");try{}catch(i){}}';
 
-test('the registry is one publisher, the 38 communes that post, none read twice', () => {
-  assert.equal(EPERMIS_INSTANCES.length, 1);
+test('the registry is Nice’s 38 communes that post and thirteen one-commune publishers, none read twice', () => {
+  assert.equal(EPERMIS_INSTANCES.length, 14);
+  const read = EPERMIS_INSTANCES.flatMap((instance) => [...instance.communes, ...(instance.silent ?? [])]);
+  assert.equal(new Set(read).size, read.length, 'a commune belongs to one publisher');
+  assert.equal(new Set(EPERMIS_INSTANCES.map((instance) => instance.client)).size, 14);
+  assert.equal(new Set(EPERMIS_INSTANCES.map((instance) => instance.key)).size, 14);
+  for (const instance of EPERMIS_INSTANCES.slice(1)) {
+    assert.equal(instance.communes.length, 1, instance.key);
+    assert.match(instance.label, / — affichage réglementaire$/);
+  }
+  assert.equal(epermisInstanceFor('64445').client, 96, 'Pau');
   assert.equal(NICE.communes.length, 38);
   assert.equal(NICE.silent.length, 13);
   // The 51 the publisher lists, each once: read, or named as silent.

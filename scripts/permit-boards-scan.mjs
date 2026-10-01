@@ -10,6 +10,8 @@
  *   npm run permits:scan -- --sirap-probes <file> # reuse a saved Sirap reading
  *   npm run permits:scan -- --save <prefix>      # keep both readings, <prefix>.cartds.json and .sirap.json
  *   npm run permits:scan -- --respect-robots     # leave out the boards robots.txt refuses
+ *   npm run permits:scan -- --probes <file> --sirap-probes <file> --ask <host>
+ *                                                # ask only <host> (a seed) again, keep the rest of both readings
  *
  * Cart@DS first. The Wayback Machine lists the `geosphere.fr` hosts it has
  * seen (the hosting family most instances run on); the DNS is asked about
@@ -25,6 +27,10 @@
  * posts for (`/api/v1/communes`), every one of them is asked for its board
  * once, and `keepScannedSirap` keeps the same way — leaving out a commune the
  * Cart@DS step just kept.
+ *
+ * A seed added between two scans costs that seed, not a whole scan: `--ask`
+ * names it (once per host), and its fresh reading takes the place of its old
+ * one — or joins — in the saved readings `--probes` and `--sirap-probes` give.
  *
  * Same identified user agent as the proxy and the sweep, one host at a time per
  * worker, two workers and half a second between requests by default: most
@@ -103,6 +109,21 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'urbanisme.saint-andre.re', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'urbanisme.ville-douai.fr', prefixes: Object.freeze(['/droit-du-sol']) }),
   Object.freeze({ host: 'urbanisme.ville-gardanne.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Found on 2026-10-01 by checking the communes ranked 61 to 200 by hand, and
+  // by searching the web for the board's path, `Login/AffichageReglementaire`.
+  Object.freeze({ host: 'ads.bourgesplus.fr', prefixes: Object.freeze(['/guichet']) }),
+  Object.freeze({ host: 'clicurba.ivry94.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'demarche-urbanisme.ccpro.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'demarches-urbanisme.ville-clichy.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'demarches-urbanisme.vincennes.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'dia.neuillysurseine.fr', prefixes: Object.freeze(['/portail']) }),
+  Object.freeze({ host: 'portail-urbanisme.cc-vallee-herault.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'portail-urbanisme.sanarysurmer.com', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbanisme.choisyleroi.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbanisme.gmvagglo.bzh', prefixes: Object.freeze(['/guichetunique']) }),
+  Object.freeze({ host: 'urbanisme.mairie-foix.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.portededromardeche.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbanisme.saintnazaireagglo.fr', prefixes: Object.freeze(['/guichet-unique']) }),
 ]);
 
 /**
@@ -117,6 +138,8 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   'smica.pu.sirap.com',
   'rosselle.pu.sirap.com',
   'rgd.pu.sirap.com',
+  // Villejuif's own host, found on 2026-10-01; its list names Villejuif alone.
+  'urbanisme.villejuif.fr',
 ]);
 
 const { values } = parseArgs({
@@ -127,6 +150,7 @@ const { values } = parseArgs({
     'skip-guess': { type: 'boolean', default: false },
     'respect-robots': { type: 'boolean', default: false },
     save: { type: 'string' },
+    ask: { type: 'string', multiple: true, default: [] },
     concurrency: { type: 'string', default: '2' },
     pause: { type: 'string', default: '500' },
   },
@@ -251,7 +275,20 @@ async function archivedTenants() {
 }
 
 async function readProbes(communes, epcis) {
-  if (values.probes) return JSON.parse(await fsp.readFile(path.resolve(values.probes), 'utf8'));
+  if (values.probes) {
+    const saved = JSON.parse(await fsp.readFile(path.resolve(values.probes), 'utf8'));
+    const asked = CARTDS_SCAN_SEEDS.filter((seed) => values.ask.includes(seed.host));
+    if (!asked.length) return saved;
+    trustCartdsIntermediates(CARTDS_INSTANCES);
+    const fresh = [];
+    for (const candidate of asked) {
+      const probe = await probeHost(candidate, Number(values.pause));
+      console.log(`[permits-scan] asked ${candidate.host}: ${probe.base ? `${probe.communes.length} communes` : `no board (${probe.tried.join(', ')})`}`);
+      fresh.push(probe);
+    }
+    return [...saved.filter((probe) => !asked.some((seed) => seed.host === probe.host)), ...fresh]
+      .sort((a, b) => a.host.localeCompare(b.host));
+  }
   const known = new Set(CARTDS_INSTANCES.filter((i) => !CARTDS_SCANNED_INSTANCES.includes(i)).map((i) => new URL(i.base).host));
   // What the last scan kept is always asked again, whatever the archive forgets.
   const previous = CARTDS_SCANNED_INSTANCES.map((instance) => {
@@ -317,10 +354,20 @@ async function probeSirapHost(host, day, pauseMs) {
 }
 
 const day = new Date().toISOString().slice(0, 10);
+const unknownAsks = values.ask.filter((host) => !CARTDS_SCAN_SEEDS.some((seed) => seed.host === host) && !SIRAP_SCAN_HOSTS.includes(host));
+if (unknownAsks.length) console.warn(`[permits-scan] --ask names no seed: ${unknownAsks.join(' ')} (add it to CARTDS_SCAN_SEEDS or SIRAP_SCAN_HOSTS first)`);
 const [communes, epcis] = await Promise.all([getJson(COMMUNES_URL), getJson(EPCIS_URL)]);
 const probes = await readProbes(communes, epcis);
 const sirapProbes = values['sirap-probes']
-  ? JSON.parse(await fsp.readFile(path.resolve(values['sirap-probes']), 'utf8'))
+  ? await (async () => {
+    const saved = JSON.parse(await fsp.readFile(path.resolve(values['sirap-probes']), 'utf8'));
+    const asked = SIRAP_SCAN_HOSTS.filter((host) => values.ask.includes(host));
+    const fresh = [];
+    for (const host of asked) fresh.push(await probeSirapHost(host, day, Number(values.pause)));
+    // In SIRAP_SCAN_HOSTS order, as a whole scan writes them.
+    const all = [...saved.filter((probe) => !asked.includes(probe.host)), ...fresh];
+    return all.sort((a, b) => SIRAP_SCAN_HOSTS.indexOf(a.host) - SIRAP_SCAN_HOSTS.indexOf(b.host));
+  })()
   : await (async () => {
     const out = [];
     for (const host of SIRAP_SCAN_HOSTS) out.push(await probeSirapHost(host, day, Number(values.pause)));

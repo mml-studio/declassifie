@@ -1,8 +1,9 @@
 /**
  * @module data/epermisFeed
  *
- * *Affichage réglementaire* — the permits Métropole Nice Côte d'Azur posts for
- * its communes, read off e-permis, the posting app of the vendor clicmap.
+ * *Affichage réglementaire* — the permits Métropole Nice Côte d'Azur, Pau and
+ * twelve other communes post, read off e-permis, the posting app of the vendor
+ * clicmap.
  *
  * WHY A THIRD BOARD READER. Nice's site (« Consulter un document
  * d'urbanisme ») links a board per commune at `affichage.e-permis.fr`:
@@ -229,6 +230,19 @@ function text(value) {
  * `npm run permits:scan`), and named, so that the reader says when the
  * publisher lists a commune the registry has never heard of. `client` is the
  * `id` of the board's address.
+ *
+ * Thirteen more publishers, one commune each, found on 2026-10-01: the
+ * Wayback Machine had seen their boards' addresses (`depot?id=70` to `119`),
+ * and their configurations name Pau, Biarritz, Hendaye, eight communes of the
+ * Landes coast, Jouars-Pontchartrain and Saint-Hippolyte, 158 999 inhabitants.
+ * A page of each list, read that day from August on, held 1 010 rows: every
+ * one named its commune, 98 % their parcel, and the verdicts were Nice's
+ * words. Each list also carries signs (`EN`), works on public buildings
+ * (`AT`) and other files that are not permits; they are left out as Nice's
+ * are. Asking the configuration of every `id` instead got the address refused
+ * for some three hours after about forty answers of « no such client »: a
+ * publisher is added when one of its boards is named somewhere, not by
+ * counting.
  */
 export const EPERMIS_INSTANCES = Object.freeze([
   Object.freeze({
@@ -246,6 +260,83 @@ export const EPERMIS_INSTANCES = Object.freeze([
       '06021', '06025', '06027', '06032', '06033', '06034', '06064', '06065',
       '06114', '06123', '06126', '06149', '06157',
     ]),
+  }),  Object.freeze({
+    key: 'pau',
+    client: 96,
+    label: 'Pau — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['64445']),
+  }),
+  Object.freeze({
+    key: 'biarritz',
+    client: 70,
+    label: 'Biarritz — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['64122']),
+  }),
+  Object.freeze({
+    key: 'hendaye',
+    client: 119,
+    label: 'Hendaye — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['64260']),
+  }),
+  Object.freeze({
+    key: 'soortshossegor',
+    client: 92,
+    label: 'Soorts-Hossegor — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40304']),
+  }),
+  Object.freeze({
+    key: 'labenne',
+    client: 99,
+    label: 'Labenne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40133']),
+  }),
+  Object.freeze({
+    key: 'seignosse',
+    client: 103,
+    label: 'Seignosse — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40296']),
+  }),
+  Object.freeze({
+    key: 'benessemaremne',
+    client: 105,
+    label: 'Bénesse-Maremne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40036']),
+  }),
+  Object.freeze({
+    key: 'vieuxboucau',
+    client: 106,
+    label: 'Vieux-Boucau-les-Bains — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40328']),
+  }),
+  Object.freeze({
+    key: 'azur',
+    client: 108,
+    label: 'Azur — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40021']),
+  }),
+  Object.freeze({
+    key: 'moliets',
+    client: 112,
+    label: 'Moliets-et-Maa — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40187']),
+  }),
+  Object.freeze({
+    key: 'jouarspontchartrain',
+    client: 115,
+    label: 'Jouars-Pontchartrain — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['78321']),
+  }),
+  Object.freeze({
+    key: 'sainthippolyte',
+    client: 117,
+    label: 'Saint-Hippolyte — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['66176']),
+  }),
+  Object.freeze({
+    key: 'angresse',
+    client: 118,
+    label: 'Angresse — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['40004']),
   }),
 ]);
 
