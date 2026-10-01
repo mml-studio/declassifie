@@ -101,6 +101,27 @@
  * ({@link readLimogesList}): text, an address and no parcel, folded onto the
  * decision by its number.
  *
+ * ── Trap 9: Lille's decisions are scans in a daily bulletin ────────────────
+ * Lille publishes every arrêté it signs in its « Bulletin officiel » (BO VDL),
+ * one PDF per working day, 181 linked from one page on 2026-10-01 ({@link
+ * bulletinLinks}). Every page is a scan — a JPEG background under a JBIG2
+ * mask, no text — so the bulletin is read by OCR (`scripts/lib/pdfOcr.mjs`),
+ * on the server, in the daily sweep and never for a visitor. Most pages are
+ * other acts: 14 bulletins sampled held 703 pages, 290 of them the pages of
+ * 95 urbanism arrêtés, in 7 of the 14 (none on 27 March's 148 pages, 25 on
+ * 29 September's 78). An urbanism arrêté prints its number at the top of
+ * every page (`DOSSIER N° PC 059350 26 00051`, `PAGE 2/3`), so a page is
+ * known by its top alone ({@link bulletinPageWorthReading}) and an arrêté is
+ * the run of pages its number spans ({@link readLilleBulletin}). The number is
+ * voted over those pages ({@link bulletinDossier}): OCR read `00149`, `00140`
+ * and `60140` on the three pages of PC 059350 26 00140. Hellemmes and Lomme,
+ * Lille's associated communes, are in the same bulletin under the same code,
+ * as Sitadel files them (`0593502600024`, 88 bis rue Jules Guesde, Hellemmes).
+ * The verdict is the first article's (`Il n'est pas fait opposition`, `Le
+ * permis de construire est REFUSE`), the site the first page's « Sur un
+ * terrain situé ». The sentence before it names the applicant and their own
+ * address: it is never read.
+ *
  * Dependency-free and side-effect-free (no Cesium, no DOM, no fetch): link
  * discovery, table reading and normalisation only. The `/api/ads-fr` proxy and
  * `scripts/lib/permitLists.mjs` import it; nothing in the browser bundle does.
@@ -150,8 +171,11 @@ export const PERMIT_LIST_BOARDS = Object.freeze({ filings: 'filings', decisions:
  *
  * `source` says how the lists are found: absent, from the links of `page`;
  * `webdelib`, as acts on a Webdelib+ platform (Trap 6); `arcade`, as acts on
- * an Arcade portal, decisions by their titles (Trap 8). `underReview` says the
- * list of filings is a list of dossiers still under review (Trap 3).
+ * an Arcade portal, decisions by their titles (Trap 8); `bulletin`, as the
+ * scanned arrêtés of a daily bulletin, read by OCR in the daily sweep alone
+ * (Trap 9). `underReview` says the list of filings is a list of dossiers
+ * still under review (Trap 3). `crawlDelayMs` is a host's own pause between
+ * two requests, where it asks for more than the sweep's second.
  *
  * `communes` is every code the BAN may answer for the city: Marseille's
  * sixteen arrondissements as well as the commune, as for Paris's portal.
@@ -350,6 +374,24 @@ export const PERMIT_LISTS = Object.freeze([
     // DigiContent's « Arcade Portail », its acts searched as JSON (Trap 8).
     source: Object.freeze({ kind: 'arcade', base: 'https://actesreglementaires.limoges.fr' }),
     lists: Object.freeze([]),
+  }),
+  Object.freeze({
+    key: 'lille',
+    insee: '59350',
+    label: 'Ville de Lille — arrêtés d’urbanisme du Bulletin officiel', // i18n-ignore-line — the publisher and its bulletin
+    page: 'https://www.lille.fr/Votre-Mairie/Le-conseil-municipal/Les-arretes-et-deliberations',
+    // `Disallow: /content/` and `Disallow: /*.pdf$` on 2026-10-01: read by
+    // the project's decision, as Lyon's platform is — the bulletin is the
+    // publication the CGCT requires (art. L.2131-1). Its `Crawl-delay: 10`
+    // is honoured: ten seconds before every request to the host.
+    robots: 'overridden',
+    crawlDelayMs: 10_000,
+    // Scans in a daily bulletin, read by OCR in the daily sweep alone (Trap 9).
+    source: Object.freeze({ kind: 'bulletin' }),
+    lists: Object.freeze([
+      // i18n-ignore-next-line — the words of the city's own links, matched on
+      Object.freeze({ board: 'decisions', layout: 'lille-bulletin', link: /^BO VDL\b/i }),
+    ]),
   }),
 ]);
 
@@ -2543,6 +2585,459 @@ export function readLimogesList(document) {
   });
   return rows;
 }
+
+// --- Lille: arrêtés scanned into a daily bulletin, read by OCR (Trap 9) ------
+
+/** French month names and the abbreviations a date stamp prints, folded, by their first letters. */
+const FRENCH_MONTH_STEMS = Object.freeze([
+  // i18n-ignore-start — French month names, matched on
+  ['JANV', 1], ['FEV', 2], ['MARS', 3], ['AVR', 4], ['MAI', 5], ['JUIN', 6],
+  ['JUIL', 7], ['AOU', 8], ['SEP', 9], ['OCT', 10], ['NOV', 11], ['DEC', 12],
+  // i18n-ignore-end
+]);
+
+/** A French month name or stamp abbreviation, `septembre`, `SEP.`, `AOÛT` → 9, 9, 8; or null. */
+function frenchMonth(word) {
+  const folded = fold(word).replace(/[^A-Z]/g, '');
+  const found = FRENCH_MONTH_STEMS.find(([stem]) => folded.startsWith(stem));
+  return found ? found[1] : null;
+}
+
+/** `2026`, `9`, `29` → `2026-09-29`, or null for a day the calendar does not have. */
+function calendarDay(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+/** Days between two `YYYY-MM-DD`, `b - a`. */
+function daysBetween(a, b) {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * The bulletins a city's page links, each with the day it is dated: Lille
+ * writes `BO VDL du 29 septembre 2026`, `BO VDL du 1er juillet 2026`, `BO VDL
+ * du 27 mars 2026 Tome 2` (181 links on 2026-10-01, every working day since
+ * 2 January). A link's words give the day; its address is its identity, for
+ * a bulletin is posted once and never replaced.
+ *
+ * @param {object} city A city whose `source.kind` is `bulletin`.
+ * @param {string} html The page.
+ * @returns {Array<{url: string, day: string, title: string}>} Oldest first.
+ */
+export function bulletinLinks(city, html) {
+  const list = city.lists?.[0];
+  const out = new Map();
+  const pattern = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/gi;
+  for (const match of String(html ?? '').matchAll(pattern)) {
+    let url;
+    try { url = new URL(decodeEntities(match[1] ?? match[2] ?? '').trim(), city.page); } catch { continue; }
+    if (!/^https?:$/.test(url.protocol) || !/\.pdf$/i.test(url.pathname)) continue;
+    const title = text(decodeEntities(match[3].replace(/<[^>]*>/g, ' '))) ?? '';
+    if (list?.link && !list.link.test(title)) continue;
+    // i18n-ignore-next-line — the city's own link words, matched on
+    const date = /\b(?:du\s+)?(\d{1,2})(?:er)?\s+([a-zà-ÿ]+)\s+(\d{4})\b/i.exec(title);
+    const day = date ? calendarDay(date[3], frenchMonth(date[2]), date[1]) : null;
+    if (day && !out.has(url.href)) out.set(url.href, { url: url.href, day, title });
+  }
+  return [...out.values()].sort((a, b) => a.day.localeCompare(b.day) || a.url.localeCompare(b.url));
+}
+
+/**
+ * What an answer from a host behind a bot shield looks like when it is not
+ * the page: Imperva's interstitial (`_Incapsula_Resource`, « Incapsula
+ * incident ID ») or any CAPTCHA. Such an answer is never passed: the reading
+ * stops there (Trap 9).
+ * @param {?string} html
+ * @returns {boolean}
+ */
+export function bulletinChallenge(html) {
+  return /_Incapsula_Resource|Incapsula incident|captcha|cf-challenge|challenge-platform/i.test(String(html ?? ''));
+}
+
+/** OCR's confusions in a field that can only be digits. */
+const OCR_DIGIT = Object.freeze({ O: '0', o: '0', Q: '0', D: '0', I: '1', l: '1', i: '1', '|': '1', '!': '1' });
+
+function ocrDigits(value) {
+  return String(value ?? '').replace(/[OoQDIli|!]/g, (char) => OCR_DIGIT[char]);
+}
+
+/**
+ * The number at the top of a page: `DOSSIER N° PC 059350 26 00051`, `N° PC
+ * 059350 25 00136 M01` on a modification's first page — the family, the
+ * commune, the year, the counter, a step. Loose on the characters OCR
+ * confuses (`659350`, `O0080`, `MO1`), strict on the shape.
+ */
+// i18n-ignore-next-line — the arrêtés' own header words, matched on
+const BULLETIN_NUMBER_RE = /\bN\s*[°º*o0]?\s*:?\s*(PC|DP|PA|PD|CU)\s*([0-9OoQDIli|]{6,7})\s+([0-9OoQDIli|]{2})\s+([0-9OoQDIli|]{5})(?:\s*([MT])\s*([0-9OoIli|]{1,2}))?(?![0-9A-Za-z])/i;
+
+/** A page's place in its arrêté: `PAGE 2/3`, `PAGE 2 /4`, `PAGE2/3`. */
+const BULLETIN_PAGE_RE = /\bPAGE\s*\.?\s*(\d)\s*\/\s*(\d)\b/i;
+
+/**
+ * The head of one OCR'd page: the number it prints, and whether it is an
+ * arrêté's first page. Null for a page that is no urbanism decision's.
+ * @param {?string} pageText
+ * @returns {?{reading: ?{kind: string, commune: string, year: string, counter: string, step: string},
+ *   first: boolean}}
+ */
+export function bulletinPageHead(pageText) {
+  const lines = String(pageText ?? '').split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 4);
+  // i18n-ignore-start — the arrêtés' own header words, matched on
+  const head = lines.find((line) => /DOSSIER|\bN\s*[°º*]\s*:?\s*(?:PC|DP|PA|PD|CU)\b/i.test(line));
+  if (!head) return null;
+  // The template's own field left unfilled: `DOSSIER N° «DOSSIERNOM» PAGE 3/3`.
+  const blank = /DOSSIERNOM/i.test(head);
+  // i18n-ignore-end
+  const match = blank ? null : BULLETIN_NUMBER_RE.exec(head);
+  if (!match && !blank) return null;
+  const reading = match ? {
+    kind: match[1].toUpperCase(),
+    commune: ocrDigits(match[2]),
+    year: ocrDigits(match[3]),
+    counter: match[4],
+    step: match[5] ? `${match[5].toUpperCase()}${ocrDigits(match[6]).padStart(2, '0')}` : '',
+  } : null;
+  const page = BULLETIN_PAGE_RE.exec(head);
+  const first = !blank && !/\bPAGE\b/i.test(head) && !(page && Number(page[1]) > 1);
+  return { reading, first };
+}
+
+/**
+ * The value most readings agree on, character by character: each place takes
+ * the character more than half the readings give it, and a place where no
+ * character has that many leaves the whole unread. One reading is taken as
+ * it is; two that differ anywhere are no answer.
+ * @param {Array<string>} readings All of the same length.
+ * @returns {?string}
+ */
+export function majorityReading(readings) {
+  if (!readings.length) return null;
+  const { length } = readings[0];
+  if (readings.some((value) => value.length !== length)) return null;
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    const counts = new Map();
+    for (const value of readings) counts.set(value[i], (counts.get(value[i]) ?? 0) + 1);
+    const [char, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (count * 2 <= readings.length) return null;
+    out += char;
+  }
+  return out;
+}
+
+/**
+ * An arrêté's number out of every page that prints it, as Sitadel writes it
+ * (`dossierKey`), or null when the readings do not settle.
+ *
+ * STRICT, because a misread number is a decision put on someone else's
+ * dossier: the commune must read as the city's own code (`059350`, at most one
+ * character off — `659350`, `059356` — or one character too many), the year
+ * no later than the bulletin's, and every other character agreed on by most
+ * pages ({@link majorityReading}). Lille counted its dossiers `O` and four
+ * digits until 2024 (`05935024O0246` in Sitadel) and on five digits since
+ * 2025 (`0593502600024`), so the counter's first character is that letter or
+ * a zero by the year, whatever the OCR made of it.
+ *
+ * @param {Array<object>} readings From {@link bulletinPageHead}.
+ * @param {{insee: string, day: string}} context
+ * @returns {?string} `PC 059350 26 00140`, `DP 059350 19 O0080 M01`.
+ */
+export function bulletinDossier(readings, { insee, day }) {
+  const commune = `0${insee}`;
+  const near = (value) => {
+    if (value.length === 7) return value.includes(commune.slice(1));
+    let off = 0;
+    for (let i = 0; i < 6; i += 1) if (value[i] !== commune[i]) off += 1;
+    return off <= 1;
+  };
+  const usable = readings.filter((reading) => reading && near(reading.commune) && /^\d{2}$/.test(reading.year));
+  if (!usable.length) return null;
+  const kind = majorityReading(usable.map((reading) => reading.kind.padEnd(2)));
+  const year = majorityReading(usable.map((reading) => reading.year));
+  // The step as a whole: `M01` on two pages and nothing on the third is `M01`.
+  const steps = new Map();
+  for (const reading of usable) steps.set(reading.step, (steps.get(reading.step) ?? 0) + 1);
+  const [topStep, stepCount] = [...steps.entries()].sort((a, b) => b[1] - a[1])[0];
+  const step = stepCount * 2 > usable.length ? topStep : null;
+  if (!kind || !year || step === null || Number(year) > Number(String(day).slice(2, 4))) return null;
+  const old = Number(year) <= 24;
+  const counter = majorityReading(usable.map((reading) => {
+    const digits = ocrDigits(reading.counter.slice(1));
+    // The series letter or its zero, by the year: `O0080` for 2019, `00140` for 2026.
+    const lead = /^[0OoQD]$/.test(reading.counter[0]) ? (old ? 'O' : '0') : ocrDigits(reading.counter[0]);
+    return `${lead}${digits}`;
+  }));
+  if (!counter || !(old ? /^O\d{4}$/ : /^\d{5}$/).test(counter)) return null;
+  return `${kind} ${commune} ${year} ${counter}${step ? ` ${step}` : ''}`;
+}
+
+/**
+ * What an arrêté's first article decides, in the ladder's words — loosely,
+ * as OCR spells it (`Atticle 1`, `I! n'est pas fait opposition`, `IF est
+ * fait OPPOSITION`). Null when no article says.
+ * @param {string} body The arrêté's pages, joined.
+ * @returns {?string}
+ */
+export function bulletinVerdict(body) {
+  // i18n-ignore-start — the arrêtés' own words, matched on; the verdicts in the ladder's words
+  // At the start of a line, so that a recital's « article L. 632-2-1 » is
+  // never taken for it.
+  const start = /^\s*A[rRtT][tTfF]?[iI][cC][lLiI1tT][eE]\s*[1lI|!]\s*[-—–:]/m.exec(body);
+  if (!start) return null;
+  const rest = body.slice(start.index + start[0].length);
+  const end = /^\s*A[rRtT][tTfF]?[iI][cC][lLiI1tT][eE]\s*2\b/m.exec(rest);
+  const article = fold(rest.slice(0, end ? Math.min(end.index, 600) : 400));
+  if (/RETIR/.test(article)) return 'Retrait';
+  if (/PAS FAIT OPPOSITION/.test(article)) return 'Non-opposition';
+  if (/FAIT OPPOSITION/.test(article)) return 'Opposition';
+  if (/REFUS/.test(article)) return 'Refus';
+  if (/TRANSFER/.test(article)) return 'Accord (transfert)';
+  if (/PROROG/.test(article)) return 'Prorogation';
+  if (/ACCORD/.test(article)) return 'Accord';
+  // i18n-ignore-end
+  return null;
+}
+
+/**
+ * The day an arrêté was signed, from the date stamps of its signature block —
+ * `Hôtel de Ville, le 2 9 SEP. 2026`, a stamp OCR reads with a space in the
+ * day and a dot, a comma or nothing after the month — or from the typed `Lille,
+ * le 27 mars 2026`. A day is taken only if it is at most 62 days before the
+ * bulletin's and at most a week after it — the bulletin « du 28 septembre
+ * 2026 » holds four arrêtés stamped as published on the 30th — the most
+ * frequent wins, the latest of a tie, and a day only one line gives must be
+ * the bulletin's own.
+ * @param {string} body
+ * @param {string} postedOn The bulletin's day.
+ * @returns {?string}
+ */
+export function bulletinSignedOn(body, postedOn) {
+  const counts = new Map();
+  const year = Number(String(postedOn).slice(0, 4));
+  // A stamp prints its month in capitals, so a line is searched as it is;
+  // only what follows « Hôtel de Ville, le » or « Lille, le » is searched in
+  // any case. The month a sentence spells in full (`en date du 27 avril 2026`)
+  // is never a stamp.
+  // i18n-ignore-next-line — the stamps' month abbreviations, matched on
+  const pattern = /(?:^|[^\dA-Za-z])([0-3OD]\s?[\dOD]|\d)\s*(JANV?|F[EÉ]VR?|MARS|AVR|MAI|JUIN|JUIL|AO[UÛ]T?|SEPT?|OCT|NOV|D[EÉ]C)[A-ZÉÛ]*\s*[.,]?\s*(2\s?0\s?\d\s?\d)(?!\d)/g;
+  for (const line of String(body ?? '').split('\n')) {
+    // i18n-ignore-next-line — the signature's own words, matched on
+    const signed = /\b(?:Ville|Lille)\s*,?\s*le\b(.*)$/i.exec(line)?.[1];
+    const found = new Set();
+    for (const [i, scope] of [line, signed?.toUpperCase()].entries()) {
+      for (const match of String(scope ?? '').matchAll(pattern)) {
+        // A stamp prints its day on two digits (`0 7 MAI 2026`): one is a
+        // digit the OCR lost — `3 MARS` for `1 3 MARS` on seven of 13 March's
+        // arrêtés. Only the typed signature writes `le 3 mars 2026`.
+        const typed = i === 1 && !/^[A-ZÉÛ]{3}/.test(signed.substr(match.index + match[0].indexOf(match[2]), 3));
+        if (!typed && match[1].replace(/\s/g, '').length < 2) continue;
+        const day = calendarDay(match[3].replace(/\s/g, ''), frenchMonth(match[2]), ocrDigits(match[1].replace(/\s/g, '')));
+        const at = day ? Number(day.slice(0, 4)) : 0;
+        if (at !== year && at !== year - 1) continue;
+        const lag = daysBetween(day, postedOn);
+        if (lag >= -7 && lag <= 62) found.add(day);
+      }
+    }
+    for (const day of found) counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  const ranked = [...counts.entries()].sort((a, b) => (b[1] - a[1]) || b[0].localeCompare(a[0]));
+  const [best, count] = ranked[0] ?? [];
+  // One stamp read alone is taken only when it says the bulletin's own day:
+  // OCR read the « 2 9 SEP » of DP 059350 26 01386 as « 23 SEP » (29
+  // September 2026), and it was the arrêté's only legible stamp.
+  return best && (count >= 2 || best === postedOn) ? best : null;
+}
+
+/** The bullet an OCR'd list item starts with: `e`, `e.`, `.`, `°`, `•`, `-`. */
+const BULLET_RE = /^(?:[e°•·.*\-—–]\.?\s*_?\s+|[e°•·]\.?(?=[A-ZÉ]))/;
+
+/** Where the place is, and what the commune it is in adds: Hellemmes and Lomme. */
+const BULLETIN_LOCALITIES = Object.freeze([
+  // i18n-ignore-start — the associated communes' names, matched on
+  Object.freeze({ name: 'Hellemmes', postcode: '59260', re: /\bhellemmes\b/i }),
+  Object.freeze({ name: 'Lomme', postcode: '59160', re: /\blomme\b/i }),
+  Object.freeze({ name: 'Lille', postcode: null, re: /\blille\b/i }),
+  // i18n-ignore-end
+]);
+
+/**
+ * The site of an arrêté's first page: `Sur un terrain situé 138 avenue de
+ * Dunkerque (Lille)`, `… au 47 boulevard Vauban`, `… : RUE DU GRAND BUT -
+ * LOMME,`, a second line joined when it is short and no item of its own.
+ * Never the applicant's address, which the sentence before gives.
+ * @param {Array<string>} lines
+ * @returns {?{address: string, locality: ?string, postcode: ?string}}
+ */
+export function bulletinSite(lines) {
+  // i18n-ignore-start — the arrêtés' own words, matched on
+  const at = lines.findIndex((line) => /terrain\s+situ[ée]/i.test(line));
+  if (at < 0) return null;
+  let value = lines[at].replace(/^.*?terrain\s+situ[ée]+e?\s*/i, '');
+  const next = lines[at + 1];
+  // The next item, its bullet read as anything (`Q Référence cadastrale`), is not the site's.
+  if (next && next.length < 50 && !BULLET_RE.test(next)
+    && !/^(?:\S{1,2}\s+)?(?:vu|consid|pour|destination|r[ée]f[ée]rences?|surface)\b/i.test(next)) {
+    value = `${value} ${next}`;
+  }
+  value = value.replace(/^\s*(?:[:;]\s*)?(?:au\s+)?/i, '').replace(/\s*\S?\s*r[ée]f[ée]rences?\s+cadastrales?\b.*$/i, '');
+  // i18n-ignore-end
+  // The commune at the end only, after a dash or in brackets: a « rue de
+  // Lomme » is a street, not a place in Lomme.
+  const tail = /\s*(?:\(\s*([^)]+?)\s*\)|[-—–]+\s*([A-Za-zÀ-ÿ' ]+?))\s*[,.;]?\s*$/.exec(value);
+  const locality = tail ? BULLETIN_LOCALITIES.find((place) => place.re.test(tail[1] ?? tail[2])) ?? null : null;
+  if (locality) value = value.slice(0, tail.index);
+  const address = text(value.replace(/[\s,;.]+$/, ''));
+  if (!address || !/[A-Za-zÀ-ÿ]{3}/.test(address)) return null;
+  return { address, locality: locality?.name ?? null, postcode: locality?.postcode ?? null };
+}
+
+/**
+ * The works an arrêté's first page names: the items between « Vu l'objet de
+ * la demande : » and the site, each cut of its bullet, the generic « Travaux
+ * sur construction existante : » dropped. At most 160 characters.
+ * @param {Array<string>} lines
+ * @returns {?string}
+ */
+export function bulletinPurpose(lines) {
+  // i18n-ignore-start — the arrêtés' own words, matched on
+  const from = lines.findIndex((line) => /objet\s+(?:de\s+la\s+demande|des\s+modifications)/i.test(line));
+  // Up to the site, or the next recital when the arrêté names no site.
+  const to = lines.findIndex((line, i) => i > from && /terrain\s+situ|^vu\b|^consid[ée]rant\b/i.test(line));
+  if (from < 0 || to < 0 || to - from > 12) return null;
+  const items = [];
+  const head = lines[from].replace(/^.*?objet\s+(?:de\s+la\s+demande|des\s+modifications)(?:\s+initiale)?\s*[:;]?\s*/i, '');
+  for (const line of [head, ...lines.slice(from + 1, to)]) {
+    if (!line) continue;
+    const item = BULLET_RE.test(line);
+    const value = line.replace(BULLET_RE, '').trim();
+    if (item || !items.length) items.push(value);
+    else items[items.length - 1] = `${items.at(-1)} ${value}`;
+  }
+  const out = text(items
+    .map((item) => item.replace(/^travaux\s+sur\s+construction\s+existante?\s*[:;]?\s*/i, '').replace(/^modifications?\s*:\s*/i, ''))
+    // What OCR leaves around an item: a stray quote, a closing comma.
+    .map((item) => item.replace(/^[^\p{L}\d]+/u, '').replace(/[\s,;:‘’'"]+$/, ''))
+    // The figures the page lists as items of their own are read apart.
+    .filter((item) => item && !/^(?:pour\s+une\s+)?surface\b|^destination\b|^r[ée]f[ée]rences?\s+cadastrale/i.test(item))
+    .join(' ; '));
+  // A civility is a person's name to come: the works are not worth it.
+  if (!out || /\b(?:monsieur|madame|mademoiselle|mme|mlle|mr|m\.)\s/i.test(out)) return null;
+  // i18n-ignore-end
+  return out.length > 160 ? `${out.slice(0, 159).replace(/\s+\S*$/, '')}…` : out;
+}
+
+/**
+ * Whether a page is worth reading whole, from its top alone (`screen` of the
+ * OCR runner): an urbanism decision's page prints its number there, and the
+ * page of legal notices every decision ends with is not worth the time.
+ * @param {string} band The top of the page, OCR'd.
+ * @returns {boolean}
+ */
+export function bulletinPageWorthReading(band) {
+  const head = bulletinPageHead(band);
+  // i18n-ignore-next-line — the notices page's own title, matched on
+  return Boolean(head) && !/INFORMATIONS\s*[-—–]?\s*[AÀ]\s+LIRE/i.test(band);
+}
+
+/**
+ * One bulletin's urbanism decisions, out of its pages' OCR text (Trap 9).
+ *
+ * An arrêté is a run of pages: a first page with its number, then pages
+ * that say `PAGE 2/3`; a page that prints no number ends it. Its number comes
+ * from every page that prints it ({@link bulletinDossier}); the site, the
+ * works, the floor area and the filing day from the first page; the verdict
+ * from the first article; the signing day from the stamps. The applicant is
+ * never read — the sentence that names them gives their own address too.
+ *
+ * @param {Array<?string>} pages Each page's text; null or a band for a page not read whole.
+ * @param {{day: string, insee: string}} context The bulletin's day, the city's code.
+ * @returns {{rows: Array<object>, acts: number, dropped: number}} `dropped`:
+ *   arrêtés whose number did not settle, left out.
+ */
+export function readLilleBulletin(pages, { day, insee }) {
+  const acts = [];
+  let open = null;
+  // A page whose year and counter differ from the arrêté's first reading in
+  // more than two places is another arrêté's, whatever it says of its rank.
+  const far = (a, b) => {
+    const x = `${a.year}${a.counter}`;
+    const y = `${b.year}${b.counter}`;
+    let off = 0;
+    for (let i = 0; i < Math.max(x.length, y.length); i += 1) if (x[i] !== y[i]) off += 1;
+    return off > 2;
+  };
+  for (const page of pages ?? []) {
+    const head = page ? bulletinPageHead(page) : null;
+    if (!head) { open = null; continue; }
+    // A notices page with no arrêté open is no arrêté.
+    if (!head.first && !head.reading && !open) continue;
+    if (head.first || !open || (head.reading && open.readings[0] && far(head.reading, open.readings[0]))) {
+      open = { pages: [], readings: [], first: head.first ? page : null };
+      acts.push(open);
+    }
+    open.pages.push(page);
+    if (head.reading) open.readings.push(head.reading);
+  }
+  const rows = [];
+  let dropped = 0;
+  for (const act of acts) {
+    const dossier = bulletinDossier(act.readings, { insee, day });
+    if (!dossier) { dropped += 1; continue; }
+    const body = act.pages.join('\n');
+    const lines = act.first ? act.first.split('\n').map((line) => line.trim()).filter(Boolean) : [];
+    const site = bulletinSite(lines);
+    // i18n-ignore-start — the arrêtés' own words, matched on
+    const filed = /pr[ée]sent[ée]e\s+le\s+(\d{1,2})(?:er)?\s+([A-Za-zÀ-ÿ]+)\s+(\d{4})/i.exec(act.first ?? '');
+    const floor = /surface\s+de\s+plancher\s+cr[ée]{1,2}e\s*:?\s*([\d\s]+(?:[.,]\d+)?)\s*m/i.exec(act.first ?? '');
+    // i18n-ignore-end
+    const filedOn = filed ? calendarDay(filed[3], frenchMonth(filed[2]), filed[1]) : null;
+    const floorArea = floor ? number(floor[1]) : null;
+    const signedOn = bulletinSignedOn(body, day);
+    const row = {
+      board: PERMIT_LIST_BOARDS.decisions,
+      dossier,
+      label: null,
+      purpose: bulletinPurpose(lines),
+      applicant: null,
+      address: site?.address ?? null,
+      postcode: site?.postcode ?? null,
+      locality: site?.locality ?? null,
+      filedOn: filedOn && filedOn <= (signedOn && signedOn > day ? signedOn : day) ? filedOn : null,
+      verdict: bulletinVerdict(body) ?? LIMOGES_VERDICT,
+      decidedOn: signedOn,
+      // Posted no sooner than it was signed: a bulletin may hold acts stamped
+      // days after the day it is named for.
+      postedOn: signedOn && signedOn > day ? signedOn : day,
+      landArea: null,
+      housing: null,
+      lots: null,
+      floorArea: floorArea !== null ? String(floorArea) : null,
+      parcels: null,
+    };
+    // The same number on the next pages again is the same decision — an
+    // annex, the original arrêté a transfer reprints — one row, the verdict
+    // on the ladder kept over « Décision signée ».
+    const last = rows.at(-1);
+    if (last?.dossier === row.dossier) {
+      for (const [field, value] of Object.entries(row)) last[field] ??= value;
+      if (!permitListVerdictState(last.verdict) && permitListVerdictState(row.verdict)) last.verdict = row.verdict;
+      continue;
+    }
+    rows.push(row);
+  }
+  return { rows, acts: acts.length, dropped };
+}
+
+/** The readers of bulletins read by OCR, by the `layout` a city's list names. */
+export const BULLETIN_READERS = Object.freeze({
+  'lille-bulletin': Object.freeze({ read: readLilleBulletin, screen: bulletinPageWorthReading }),
+});
 
 /**
  * How a layout's files are turned into text, where it differs from the

@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 189 Cart@DS *affichage réglementaire* boards (1 424 communes) and Sirap PU boards (1 065 communes), both with a daily archive and both mostly found by `npm run permits:scan` + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle and Limoges publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4905,6 +4905,48 @@ months, 396 placeable; a decision on a dossier filed before July has no
 address yet and is not drawn. A scan reads one search page and the lists not
 yet read (three requests on 2026-10-01); the daily sweep reads four pages.
 No `robots.txt` (the portal answers 404).
+
+**Lille** publishes every arrêté its mayor signs in a daily « Bulletin
+officiel » (BO VDL), one PDF per working day linked from
+`lille.fr/Votre-Mairie/Le-conseil-municipal/Les-arretes-et-deliberations`
+(181 since 2 January 2026, `bulletinLinks`; a link's words give its day).
+Every page is a scan with no text, so the bulletins are read by OCR on the
+server — poppler's `pdftoppm` (200 dpi, grey PGM) and Tesseract's French
+(`--psm 4`), installed by the Dockerfile, wrapped by `scripts/lib/pdfOcr.mjs`
+at nice 19 and one thread — in the daily sweep only (`ocr` of
+`sweepPermitLists`). A visitor's scan is handed no OCR and draws the
+bulletins the sweep has read out of its ledger
+(`.gev-cache/permit-lists/bulletin1-lille.json`, rows only, by the bulletin's
+address), without a request. The sweep reads the page, then every bulletin of
+its twelve months the ledger does not hold, oldest first, so a day the server
+missed is caught up at the next sweep: at most 40 bulletins and no new one
+past 1 500 pages a sweep, ten seconds before every request to the host
+(`crawlDelayMs`, its `Crawl-delay: 10`). Its `robots.txt` disallows `/content/`
+and every PDF: Lille is read by the project's decision, `robots: 'overridden'`.
+The host sits behind Imperva; an answer that is a challenge or no PDF, or a
+403/429, stops the reading until the next sweep (`bulletinChallenge`). Most
+pages are other acts, so each page's top is read first and the page whole
+only when it shows a dossier number (`bulletinPageWorthReading`): 214 of 703
+pages over 14 bulletins sampled, 0.58 s a page on an M5 core against 2.4 s for
+every page as PNG. An arrêté is the run of pages its number heads
+(`DOSSIER N° PC 059350 26 00051`, `PAGE 2/3`); the number is voted over them
+(`bulletinDossier`: the city's code within one character, the year no later
+than the bulletin's, each other character agreed by most pages, the counter
+`O` and four digits before 2025 as Sitadel writes it); the verdict is the
+first article's (`bulletinVerdict`), the site and works the first page's,
+the filing day the « présentée le », the signing day the date stamps
+(`bulletinSignedOn`: two digits, at least two stamps or the bulletin's own
+day). The sentence that names the applicant and their address is never read.
+Hellemmes and Lomme are in the same bulletin under 059350, as in Sitadel;
+their sites carry 59260 and 59160 for the geocoder. On the 14 bulletins: 95
+arrêtés in 7 of them, 92 decisions, every number agreed by a second reading
+at 300 dpi, 90 with a site, every verdict read, 89 with their works, 74 with
+their signing day; an arrêté whose number does not settle is left out and
+counted (`dropped`). The image's Tesseract 5.3 (Debian bookworm), run on three
+of them in a container held to one CPU of an i5-6500T, gave the same 55
+decisions as the Mac's 5.5, at 2.1 s a page read whole and 1.8 s a page on
+average for bulletins heavy in decisions; the OCR layer adds 111 MB to the
+image.
 
 **Montpellier and 27 communes of its métropole** publish no list a reader
 could follow, but the métropole exports every favourable decision since 2006

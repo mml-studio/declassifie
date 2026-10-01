@@ -555,3 +555,154 @@ test('an Arcade city reads its decisions off the search and each list of filings
   assert.equal(calls.length, 1, 'a list already read is not asked for again');
   assert.equal(again.boards.filings.length, 1);
 });
+
+// --- A bulletin of scanned arrêtés, read by OCR (Lille) ----------------------
+// No binary runs here: the OCR is a function handed in, and it answers each
+// bulletin's pages as the text Tesseract would give.
+
+const BULLETIN = Object.freeze({
+  key: 'bo',
+  insee: '59350',
+  label: 'Ville — arrêtés du bulletin',
+  page: 'https://bo.example/arretes',
+  robots: 'overridden',
+  crawlDelayMs: 10_000,
+  source: Object.freeze({ kind: 'bulletin' }),
+  lists: Object.freeze([Object.freeze({ board: 'decisions', layout: 'lille-bulletin', link: /^BO VDL\b/i })]),
+});
+
+const BO_DAYS = ['28', '29', '30'];
+const boUrl = (day) => `https://bo.example/content/download/1/2/file/BO+VDL+du+${day}+septembre+2026.pdf`;
+const BO_PAGE = [
+  ...BO_DAYS.map((day) => `<li><a href="/content/download/1/2/file/BO+VDL+du+${day}+septembre+2026.pdf"><span>BO VDL du ${day} septembre 2026 (.pdf)</span></a></li>`),
+  '<li><a href="/content/download/9/9/file/deliberations.pdf"><span>Délibérations réglementaires (.pdf)</span></a></li>',
+].join('\n');
+
+/** One decision a bulletin holds, as OCR text: a first page and the article's. */
+function arreteText(counter, day) {
+  return [
+    `DOSSIER N° DP 059350 26 ${counter}\nDemande de Déclaration préalable\nVu la demande, présentée le 02 septembre 2026 par DUPONT Jean, 1 rue du Demandeur,\n`
+      + `Vu l'objet de la demande :\n. Travaux sur construction existante : ravalement de façade\n. Sur un terrain situé ${Number(counter)} rue de l'Exemple (Lille)\nVu les pièces fournies,`,
+    `DOSSIER N° DP 059350 26 ${counter} PAGE 2/2\nARRETE\nArticle 1 - Il n'est pas fait opposition aux travaux.\nArticle 2 - Exécution.\nHôtel de Ville, le ${day.split('').join(' ')} SEP. 2026`,
+  ];
+}
+
+/** The host: its page, each bulletin a "PDF" whose bytes name its day. */
+function bulletinHttp({ page = BO_PAGE, files = {} } = {}) {
+  const calls = [];
+  const response = (status, payload, type) => ({
+    ok: status >= 200 && status < 300, status, payload, body: { cancel: async () => {} },
+    headers: { get: (name) => (name.toLowerCase() === 'content-type' ? type : null) },
+  });
+  return {
+    calls,
+    async fetch(url) {
+      calls.push(url);
+      if (url === BULLETIN.page) return page === null ? null : response(200, page, 'text/html');
+      const day = BO_DAYS.find((d) => url === boUrl(d));
+      if (!day) return response(404, '', 'text/html');
+      if (files[day] !== undefined) return files[day];
+      return response(200, new Uint8Array(Buffer.from(`%PDF-1.6 bulletin ${day}`, 'latin1')), 'application/pdf');
+    },
+    text: async (r) => (typeof r.payload === 'string' ? r.payload : null),
+    bytes: async (r) => (r.payload instanceof Uint8Array ? r.payload : null),
+  };
+}
+
+/** The OCR, faked: a bulletin's pages from its bytes, each call recorded. */
+function fakeOcr() {
+  const calls = [];
+  const ocr = async (bytes, { screen } = {}) => {
+    const day = /bulletin (\d+)/.exec(Buffer.from(bytes).toString('latin1'))[1];
+    calls.push({ day, screen });
+    const pages = ['Arrêté Municipal\nN° 12\nARRETE DE STATIONNEMENT', ...arreteText(`01${day}0`, day)];
+    return { pages, read: 2, ms: 5 };
+  };
+  return { ocr, calls };
+}
+
+test('a bulletin city is read by OCR in the sweep, oldest first, a few at a time, ten seconds apart', async () => {
+  const dir = await tempDir();
+  const http = bulletinHttp();
+  const { ocr, calls } = fakeOcr();
+  const answer = await readPermitCity(BULLETIN, http, { dir, months: 2, day: '2026-10-01', ocr, maxFiles: 2 });
+  assert.deepEqual(calls.map((call) => call.day), ['28', '29'], 'the oldest unread first, at most two');
+  assert.equal(typeof calls[0].screen, 'function', 'a page is screened by its top');
+  assert.deepEqual(answer.boards.decisions.map((cells) => [cells[0], cells[4], cells[8], cells[9], cells[10]]), [
+    ['DP 059350 26 01280', '1280 rue de l\'Exemple', 'Non-opposition', '2026-09-28', '2026-09-28'],
+    ['DP 059350 26 01290', '1290 rue de l\'Exemple', 'Non-opposition', '2026-09-29', '2026-09-29'],
+  ]);
+  assert.ok(!JSON.stringify(answer).includes('DUPONT'), 'the applicant is never kept');
+  assert.deepEqual([answer.skipped, answer.incomplete], [1, true], 'the 30th is left for the next sweep');
+  const ledger = (await fsp.readdir(dir)).find((name) => name.startsWith('bulletin'));
+  assert.ok(ledger, 'what was read is kept in a ledger');
+  assert.ok(!(await fsp.readFile(path.join(dir, ledger), 'utf8')).includes('DUPONT'), 'rows only, never the text');
+
+  // The next reading catches up with what the first left.
+  http.calls.length = 0;
+  calls.length = 0;
+  const next = await readPermitCity(BULLETIN, http, { dir, months: 2, day: '2026-10-02', ocr, maxFiles: 2 });
+  assert.deepEqual(calls.map((call) => call.day), ['30']);
+  assert.deepEqual(http.calls, [BULLETIN.page, boUrl('30')]);
+  assert.equal(next.boards.decisions.length, 3);
+
+  // A visitor's scan: no OCR handed in, no request, the ledger drawn.
+  http.calls.length = 0;
+  const scan = await readPermitCity(BULLETIN, http, { dir });
+  assert.deepEqual(http.calls, [], 'a scan never asks the host');
+  assert.equal(scan.boards.decisions.length, 3);
+  assert.equal(await readPermitCity(BULLETIN, http, { dir: await tempDir() }), null, 'nothing read yet is nothing to draw');
+});
+
+test('a bulletin city\'s sweep waits its crawl delay before every request', async () => {
+  const dir = await tempDir();
+  const store = createCartdsArchiveStore(path.join(dir, 'archive'), { warn: () => {} }, PERMIT_LIST_ROWS);
+  const http = bulletinHttp();
+  const slept = [];
+  const { ocr } = fakeOcr();
+  const summary = await sweepPermitLists({
+    cities: [BULLETIN], store, http, dir: path.join(dir, 'editions'), day: '2026-10-01', pauseMs: 0,
+    sleep: async (ms) => { slept.push(ms); }, ocr, log: { log: () => {}, warn: () => {} },
+  });
+  assert.deepEqual([summary.read, summary.added], [1, 3]);
+  assert.equal(http.calls.length, 4, 'the page and three bulletins');
+  assert.deepEqual(slept, [10_000, 10_000, 10_000, 10_000], 'ten seconds before each');
+  const { archive } = await store.load(BULLETIN, BULLETIN.insee);
+  assert.deepEqual(archive.rows.map((row) => row.board), ['decisions', 'decisions', 'decisions']);
+});
+
+test('without OCR on the machine, a bulletin city is left out with one line', async () => {
+  const dir = await tempDir();
+  const store = createCartdsArchiveStore(path.join(dir, 'archive'), { warn: () => {} }, PERMIT_LIST_ROWS);
+  const http = bulletinHttp();
+  const lines = [];
+  const summary = await sweepPermitLists({
+    cities: [BULLETIN], store, http, dir, day: '2026-10-01', pauseMs: 0, ocr: null,
+    log: { log: (line) => lines.push(line), warn: (line) => lines.push(line) },
+  });
+  assert.deepEqual(http.calls, []);
+  assert.deepEqual(summary.withoutOcr, ['bo']);
+  assert.deepEqual(summary.failed, [], 'no error');
+  assert.equal(lines.filter((line) => line.includes('bo:')).length, 1);
+});
+
+test('a bulletin city fails closed on a challenge, a refusal or an answer that is no PDF', async () => {
+  const quiet = { warnings: [], log: () => {}, warn(line) { this.warnings.push(line); } };
+  const { ocr, calls } = fakeOcr();
+  // The page itself answered by a shield's interstitial.
+  const challenged = bulletinHttp({ page: '<html><script src="/_Incapsula_Resource?SWJIYLWA=1"></script></html>' });
+  assert.equal(await readPermitCity(BULLETIN, challenged, { dir: await tempDir(), day: '2026-10-01', ocr, log: quiet }), null);
+  assert.deepEqual(challenged.calls, [BULLETIN.page], 'no bulletin asked after a challenge');
+  assert.match(quiet.warnings.at(-1), /challenge/);
+  // A bulletin answered by an HTML page: the reading stops there.
+  const html = { ok: true, status: 200, payload: new Uint8Array(Buffer.from('<html>Incapsula incident ID</html>')), headers: { get: () => 'text/html' } };
+  const swapped = bulletinHttp({ files: { 28: html } });
+  const answer = await readPermitCity(BULLETIN, swapped, { dir: await tempDir(), day: '2026-10-01', ocr, log: quiet });
+  assert.deepEqual(swapped.calls, [BULLETIN.page, boUrl('28')], 'nothing more asked');
+  assert.deepEqual([answer.failed, answer.skipped], [1, 2]);
+  assert.equal(calls.length, 0, 'nothing read by OCR');
+  // A refusal does the same.
+  const refused = bulletinHttp({ files: { 28: { ok: false, status: 403, payload: '', headers: { get: () => null } } } });
+  const after = await readPermitCity(BULLETIN, refused, { dir: await tempDir(), day: '2026-10-01', ocr, log: quiet });
+  assert.deepEqual([after.failed, after.skipped, refused.calls.length], [1, 2, 2]);
+});
