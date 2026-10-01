@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 21 Cart@DS *affichage réglementaire* boards (194 communes) and 4 Sirap PU boards (56 communes), both with a daily archive + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the PDF lists Marseille and Nîmes publish, with a daily archive + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4717,6 +4717,33 @@ Cart@DS board's, by the same archive code, in `.gev-cache/archive/sirap/`, and
 swept on the same daily clock (58 requests, about a minute). The applicant is
 filtered and the architect never stored. Every PU host answers `robots.txt`
 with its own app page, which is no file; a host that publishes one is obeyed.
+
+**Since 2026-10-01, Marseille and Nîmes answer with the lists they publish
+as PDF** (`src/data/permitListsFeed.js`, `scripts/lib/permitLists.mjs`).
+Marseille links two files from its urbanism page: every dossier still under
+review, whatever its year (1 874 on 2026-09-28), and every authorisation
+granted over the last two months (825 from 16 July to 29 September; the city
+publishes no refusal). Nîmes links one: its register of dossiers under review
+(348) followed by its register of decisions (321, of them 86 refusals and 15
+withdrawals). The proxy finds each file by the words of its link and reads it
+as a table out of the PDF's positioned text (`pdfText.js`): the register the
+Cart@DS software prints, a record per « Déposé le » line, and Marseille's
+spreadsheet export, a row per dossier number, on which every centred cell of
+the row is centred. Every dossier number the three files print came out as a
+row. Marseille writes an original dossier with a `P0` suffix Sitadel does not
+(`PC 013055 26 00230P0`, `0130552600230`); it is dropped so the two registers
+meet, 117 dossiers on the first scan. A dossier on the city's latest list of
+dossiers under review is drawn *En cours d'instruction* (“Under review”), the
+city's own statement; once a later list drops it with no decision listed, it
+falls back to *Déposé*. The lists name no parcel, so every address is
+geocoded once and the BAN's answer kept per city, misses included
+(`.gev-cache/permit-lists/geocode1-<insee>.json`): 2 556 of Marseille's 2 624
+dossiers placed, 642 of Nîmes's 669. A file is parsed once per edition, its
+rows kept under its address with its `ETag` (Marseille's 199-page register
+reads in half a second); a city is read at most every six hours, a cold
+Marseille scan taking 48 s with Sitadel; the rows are archived like a board's
+in `.gev-cache/archive/permit-lists/` and swept on the same daily clock. The
+applicant's own address is never read, and a person's name is dropped.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on

@@ -333,6 +333,13 @@ import {
   SIRAP_LICENCE,
   SIRAP_ROWS,
 } from './src/data/sirapFeed.js';
+import {
+  normalisePermitListRow,
+  permitListFor,
+  PERMIT_LISTS,
+  PERMIT_LISTS_LICENCE,
+  PERMIT_LIST_ROWS,
+} from './src/data/permitListsFeed.js';
 import { extractPdfText } from './src/data/pdfText.js';
 import { organisationApplicant } from './src/data/permitApplicant.js';
 import { archivedCartdsRows, cartdsDay } from './src/data/cartdsArchive.js';
@@ -355,6 +362,13 @@ import {
   sweepSirapArchive,
   SIRAP_ARCHIVE_DIR,
 } from './scripts/lib/sirapBoards.mjs';
+import {
+  permitListsRobots as askPermitListsRobots,
+  readPermitCity,
+  sweepPermitLists,
+  PERMIT_LISTS_ARCHIVE_DIR,
+  PERMIT_LISTS_EDITION_DIR,
+} from './scripts/lib/permitLists.mjs';
 import {
   anchorParcels,
   assignDivision,
@@ -27813,11 +27827,12 @@ function adsFranceProxy() {
   function armCartdsSweep(preview) {
     if (cartdsSweepArmed || cartdsSweepMode(preview) !== 'daily') return;
     cartdsSweepArmed = true;
-    // The PU boards are swept on the same clock: other hosts, a minute's work.
-    const sweep = () => { void sweepCartdsIfDue(); void sweepSirapIfDue(); };
+    // The PU boards and the cities' PDF lists are swept on the same clock:
+    // other hosts, a minute's work each.
+    const sweep = () => { void sweepCartdsIfDue(); void sweepSirapIfDue(); void sweepPermitListsIfDue(); };
     setTimeout(sweep, CARTDS_SWEEP_WARMUP_MS).unref?.();
     setInterval(sweep, CARTDS_SWEEP_CHECK_MS).unref?.();
-    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board once a day, into ${CARTDS_ARCHIVE_DIR} and ${SIRAP_ARCHIVE_DIR}`);
+    console.log(`[cartds-archive] armed — every Cart@DS and Sirap board and every city list once a day, into ${CARTDS_ARCHIVE_DIR}, ${SIRAP_ARCHIVE_DIR} and ${PERMIT_LISTS_ARCHIVE_DIR}`);
   }
 
   /**
@@ -28260,6 +28275,251 @@ function adsFranceProxy() {
     };
   }
 
+  // --- What a city publishes itself: PDF lists ------------------------------
+  /**
+   * One city's lists, read, archived, folded and placed — the Sirap path above
+   * for the lists Marseille and Nîmes publish as PDF files
+   * (`permitListsFeed.js`). Same six hours and the same archive; bounded by
+   * `PERMIT_LISTS`, so the map needs no eviction.
+   *
+   * GEOCODED ONCE PER ADDRESS, not once per build. These lists are addresses
+   * with no parcel, and the archive only grows: Marseille's first reading was
+   * 2 624 dossiers, and a year of it will be several times that. So every BAN
+   * answer is kept per city, the misses included, and a rebuild sends the
+   * geocoder only the addresses it has never seen.
+   */
+  const PERMIT_LISTS_TTL_MS = 6 * 60 * 60 * 1000;
+  /** Bumped whenever a cached city's SHAPE changes; see `loadEdition`. */
+  const PERMIT_LISTS_SCHEMA = 1;
+  /** Bumped whenever a kept BAN answer's shape changes. */
+  const PERMIT_LISTS_GEOCODE_SCHEMA = 1;
+  const PERMIT_LISTS_PDF_TIMEOUT_MS = 60_000;
+  const permitListsEditionDir = path.join(process.cwd(), PERMIT_LISTS_EDITION_DIR);
+  /** insee → {at, value}. */
+  const permitListCities = new Map();
+  /** insee → the build in progress. */
+  const permitListInFlight = new Map();
+  /** origin → {at, robots}. */
+  const permitListRobots = new Map();
+  /** Every row a city's lists ever showed, kept like a posted board's. */
+  const permitListArchive = createCartdsArchiveStore(
+    path.join(process.cwd(), PERMIT_LISTS_ARCHIVE_DIR), console, PERMIT_LIST_ROWS,
+  );
+  /**
+   * The Cart@DS calls, with a body as bytes and a longer timeout: a city's
+   * list is megabytes of PDF where a board is kilobytes of JSON.
+   */
+  const permitListsHttp = {
+    fetch: (url, init = {}) => (/\.pdf$/i.test(new URL(url).pathname)
+      ? permitListPdfFetch(url, init) : cartdsFetch(url, init)),
+    text: cartdsText,
+    bytes: async (response, maxBytes) => {
+      try {
+        return await readResponseBytesCapped(response, maxBytes);
+      } catch {
+        return null;
+      }
+    },
+  };
+
+  async function permitListPdfFetch(url, init) {
+    if (!(await awaitUpstreamSlot(url)).ok) return null;
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(PERMIT_LISTS_PDF_TIMEOUT_MS),
+        headers: { 'User-Agent': CARTDS_USER_AGENT, ...(init.headers || {}) },
+      });
+      if (!response.ok && response.status !== 304) noteUpstreamStatus(url, response);
+      return response;
+    } catch (error) {
+      console.warn(`[ADS Proxy] list ${new URL(url).host}: ${error?.message || error}`);
+      return null;
+    }
+  }
+
+  /** What this host's `robots.txt` allows, remembered for a day per host. */
+  async function permitListRobotsVerdict(city) {
+    const { origin } = new URL(city.page);
+    const cached = permitListRobots.get(origin);
+    if (cached && Date.now() - cached.at < CARTDS_ROBOTS_TTL_MS) return cached.robots;
+    const robots = await askPermitListsRobots(city, permitListsHttp);
+    if (!robots.final) return robots;
+    if (!robots.allows(new URL(city.page).pathname)) {
+      console.warn(`[ADS Proxy] lists ${origin}: robots.txt refuses, lists not read`);
+    }
+    permitListRobots.set(origin, { at: Date.now(), robots });
+    return robots;
+  }
+
+  /** The kept BAN answers of one city: `address\u0001postcode` → `[lon, lat, type, score]` or 0. */
+  function permitListGeocodeFile(insee) {
+    return path.join(permitListsEditionDir, `geocode${PERMIT_LISTS_GEOCODE_SCHEMA}-${insee}.json`);
+  }
+
+  /**
+   * Place a city's dossiers by address, asking the BAN only for the addresses
+   * it has never answered for this city. A miss is kept as a miss: an address
+   * the BAN cannot place today is not one it will place in six hours. A batch
+   * that failed keeps nothing, and its rows are asked again next time.
+   */
+  async function placePermitListAddresses(insee, permits) {
+    const memo = new Map();
+    try {
+      const kept = JSON.parse(await fsp.readFile(permitListGeocodeFile(insee), 'utf8'));
+      for (const [key, value] of Object.entries(kept ?? {})) memo.set(key, value);
+    } catch { /* nothing kept yet */ }
+    const keyOf = (permit) => `${permit.address}\u0001${permit.postcode ?? ''}`;
+    const pending = new Map();
+    for (const permit of permits) {
+      if (permit.lon !== null || !permit.address) continue;
+      const key = keyOf(permit);
+      if (!memo.has(key) && !pending.has(key)) pending.set(key, permit);
+    }
+    const asked = [...pending.values()].slice(0, ADS_GEOCODE_MAX_ROWS);
+    const csv = buildGeocodeCsv(asked);
+    const answer = csv ? await geocodeBatch(csv) : null;
+    if (answer) {
+      const placed = new Map(applyGeocoding(asked, answer).permits.map((permit) => [permit.id, permit]));
+      for (const permit of asked) {
+        const hit = placed.get(permit.id);
+        memo.set(keyOf(permit), hit ? [hit.lon, hit.lat, hit.precision, hit.geocodeScore] : 0);
+      }
+      try {
+        await fsp.mkdir(permitListsEditionDir, { recursive: true });
+        await fsp.writeFile(permitListGeocodeFile(insee), JSON.stringify(Object.fromEntries(memo)));
+      } catch { /* cache is an optimisation, never a requirement */ }
+    }
+    let geocoded = 0;
+    const out = permits.map((permit) => {
+      if (permit.lon !== null) return permit;
+      const hit = permit.address ? memo.get(keyOf(permit)) : null;
+      if (!Array.isArray(hit)) return permit;
+      geocoded += 1;
+      return { ...permit, lon: hit[0], lat: hit[1], precision: hit[2], geocodeScore: hit[3] };
+    });
+    return { permits: out, geocoded, asked: asked.length, complete: Boolean(answer) || !csv };
+  }
+
+  /**
+   * Read, archive, fold and place one city's lists. The archive is drawn, as
+   * for a board: today's lists plus every row that has left them since the
+   * first sweep. A filed row is UNDER REVIEW only while the latest edition
+   * read still lists it (Trap 3 of `permitListsFeed.js`).
+   */
+  async function buildPermitListCity(city) {
+    const report = { key: `permit-list-${city.key}`, label: city.label, licence: PERMIT_LISTS_LICENCE };
+    const robots = await permitListRobotsVerdict(city);
+    if (!robots.allows(new URL(city.page).pathname)) {
+      return { permits: [], portal: { ...report, ok: false, count: 0, ...(robots.final ? { refused: 'robots' } : {}) } };
+    }
+    const live = await readPermitCity(city, permitListsHttp, { dir: permitListsEditionDir, allows: robots.allows });
+    if (!live) console.warn(`[ADS Proxy] lists ${city.key}: a list is unavailable`);
+    const { archive } = live
+      ? await permitListArchive.record(city, city.insee, live.boards, cartdsDay())
+      : await permitListArchive.load(city, city.insee);
+    const stored = archivedCartdsRows(archive);
+    if (!live && !stored.length) return { permits: [], portal: { ...report, ok: false, count: 0 } };
+    const rows = [];
+    for (const row of stored) {
+      const permit = normalisePermitListRow(city, row.board, row.cells, { current: row.last === archive.lastDay });
+      if (permit) rows.push(permit);
+    }
+    // One row per dossier, the decision's when there is one: a dossier is on
+    // the list under review until it is decided, and on the list of decisions
+    // after, and the archive holds both.
+    const { permits: dossiers, folded } = foldCartdsDossiers(rows);
+    const placed = await placePermitListAddresses(city.insee, dossiers);
+    const standing = placed.permits.filter((permit) => permit.lon !== null && permit.lat !== null);
+    return {
+      permits: standing,
+      portal: {
+        ...report,
+        ok: true,
+        live: Boolean(live) && placed.complete,
+        count: dossiers.length,
+        geocoded: placed.geocoded,
+        unplaced: dossiers.length - standing.length,
+        folded,
+        lists: live?.lists ?? null,
+        archive: {
+          since: archive.firstDay,
+          through: archive.lastDay,
+          days: archive.days,
+          offList: stored.filter((row) => row.last < archive.lastDay).length,
+        },
+      },
+    };
+  }
+
+  /** The daily sweep of every city's lists, beside the boards'. */
+  let permitListsSweeping = null;
+  async function sweepPermitListsIfDue() {
+    if (permitListsSweeping) return permitListsSweeping;
+    permitListsSweeping = (async () => {
+      const day = cartdsDay();
+      if (!cartdsSweepDue(await readCartdsSweepStamp(permitListArchive.dir), day)) return null;
+      const summary = await sweepPermitLists({
+        cities: PERMIT_LISTS,
+        store: permitListArchive,
+        http: permitListsHttp,
+        robots: permitListRobotsVerdict,
+        dir: permitListsEditionDir,
+        day,
+      });
+      await writeCartdsSweepStamp(permitListArchive.dir, summary);
+      return summary;
+    })().catch((error) => {
+      console.warn(`[permit-lists] sweep failed: ${error?.message || error}`);
+      return null;
+    }).finally(() => { permitListsSweeping = null; });
+    return permitListsSweeping;
+  }
+
+  /**
+   * The lists of the city under the scan, cut to the filing date. Keyed by
+   * the CITY, not the code the BAN answered: Marseille's sixteen
+   * arrondissements are one city and one build.
+   */
+  async function loadPermitLists(communeCode, since) {
+    const city = permitListFor(communeCode);
+    if (!city) return { permits: [], portals: [] };
+    const { insee } = city;
+    let entry = permitListCities.get(insee);
+    if (!entry || Date.now() - entry.at >= PERMIT_LISTS_TTL_MS) {
+      if (!permitListInFlight.has(insee)) {
+        permitListInFlight.set(insee, (async () => {
+          const diskPath = path.join(ADDRESS_CACHE_DIR, `permitlists${PERMIT_LISTS_SCHEMA}-${insee}.json`);
+          try {
+            const stat = await fsp.stat(diskPath);
+            if (Date.now() - stat.mtimeMs < PERMIT_LISTS_TTL_MS) {
+              const disk = { at: stat.mtimeMs, value: JSON.parse(await fsp.readFile(diskPath, 'utf8')) };
+              permitListCities.set(insee, disk);
+              return disk;
+            }
+          } catch { /* no disk copy yet */ }
+          const value = await buildPermitListCity(city);
+          const fresh = { at: Date.now(), value };
+          // As for a board: a failed read, an archive served for lists that
+          // did not answer, or a geocode our pacing refused or the BAN
+          // failed, is served to this scan and not kept.
+          if (!value.portal.ok || !value.portal.live || pacingRefusal()) return fresh;
+          permitListCities.set(insee, fresh);
+          try {
+            await fsp.mkdir(ADDRESS_CACHE_DIR, { recursive: true });
+            await fsp.writeFile(diskPath, JSON.stringify(value));
+          } catch { /* cache is an optimisation, never a requirement */ }
+          return fresh;
+        })().finally(() => permitListInFlight.delete(insee)));
+      }
+      entry = await permitListInFlight.get(insee);
+    }
+    return {
+      permits: entry.value.permits.filter((permit) => !permit.depositedOn || permit.depositedOn >= since),
+      portals: [entry.value.portal],
+    };
+  }
+
   function install(middlewares) {
     installAddressRoute(middlewares, '/api/ads-fr', (url) => {
       const point = addressPoint(url.searchParams);
@@ -28284,17 +28544,18 @@ function adsFranceProxy() {
           const sitadelCommune = foldToSitadelCommune(commune.code);
           if (!sitadelCommune) return null;
           // What the commune posts and publishes itself runs beside the two
-          // others: five hosts, none of them shared, so racing them costs no
-          // upstream anything. At most one of the last three answers — no
-          // commune is on two of a Cart@DS board, a PU board and
-          // publication-actes.fr (`sirapFeed.test.mjs` holds the registries
-          // to that).
-          const [edition, placed, posted, postedPu, published] = await Promise.all([
+          // others: six hosts, none of them shared, so racing them costs no
+          // upstream anything. At most one of the last four answers — no
+          // commune is on two of a Cart@DS board, a PU board,
+          // publication-actes.fr and a city's PDF lists
+          // (`sirapFeed.test.mjs` holds the registries to that).
+          const [edition, placed, posted, postedPu, published, listed] = await Promise.all([
             loadEdition(sitadelCommune, since),
             loadPlacedPortals(commune.code, point, radiusM, since),
             loadCartds(commune.code, since),
             loadSirap(commune.code, since),
             loadPublicationActes(commune.code, since),
+            loadPermitLists(commune.code, since),
           ]);
           // TRAP 6: fold BEFORE merging. One operation filed once can appear
           // in three of the four Sitadel files, and three entities claiming
@@ -28308,6 +28569,7 @@ function adsFranceProxy() {
             ...posted.permits,
             ...postedPu.permits,
             ...published.permits,
+            ...listed.permits,
           ];
           const { permits, merged } = mergeRegisters(fromState, fromCounter);
           return projectAdsPermits({
@@ -28326,7 +28588,7 @@ function adsFranceProxy() {
               folded,
               portals: [
                 ...(edition.portals || []), ...placed.portals, ...posted.portals, ...postedPu.portals,
-                ...published.portals,
+                ...published.portals, ...listed.portals,
               ],
               merged,
               // The shortfall, stated rather than hidden: rows the BAN could

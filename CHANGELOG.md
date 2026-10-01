@@ -36,6 +36,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   them on their cadastral parcel. Tours publishes every dossier it receives
   and Brest métropole every permit it grants, with decisions three days old;
   a Tours dossier Sitadel also holds is drawn once, not twice.
+- **Marseille and Nîmes now show their permits days after the fact**, 1.04
+  million more inhabitants, read from the lists both cities publish as PDF
+  files: Marseille's 1 874 dossiers under review on 2026-09-28 and its 825
+  authorisations granted between 16 July and 29 September, and Nîmes's 348
+  dossiers under review and 321 decisions, 86 of them refusals. The
+  déclarations préalables for a fence, a pool or solar panels are included. A
+  dossier reads « En cours d'instruction » (“Under review”) while the city's
+  latest list says so; a person's name never appears.
 - **« Urbanisme » now reads the permit decisions Ustaritz, Ciboure and Monts
   publish as acts** on publication-actes.fr, the fence, the pool and the
   windows the national register never holds included: 238 dossiers at
