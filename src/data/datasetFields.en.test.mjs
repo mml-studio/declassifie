@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compactFrenchDays, datasetDetailLine, weekdaysShort } from './datasetFields.js';
+import { compactFrenchDays, datasetDetailLine, formatOpeningHours, weekdaysShort } from './datasetFields.js';
 import { assertNoFrench, withLocale } from '../i18n/testing.js';
 
 test('a French day column reads as an English run of days', () => {
@@ -38,4 +38,13 @@ test('the label keeps the manifest author’s word; only the colon moves', () =>
   const detail = { field: 'p', label: 'Power', unit: 'kW' };
   assert.equal(withLocale('en', () => datasetDetailLine(row, detail)), 'Power: 12 kW');
   assert.equal(datasetDetailLine(row, detail), 'Power : 12 kW');
+});
+
+test('an opening_hours value reads in English on an English page', () => {
+  const english = withLocale('en', () => formatOpeningHours(
+    'Mo-Th 07:30-17:00; Sa-Su off; PH off; Mo-Fr 00:00-23:59; Dec 24-Dec 25 off',
+  ));
+  assert.equal(english, 'Mon–Thu 07:30–17:00; Sat–Sun closed; holidays closed; Mon–Fri all day; Dec 24–Dec 25 closed');
+  assertNoFrench(english);
+  assert.equal(withLocale('en', () => formatOpeningHours('24/7')), '24/7');
 });

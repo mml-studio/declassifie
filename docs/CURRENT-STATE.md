@@ -747,7 +747,12 @@ Updated: September 24, 2026
 > **One shipped manifest**: GeoDAE defibrillators (data.gouv.fr, per view), and
 > it has no row of its own — its `fusion` block makes it a chip of *Santé &
 > secours* (Health & emergency services), the doctors' row. License confirmed
-> on the dataset page and carried in `DATA_SOURCES.md`. Two others were
+> on the dataset page and carried in `DATA_SOURCES.md`. Its hours come from
+> `c_dispo_horaires` since 2026-10-01, the day GeoDAE dropped `c_disp_j` and
+> `c_disp_h`: an OpenStreetMap `opening_hours` value that `format: "hours"`
+> reads back in the page's language, `Mo-Su off` (149,874 of 188,147 rows)
+> declared blank because those rows hold their hours as free text in
+> `c_disp_complt`. Two others were
 > withdrawn for the same reason, which is the rule: **a manifest is not shipped
 > for what a layer already draws.** The BD TOPO aerodrome footprints — the
 > Aéroports layer ships 418 of them — and the remarkable trees of Paris, whose

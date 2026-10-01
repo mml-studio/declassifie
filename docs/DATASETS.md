@@ -165,6 +165,9 @@ the box is for plugging in.
       { "field": "puissance", "unit": "kW" },
       { "field": "c_disp_j", "label": "Jours", "format": "days" },   // "list": Postgres {a,b} literal
                                                                     // "days": + runs compacted into lun–ven (Mon–Fri)
+      { "field": "c_dispo_horaires", "label": "Horaires", "format": "hours" },
+                                           // "hours": an OpenStreetMap opening_hours value,
+                                           //   `Mo-Fr 09:00-18:00` read as lun–ven 09:00–18:00
       { "field": "c_etat_fonct", "label": "État",
         "omitWhen": ["En fonctionnement"] }  // the majority value stays silent, the exception is written
     ],
@@ -178,7 +181,7 @@ the box is for plugging in.
     // "group": {
     //   "rules": [
     //     { "key": "h24", "label": "Accessible 24 h/24", "color": "#5ce6a8",
-    //       "when": { "c_disp_h": ["24h/24"] } },
+    //       "when": { "c_dispo_horaires": ["24/7"] } },
     //     { "key": "libre", "label": "Accès libre", "color": "#ff5c7a",
     //       "when": { "c_acc_lib": ["t"] } }
     //   ],
