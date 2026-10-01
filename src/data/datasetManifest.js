@@ -98,8 +98,9 @@ export const DATASET_AMBIENTS = Object.freeze(['card', 'label']);
  *   (none) the cell as text
  *   list   a Postgres text-array literal `{a,b}` unpacked and joined
  *   days   the same, then French weekday runs compacted to `lun–ven`
+ *   hours  an OpenStreetMap `opening_hours` value, read back in the page's language
  */
-export const DATASET_DETAIL_FORMATS = Object.freeze(['list', 'days']);
+export const DATASET_DETAIL_FORMATS = Object.freeze(['list', 'days', 'hours']);
 /** Group key a rule-based classification gives a row no rule claimed. */
 export const DATASET_OTHER_GROUP_KEY = '__other__';
 /** Most row chips a manifest may declare — a strip, not a menu. */
@@ -213,7 +214,8 @@ function rawGroupKeys(group) {
  * legend prints two numbers a reader cannot use. What they came to ask — can I
  * reach this one right now — lives in two other columns: `c_disp_h` (41 rows
  * say 24h/24) and `c_acc_lib` (584 free access against 304 restricted). Form
- * two is how a manifest spends its one colour channel on that instead.
+ * two is how a manifest spends its one colour channel on that instead. (Since
+ * 2026-10-01 the hours are `c_dispo_horaires`, and 24h/24 is spelled `24/7`.)
  *
  * @param {unknown} group
  * @returns {string[]}

@@ -6,6 +6,7 @@ import {
   datasetDetailLine,
   datasetFieldValues,
   fieldMatchKey,
+  formatOpeningHours,
   parseListValue,
   rowMatchesWhen,
 } from './datasetFields.js';
@@ -104,4 +105,42 @@ test('a when-clause reads a cell as a list, so an array literal matches a plain 
   assert.equal(rowMatchesWhen({ a: '1', b: '2' }, { a: ['1'], b: ['2'] }), true);
   assert.equal(rowMatchesWhen({ a: '1', b: '3' }, { a: ['1'], b: ['2'] }), false);
   assert.equal(rowMatchesWhen({}, null), false);
+});
+
+// Real `c_dispo_horaires` cells, copied from the GeoDAE resource on 2026-10-01,
+// the day the register replaced `c_disp_j` and `c_disp_h` with this column.
+const GEODAE_ALWAYS = '24/7';
+const GEODAE_UNKNOWN = 'Mo-Su off';
+const GEODAE_OFFICE = 'Mo-Fr 09:00-12:00,14:00-18:00';
+const GEODAE_WEEK = 'Mo-Th 07:30-17:00; Fr 07:30-16:00; Sa-Su off; PH off';
+const GEODAE_ALL_DAY = 'Mo-Fr 00:00-23:59';
+const GEODAE_EXCEPTIONS = 'Mo 09:00-17:00; Tu-Fr 08:00-17:00; Sa-Su off; PH off; Dec 15-Dec 31 off; Jul 20-Aug 15 off';
+
+test('an opening_hours value reads as French days, times kept as published', () => {
+  assert.equal(formatOpeningHours(GEODAE_ALWAYS), '24 h/24, 7 j/7');
+  assert.equal(formatOpeningHours(GEODAE_OFFICE), 'lun–ven 09:00–12:00, 14:00–18:00');
+  assert.equal(formatOpeningHours(GEODAE_WEEK), 'lun–jeu 07:30–17:00 ; ven 07:30–16:00 ; sam–dim fermé ; fériés fermé');
+  assert.equal(formatOpeningHours(GEODAE_ALL_DAY), 'lun–ven 24 h/24');
+  assert.equal(
+    formatOpeningHours(GEODAE_EXCEPTIONS),
+    'lun 09:00–17:00 ; mar–ven 08:00–17:00 ; sam–dim fermé ; fériés fermé ; 15 déc.–31 déc. fermé ; 20 juil.–15 août fermé',
+  );
+  assert.equal(formatOpeningHours(''), '');
+  assert.equal(formatOpeningHours(null), '');
+});
+
+test('what the hours reader does not recognise is kept in place', () => {
+  // A hyphen or a comma in the author's own words is theirs, not a range.
+  assert.equal(formatOpeningHours('Mo-Fr 08:00-18:00 "sur rendez-vous, sauf août"'), 'lun–ven 08:00–18:00 "sur rendez-vous, sauf août"');
+  assert.equal(formatOpeningHours('sunrise-sunset'), 'sunrise-sunset');
+});
+
+test('the register’s "Mo-Su off" is a blank, not a week of closed doors', () => {
+  // 149 874 of 188 147 rows on 2026-10-01, and the same rows carry their hours
+  // as free text in `c_disp_complt`. The manifest declares it blank.
+  const blankKeys = new Set(['Mo-Su off', 'Mo-Su off; PH off'].map(fieldMatchKey));
+  const detail = { field: 'h', label: 'Horaires', format: 'hours' };
+  assert.equal(datasetDetailLine({ h: GEODAE_UNKNOWN }, detail, { blankKeys }), null);
+  assert.equal(datasetDetailLine({ h: 'Mo-Su off; PH off' }, detail, { blankKeys }), null);
+  assert.equal(datasetDetailLine({ h: GEODAE_ALWAYS }, detail, { blankKeys }), 'Horaires : 24 h/24, 7 j/7');
 });

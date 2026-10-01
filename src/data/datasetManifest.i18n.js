@@ -245,7 +245,7 @@ export default defineMessages({
     ruleWhenField: {
       fr: (index, field) => `\`feature.group.rules[${index}].when["${field}"]\` : liste de valeurs non vides`,
       en: (index, field) => `\`feature.group.rules[${index}].when["${field}"]\`: a list of non-empty values`,
-      sample: [0, 'c_disp_h'],
+      sample: [0, 'c_dispo_horaires'],
     },
     field: {
       fr: '`feature.group.field` : champ de classement',

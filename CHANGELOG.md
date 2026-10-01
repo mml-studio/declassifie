@@ -466,6 +466,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **Turning on the defibrillators of « Santé & secours » (“Health &
+  emergency services”) flashed LOAD FAILED and drew none**, anywhere in
+  France: on 2026-10-01 GeoDAE replaced its two hours columns with one
+  `c_dispo_horaires` in OpenStreetMap's `opening_hours` syntax, and the
+  data.gouv.fr API refused a request naming the old ones. The card now reads
+  that column in the page's language (« lun–ven 09:00–18:00 ; sam–dim
+  fermé »), adds the operator's own note on availability, and the green
+  « Accessible 24 h/24 » group reads `24/7`. Ustaritz shows its 10
+  defibrillators again, Lyon 2,104.
 - **A dossier a commune had only listed as filed read « Déposé » (“Filed”)
   next to the date the State granted it.** When Sitadel holds the same
   dossier, its state now wins over a filing notice, which claims nothing past

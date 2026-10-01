@@ -21,12 +21,12 @@
   "geometry": { "lon": "c_long_coor1", "lat": "c_lat_coor1" },
   "feature": {
     "title": ["c_nom", "c_adr_voie"],
-    "blank": ["non renseigné", "non renseignée", "inconnu"],
+    "blank": ["non renseigné", "non renseignée", "inconnu", "Mo-Su off", "Mo-Su off; PH off", "off"],
     "details": [
       { "field": "c_adr_voie", "label": "Voie" },
       { "field": "c_acc_etg", "label": "Étage" },
-      { "field": "c_disp_j", "label": "Jours", "format": "days" },
-      { "field": "c_disp_h", "label": "Heures", "format": "list" },
+      { "field": "c_dispo_horaires", "label": "Horaires", "format": "hours" },
+      { "field": "c_disp_complt", "label": "Disponibilité" },
       { "field": "c_acc_complt", "label": "Accès" },
       { "field": "c_etat_fonct", "label": "État", "omitWhen": ["En fonctionnement"] }
     ],
@@ -36,7 +36,7 @@
           "key": "h24",
           "label": "Accessible 24 h/24",
           "color": "#5ce6a8",
-          "when": { "c_disp_h": ["24h/24"] }
+          "when": { "c_dispo_horaires": ["24/7", "Mo-Su 00:00-23:59"] }
         },
         {
           "key": "libre",

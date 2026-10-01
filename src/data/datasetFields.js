@@ -31,7 +31,16 @@
  *     so the line is not deleted — `omitWhen` suppresses the majority spelling
  *     and keeps every other one. The exception becomes the only thing printed.
  *
- * All three are declared in the manifest, never inferred: this module holds no
+ * A fourth arrived on 2026-10-01, when GeoDAE dropped `c_disp_j` and `c_disp_h`
+ * for one `c_dispo_horaires` column in OpenStreetMap's `opening_hours` syntax.
+ * Over all 188 147 rows: `Mo-Su off` 149 874, `24/7` 35 911, and 653 other
+ * spellings for the remaining 2 362. `Mo-Fr 09:00-18:00; Sa-Su off` is a
+ * schedule written for a parser, not a passer-by; `format: "hours"` reads it
+ * back in the page's language. `Mo-Su off` is not "closed every day": the same
+ * rows carry their hours as free text in `c_disp_complt`, so it is the new
+ * spelling of "non renseigné", and the manifest declares it blank.
+ *
+ * All four are declared in the manifest, never inferred: this module holds no
  * table of column names and knows nothing about defibrillators. Pure and
  * dependency-free (no Cesium, no DOM) so it runs identically in the browser and
  * under `node --test`.
@@ -62,6 +71,11 @@ export const FRENCH_WEEKDAYS = Object.freeze([
  */
 export function weekdaysShort() {
   return messages().weekdaysShort;
+}
+
+/** The short month names, January first, in the page's language. */
+export function monthsShort() {
+  return messages().monthsShort;
 }
 
 /** Whitespace collapsed, ends trimmed; `null`/`undefined` become ''. */
@@ -167,6 +181,70 @@ export function compactFrenchDays(values) {
   return [...runs, ...passthrough].join(', ');
 }
 
+// i18n-ignore-start — the codes of OpenStreetMap's `opening_hours` syntax, as
+// a register publishes them. Data, not prose: a French page still meets
+// `Mo-Fr` in a GeoDAE cell.
+/** OpenStreetMap weekday codes, Monday first — index for index with `weekdaysShort`. */
+export const OSM_WEEKDAYS = Object.freeze(['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']);
+/** OpenStreetMap month codes, January first — index for index with `monthsShort`. */
+export const OSM_MONTHS = Object.freeze([
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]);
+// i18n-ignore-end
+
+const OSM_DAY = `(${OSM_WEEKDAYS.join('|')})`;
+const OSM_DATE = `(${OSM_MONTHS.join('|')}) (\\d{1,2})`;
+// One token per syntax element, a range included, so the hyphen that is turned
+// into a dash is only ever the syntax's own: a hyphen in a quoted comment is
+// the author's and stays.
+const OSM_HOURS_TOKEN = new RegExp(
+  `\\b(?:${OSM_DAY}(?:-${OSM_DAY})?|${OSM_DATE}(?:-${OSM_DATE})?|(PH)|(off)`
+    + '|(\\d{1,2}:\\d{2})-(\\d{1,2}:\\d{2}))\\b',
+  'gi',
+);
+const OSM_ALL_DAY = /^0?0:00$/;
+const OSM_END_OF_DAY = /^(23:59|24:00)$/;
+
+/**
+ * An OpenStreetMap `opening_hours` value in the page's language:
+ * `Mo-Fr 09:00-18:00; Sa-Su off` reads `lun–ven 09:00–18:00 ; sam–dim fermé`.
+ *
+ * Only the syntax's own vocabulary moves — weekdays, months, `PH`, `off`, and a
+ * range that covers the whole day. Times stay as published, and anything the
+ * reader does not recognise is kept VERBATIM and in place, for the reason
+ * `compactFrenchDays` keeps `7j/7`: the unusual schedules are the ones a
+ * reader most needs to see whole.
+ *
+ * @param {unknown} raw
+ * @returns {string} One rendered line, '' when there is nothing to render.
+ */
+export function formatOpeningHours(raw) {
+  const text = cleanFieldText(raw);
+  if (!text) return '';
+  const m = messages();
+  if (/^24\/7$/.test(text)) return m.hoursAlways;
+  const days = weekdaysShort();
+  const months = monthsShort();
+  const indexOf = (codes, code) => codes.findIndex((candidate) => candidate.toLowerCase() === code.toLowerCase());
+  return text
+    .split(';')
+    .map((rule) => rule.trim())
+    .filter(Boolean)
+    .map((rule) => rule.replace(OSM_HOURS_TOKEN, (
+      match, day, lastDay, month, date, lastMonth, lastDate, holiday, off, from, to,
+    ) => {
+      const weekday = (code) => days[indexOf(OSM_WEEKDAYS, code)];
+      const monthDay = (code, number) => m.monthDay(Number(number), months[indexOf(OSM_MONTHS, code)]);
+      if (day) return lastDay ? `${weekday(day)}–${weekday(lastDay)}` : weekday(day);
+      if (month) return lastMonth ? `${monthDay(month, date)}–${monthDay(lastMonth, lastDate)}` : monthDay(month, date);
+      if (holiday) return m.hoursHolidays;
+      if (off) return m.hoursClosed;
+      if (from) return OSM_ALL_DAY.test(from) && OSM_END_OF_DAY.test(to) ? m.hoursAllDay : `${from}–${to}`;
+      return match;
+    }).replace(/(\d),(?=\d)/g, '$1, '))
+    .join(m.hoursSeparator);
+}
+
 /** Truncate to {@link DATASET_FIELD_MAX_LINE}, ellipsis included in the budget. */
 export function clampFieldLine(text, max = DATASET_FIELD_MAX_LINE) {
   const limit = Math.max(1, Math.floor(Number(max) || DATASET_FIELD_MAX_LINE));
@@ -216,7 +294,9 @@ export function datasetDetailLine(row, detail, { blankKeys = null, max = DATASET
   // row that ALSO holds something else keeps the line, minus the majority.
   const kept = omit ? values.filter((value) => !omit.has(fieldMatchKey(value))) : values;
   if (kept.length === 0) return null;
-  const body = detail.format === 'days' ? compactFrenchDays(kept) : kept.join(', ');
+  const body = detail.format === 'days' ? compactFrenchDays(kept)
+    : detail.format === 'hours' ? kept.map(formatOpeningHours).join(', ')
+      : kept.join(', ');
   if (!body) return null;
   const unit = detail.unit ? ` ${detail.unit}` : '';
   const value = `${body}${unit}`;
