@@ -14,6 +14,7 @@ import {
   bandAlphas,
   bandPosition,
   bandWeights,
+  coverAlphas,
   createFadeColorAppearance,
   crossfade,
   fadeBand,
@@ -123,6 +124,17 @@ test('while the finer level ramps in, the coarse one steps down in the same prop
     assert.ok(alphas.fine >= previous.fine && alphas.coarse <= previous.coarse);
     previous = alphas;
   }
+});
+
+test('a hard cut swaps without a blank frame: the outgoing level holds, then the two cross', () => {
+  const cut = { fine: 1, coarse: 0 };
+  // The incoming level is still in flight: the outgoing one stays at full strength.
+  assert.deepEqual(coverAlphas(cut, { coarseReady: true }), { fine: 0, coarse: 1 });
+  // Halfway through the incoming level's ramp, the outgoing one is halfway out.
+  assert.deepEqual(coverAlphas(cut, { coarseReady: true, fineReady: true, fineArrival: 0.5 }), { fine: 0.5, coarse: 0.5 });
+  assert.deepEqual(coverAlphas(cut, { coarseReady: true, fineReady: true }), { fine: 1, coarse: 0 });
+  // A target outside 0..1 is clamped rather than overshooting.
+  assert.deepEqual(coverAlphas({ fine: 3, coarse: -1 }, { fineReady: true, coarseReady: true }), { fine: 1, coarse: 0 });
 });
 
 test('weights are written on a fixed grid of steps, so a drifting camera writes nothing', () => {

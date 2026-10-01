@@ -150,13 +150,25 @@ export function bandWeights(scale, band) {
  */
 export function bandAlphas(scale, band, state = {}) {
   const position = bandPosition(scale, band);
-  const zoom = crossfade(position);
+  return { ...coverAlphas(crossfade(position), state), position };
+}
+
+/**
+ * The same cover rule for any pair of target weights — including a HARD CUT
+ * (`{fine: 1, coarse: 0}` or the reverse), which is how a transition that must
+ * not fade still swaps without a blank frame: the outgoing level holds until
+ * the incoming one is drawn, then the two cross over the arrival ramp.
+ *
+ * @param {{fine: number, coarse: number}} target Weights the levels should reach.
+ * @param {{fineReady?: boolean, coarseReady?: boolean, fineArrival?: number, coarseArrival?: number}} state
+ * @returns {{fine: number, coarse: number}}
+ */
+export function coverAlphas(target, state = {}) {
   const fineCover = state.fineReady ? clamp01(state.fineArrival ?? 1) : 0;
   const coarseCover = state.coarseReady ? clamp01(state.coarseArrival ?? 1) : 0;
   return {
-    fine: fineCover * (1 + (zoom.fine - 1) * coarseCover),
-    coarse: coarseCover * (1 + (zoom.coarse - 1) * fineCover),
-    position,
+    fine: fineCover * (1 + (clamp01(target.fine) - 1) * coarseCover),
+    coarse: coarseCover * (1 + (clamp01(target.coarse) - 1) * fineCover),
   };
 }
 
