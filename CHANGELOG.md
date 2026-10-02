@@ -19,6 +19,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   publishers on e-permis, as Nice does: the Agglomération Pau Béarn Pyrénées,
   Biarritz, Hendaye, Bidart, Arcachon, Cabestany, Jouars-Pontchartrain,
   Maintenon, Saint-Hippolyte and ten communes of the Landes.
+- **Lorient Agglomération, Bondy, Blois, Aubagne, Thionville and
+  Rueil-Malmaison now show their published planning permits**: 30 additional
+  municipalities, about 480,000 residents. Lorient's JSON boards and the
+  municipal Digilor/Webdelib publications join the daily permit archive.
+  Scanned Digilor decisions await background OCR; a signed act without a
+  readable verdict is never assumed granted. Rueil's abbreviated addresses
+  must match the municipality, house number and street before being drawn.
 - **Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin now show
   their published planning permits**, including prior declarations, refusals
   and withdrawals. Municipal PDF lists and individual notices join the daily

@@ -16,6 +16,69 @@ import {
 import { createCartdsArchiveStore } from './cartdsArchive.mjs';
 import { PERMIT_LIST_ROWS } from '../../src/data/permitListsFeed.js';
 import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
+import { EXTENDED_PERMIT_SOURCES } from '../../src/data/municipalPermitExtensions.js';
+
+test('Lorient requires both boards and rejects a mismatched commune without archiving a partial answer', async () => {
+  const city = EXTENDED_PERMIT_SOURCES.find((c) => c.key === 'lorient-56121');
+  const board = (type, insee = city.insee) => JSON.stringify({ MSG: 'OK', DATA: {
+    INSEE: insee, TYPE_RQ: type, PC: [], DP: [], PA: [], PD: [], CU: [],
+  } });
+  const http = fakeHttp({ pages: { [city.page]: "local_secret[56121] = '0123456789abcdef01234567';",
+    'https://www.lorient-agglo.bzh/apps/ads/api/dossiers.php?TYPE=DEP&ID_COMMUNE=0123456789abcdef01234567': board('DEP'),
+    'https://www.lorient-agglo.bzh/apps/ads/api/dossiers.php?TYPE=DEC&ID_COMMUNE=0123456789abcdef01234567': board('DEC'),
+  } });
+  assert.deepEqual((await readPermitCity(city, http)).boards, { filings: [], decisions: [] });
+  assert.equal(await readPermitCity(city, http, { allows: (pathname) => !pathname.endsWith('dossiers.php') }), null);
+  const wrong = fakeHttp({ pages: { [city.page]: "local_secret[56121] = '0123456789abcdef01234567';",
+    'https://www.lorient-agglo.bzh/apps/ads/api/dossiers.php?TYPE=DEP&ID_COMMUNE=0123456789abcdef01234567': board('DEP', '56162'),
+  } });
+  assert.equal(await readPermitCity(city, wrong), null);
+});
+
+test('Digilor scans await background OCR, retry cached scans once, and never persist titles or applicants', async () => {
+  const dir = await tempDir();
+  const city = EXTENDED_PERMIT_SOURCES.find((c) => c.key === 'thionville');
+  const index = [{ id_cat: 2034, id_sscat: 2544, aff_deb: '2026-09-25',
+    nom_affichage: 'PC0576722600001_PRIVATE_PERSON_3_RUE_EXEMPLE_ARRETE_BAN', url_uiid: './upload/222/example.pdf' }];
+  const http = datahallHttp({ index, files: { 'upload/222/example.pdf': Buffer.from('%PDF-1.7\nscanned') } });
+  let calls = 0;
+  const ocr = async () => { calls += 1; return { document: { pages: [{ runs: [
+    { text: 'PC 057672 26 00001', x: 30, y: 700 }, { text: 'ARTICLE 1 : Le permis est refusé', x: 30, y: 680 },
+  ] }] } }; };
+  const first = await readPermitCity(city, http, { dir, ocr, day: '2026-10-01' });
+  assert.equal(calls, 0, 'a visitor never runs OCR');
+  assert.equal(first.pendingOcr, 1);
+  assert.equal(first.boards.decisions[0][8], 'Décision signée');
+  const swept = await readPermitCity(city, http, { dir, ocr, background: true, day: '2026-10-01' });
+  assert.equal(calls, 1);
+  assert.equal(swept.pendingOcr, 0);
+  assert.equal(swept.boards.decisions[0][8], 'Refus');
+  await readPermitCity(city, http, { dir, ocr, background: true, day: '2026-10-01' });
+  assert.equal(calls, 1);
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE|PERSON|ARTICLE|title|scanned/);
+  const challenge = datahallHttp({ index, files: { 'upload/222/example.pdf': Buffer.from('<html>challenge</html>') } });
+  const failed = await readPermitCity(city, challenge, { day: '2026-10-01' });
+  assert.equal(failed.failed, 1);
+  assert.deepEqual(failed.boards, {});
+});
+
+test('Rueil caches scrubbed month rows, preserves explicit refusals and never infers a grant from an unread act', async () => {
+  const dir = await tempDir();
+  const city = EXTENDED_PERMIT_SOURCES.find((c) => c.key === 'rueil');
+  const months = {
+    '10-2026': monthPage([]),
+    '09-2026': monthPage([['ARRETE DP 2600001 PRIVATE PERSON 82 TALUS_001', 'A', '25/09/2026']]),
+    '08-2026': monthPage([['REFUS PC 2600002 PRIVATE PERSON 3 EXEMPLE_001', 'B', '25/08/2026']]),
+  };
+  const http = webdelibHttp({ months });
+  const result = await readPermitCity(city, http, { dir, day: '2026-10-01', months: 3, maxFiles: 0 });
+  assert.equal(result.skipped, 2);
+  assert.deepEqual(result.boards.decisions.map((cells) => cells[8]), ['Décision signée', 'Refus']);
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE|PERSON|title/);
+  const second = webdelibHttp({ months });
+  await readPermitCity(city, second, { dir, day: '2026-10-01', months: 3, maxFiles: 0 });
+  assert.equal(second.calls.filter((call) => call.month === '08-2026').length, 0, 'closed months come from scrubbed cache');
+});
 
 const CITY = Object.freeze({
   key: 'ville',
