@@ -18,6 +18,7 @@ import { PERMIT_LIST_ROWS, PERMIT_LISTS, normalisePermitListRow } from '../../sr
 import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES } from '../../src/data/municipalPermitExtensions.js';
 import { BOARD_PERMIT_SOURCES } from '../../src/data/permitBoardCities.js';
+import { DEMATDOC_PERMIT_SOURCES } from '../../src/data/dematdocFeed.js';
 
 test('Lorient requires both boards and rejects a mismatched commune without archiving a partial answer', async () => {
   const city = EXTENDED_PERMIT_SOURCES.find((c) => c.key === 'lorient-56121');
@@ -61,6 +62,65 @@ test('Digilor scans await background OCR, retry cached scans once, and never per
   const failed = await readPermitCity(city, challenge, { day: '2026-10-01' });
   assert.equal(failed.failed, 1);
   assert.deepEqual(failed.boards, {});
+});
+
+test('a DematDOC shelf pages until it reaches the window, reads each act once and keeps a scan for the sweep’s OCR', async () => {
+  const dir = await tempDir();
+  const city = DEMATDOC_PERMIT_SOURCES.find((c) => c.insee === '26198');
+  const doc = (id, name, day) => ({ id, name, createdAt: `${day}T09:00:00+02:00`, path: `/repository/${id}.pdf`,
+    values: { CI_DATE_DEBUT_AFFICHAGE_PUBLIC: { displayValue: day }, OBJET: { displayValue: 'PRIVATE PERSON' } } });
+  const pages = {
+    '/api/public/get-documents/14': { documents: [doc(1, 'Urbanisme DP261982600511 du 2026-09-28', '2026-09-28'),
+      doc(2, 'Urbanisme PC261982600062 du 2026-09-28 - 4 Avenue Exemple', '2026-09-28')], nextDocsIds: [3, 4] },
+    '/api/public/get-documents-lazy': { documents: [doc(3, 'Urbanisme DP261982600300 du 2026-07-20', '2026-07-20')], nextDocsIds: [4] },
+  };
+  const files = {
+    '/repository/1.pdf': noticePdf([[60, 760, 'ARRETE DE NON-OPPOSITION'], [60, 740, 'n DP 26198 26 00511'],
+      [60, 720, 'Par : Monsieur PRIVATE PERSON'], [60, 700, 'Sur un terrain sis : 26 Allee Exemple'],
+      [60, 680, 'Parcelles : ZI313'], [60, 600, 'Article 1 : Il n est pas fait opposition a la declaration.']]),
+    '/repository/2.pdf': noticePdf([]),
+  };
+  const calls = [];
+  const response = (payload, type) => ({ ok: true, status: 200, payload, body: { cancel: async () => {} },
+    headers: { get: (name) => (name.toLowerCase() === 'content-type' ? type : null) } });
+  const http = {
+    async fetch(url, init = {}) {
+      const { pathname } = new URL(url);
+      calls.push({ path: pathname, method: init.method ?? 'GET', body: init.body ?? null });
+      if (pages[pathname]) return response(JSON.stringify(pages[pathname]), 'application/json');
+      return files[pathname] ? response(files[pathname], 'application/pdf') : null;
+    },
+    text: async (r) => (typeof r.payload === 'string' ? r.payload : null),
+    bytes: async (r) => (r.payload instanceof Uint8Array ? r.payload : null),
+  };
+  const first = await readPermitCity(city, http, { dir, day: '2026-10-02' });
+  assert.deepEqual(calls.slice(0, 2).map((call) => [call.path, call.body]), [
+    ['/api/public/get-documents/14', '{"filters":{"params":{"archive":false},"indexfields":[],"document":[]},"filtersURL":"14"}'],
+    ['/api/public/get-documents-lazy', '[3,4]'],
+  ]);
+  assert.equal(calls.filter((call) => call.path === '/api/public/get-documents-lazy').length, 1, 'a page older than the window ends the paging');
+  assert.equal(calls.some((call) => call.path === '/repository/3.pdf'), false, 'an act before the window is not read');
+  const rows = first.boards.decisions.map((cells) => normalisePermitListRow(city, 'decisions', cells))
+    .sort((a, b) => a.dossier.localeCompare(b.dossier));
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.stateLabel]), [
+    ['DP 026 198 26 00511', '26 Allee Exemple', 'Accordé'],
+    ['PC 026 198 26 00062', '4 Avenue Exemple', 'Décision signée'],
+  ]);
+  assert.equal(first.pendingOcr, 1);
+  let ocrCalls = 0;
+  const ocr = async () => { ocrCalls += 1; return { document: { pages: [{ runs: [
+    { text: 'REFUS DE PERMIS DE CONSTRUIRE', x: 60, y: 760 }, { text: 'PC 26198 26 00062', x: 60, y: 740 },
+    { text: 'Sur un terrain sis : 4 Avenue Exemple', x: 60, y: 720 }, { text: 'Article 1 : Le permis est refuse.', x: 60, y: 600 },
+  ] }] } }; };
+  calls.length = 0;
+  const swept = await readPermitCity(city, http, { dir, day: '2026-10-02', ocr, background: true });
+  assert.equal(ocrCalls, 1);
+  assert.equal(swept.pendingOcr, 0);
+  assert.equal(calls.filter((call) => call.path === '/repository/1.pdf').length, 0, 'a text act is read once');
+  const scanned = swept.boards.decisions.map((cells) => normalisePermitListRow(city, 'decisions', cells))
+    .find((row) => row.dossier.startsWith('PC'));
+  assert.equal(scanned.state, 'refuse');
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE|PERSON|Urbanisme/);
 });
 
 test('Rueil caches scrubbed month rows, preserves explicit refusals and never infers a grant from an unread act', async () => {
@@ -241,6 +301,17 @@ function brivePdf(board, kind) {
     + `4 0 obj << /Length ${Buffer.byteLength(content, 'latin1')} >> stream\n${content}\nendstream endobj\n`
     + `5 0 obj << /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >> endobj\n`
     + `trailer << /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+}
+
+/** A one-page portrait act, its runs placed as an ADS template places them. */
+function noticePdf(runs) {
+  const content = runs.map(([x, y, text]) => `BT /F1 10 Tf 1 0 0 1 ${x} ${y} Tm (${text}) Tj ET`).join('\n');
+  return new Uint8Array(Buffer.from(`%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n`
+    + `2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >> endobj\n`
+    + `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >> endobj\n`
+    + `4 0 obj << /Length ${Buffer.byteLength(content, 'latin1')} >> stream\n${content}\nendstream endobj\n`
+    + `5 0 obj << /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >> endobj\n`
+    + `trailer << /Root 1 0 R >>\n%%EOF\n`, 'latin1'));
 }
 
 /** Anonymous WEBDEV host: deliberately different menu, folder and file IDs. */

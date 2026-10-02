@@ -28,6 +28,9 @@ import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
 import { dematdocFiles, municipalFiles, municipalNextPage, municipalTitleRow } from '../../src/data/municipalPermitsFeed.js';
 import { digilorTitleRow, lorientBoardUrl, readLorientBoard, rueilTitleRow } from '../../src/data/municipalPermitExtensions.js';
+import {
+  dematdocDocuments, dematdocLazyRequest, dematdocOldest, dematdocShelfRequest, dematdocTitleRow, DEMATDOC_MAX_PAGES,
+} from '../../src/data/dematdocFeed.js';
 import municipalMessages from '../../src/data/municipalPermitsFeed.i18n.js';
 import { BOARD_READERS, BOARD_TEXT, boardProtocol } from '../../src/data/permitBoards.js';
 import {
@@ -685,6 +688,90 @@ async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles,
   };
 }
 
+/**
+ * A DematDOC tenant: each urbanism shelf's documents on display, newest
+ * first, paged by the ids the API leaves until a page reaches `since`; then
+ * one PDF per act, as for Digilor. A file already read comes from disk; at
+ * most `maxFiles` new ones are fetched. A scan with no text layer gives the
+ * title's number and street meanwhile, and waits for the sweep's OCR.
+ */
+async function readDematdocCity(city, http, { dir, allows, months, day, maxFiles, ocr }) {
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const listed = [];
+  const post = async ({ url, body }) => {
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, {
+      method: 'POST', body, headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    });
+    if (!response?.ok) return null;
+    try { return JSON.parse(await http.text(response, INDEX_MAX_BYTES) ?? ''); } catch { return null; }
+  };
+  for (const doctype of city.source.doctypes) {
+    let page = await post(dematdocShelfRequest(city, doctype));
+    if (!Array.isArray(page?.documents)) return null;
+    listed.push(...page.documents);
+    for (let more = 0; more < DEMATDOC_MAX_PAGES && page?.nextDocsIds?.length
+      && (dematdocOldest(page.documents) ?? '') >= since; more += 1) {
+      page = await post(dematdocLazyRequest(city, page.nextDocsIds));
+      if (!Array.isArray(page?.documents)) break;
+      listed.push(...page.documents);
+    }
+  }
+  const documents = dematdocDocuments(city, listed, since)
+    .sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '') || b.url.localeCompare(a.url));
+  const boards = {};
+  let fetched = 0;
+  let failed = 0;
+  let skipped = 0;
+  let empty = 0;
+  let reused = 0;
+  let pendingOcr = 0;
+  for (const doc of documents) {
+    let answer = null;
+    const kept = await readEdition(dir, doc.url);
+    if (kept && !(kept.pendingOcr && ocr)) {
+      answer = kept;
+      reused += 1;
+    } else if (fetched >= maxFiles) {
+      skipped += 1;
+      answer = kept;
+      if (!answer) continue;
+    } else {
+      fetched += 1;
+      const file = allows(new URL(doc.url).pathname) ? await http.fetch(doc.url) : null;
+      const bytes = file?.ok ? await http.bytes(file, PDF_MAX_BYTES) : null;
+      if (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-')) { failed += 1; continue; }
+      const context = { city, file: doc };
+      let rows = rowsOfPdf(bytes, doc.layout, doc.board, context);
+      let awaitsOcr = false;
+      if (!rows?.length) {
+        // No visitor runs OCR. The daily sweep retries the cached scans.
+        const scanned = ocr ? await ocr(bytes, { positioned: true }) : null;
+        rows = scanned?.document ? keptRows(PERMIT_LIST_READERS[doc.layout](scanned.document, context), doc.board) : [];
+        if (!rows.length) {
+          const fallback = dematdocTitleRow(city, doc);
+          rows = fallback ? keptRows([fallback], fallback.board) : [];
+        }
+        awaitsOcr = !scanned?.document;
+      }
+      answer = { url: doc.url, fields: PERMIT_LIST_FIELDS, rows, pendingOcr: awaitsOcr };
+      await writeEdition(dir, answer);
+    }
+    if (answer.pendingOcr) pendingOcr += 1;
+    if (!answer.rows.length) empty += 1;
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+  }
+  return {
+    boards,
+    lists: [{ url: city.page, files: documents.length, fetched, reused, empty, skipped }],
+    failed,
+    skipped,
+    pendingOcr,
+    incomplete: failed > 0 || skipped > 0 || pendingOcr > 0,
+  };
+}
+
 /** Lorient is three small requests per commune, with both boards required. */
 async function readLorientCity(city, http, { allows }) {
   if (!allows(new URL(city.page).pathname)) return null;
@@ -830,6 +917,7 @@ export async function readPermitCity(city, http, {
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
   if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles, ocr: background ? ocr : null });
+  if (city.source?.kind === 'dematdoc') return readDematdocCity(city, http, { dir, allows, months, day, maxFiles, ocr: background ? ocr : null });
   if (city.source?.kind === 'drive') return readDriveCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'liferay') return readLiferayCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'arcade') return readArcadeCity(city, http, { dir, allows, months, day, maxFiles });

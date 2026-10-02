@@ -22,6 +22,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   its own protocol into the daily permit archive; scanned decisions are read
   by OCR in the daily sweep, at most forty a day per city. 26.1 % of the
   population is now seen within days, from 25.0 %.
+- **Montélimar, Plaisir, Le Pontet, Fontenay-le-Comte, Saint-Gaudens and 51
+  more communes now show the permits they post themselves**, 338 535
+  inhabitants: each avis de dépôt and decision they publish on the DematDOC
+  acts platform is read once, with its site, parcels and verdict. Scanned
+  acts are read by OCR in the daily sweep.
 - **Chambœuf, Château-Arnoux-Saint-Auban, Beaumont-de-Lomagne and 22 more
   communes now show the permits they post themselves**, 19 192 inhabitants.
   The platform scan had read their boards but could not name them: a

@@ -136,6 +136,7 @@ import {
 } from './municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES, readBloisFilings, readExtendedNotice } from './municipalPermitExtensions.js';
 import { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
+import { DEMATDOC_PERMIT_SOURCES, readDematdocNotice } from './dematdocFeed.js';
 import {
   CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
@@ -422,6 +423,7 @@ export const PERMIT_LISTS = Object.freeze([
   ...MUNICIPAL_PERMIT_SOURCES,
   ...EXTENDED_PERMIT_SOURCES,
   ...BOARD_PERMIT_SOURCES,
+  ...DEMATDOC_PERMIT_SOURCES,
 ]);
 
 /**
@@ -3077,16 +3079,20 @@ export const BULLETIN_READERS = Object.freeze({
 /**
  * How a layout's files are turned into text, where it differs from the
  * default (`extractPdfText`'s options): Annecy's, printed from Firefox, draw
- * no space glyph between words.
+ * no space glyph between words, and so did Bizanos's acts on DematDOC (read
+ * from e-permis instead). On the 129 other text acts of that platform
+ * sampled on 2026-10-02 the option changed no row; it stays as a guard.
  */
 export const PERMIT_LIST_TEXT = Object.freeze({
   'annecy-filings': Object.freeze({ wordGapEm: 0.15 }),
   'annecy-decisions': Object.freeze({ wordGapEm: 0.15 }),
+  'dematdoc-notice': Object.freeze({ wordGapEm: 0.15 }),
 });
 
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
   'extended-notice': readExtendedNotice,
+  'dematdoc-notice': readDematdocNotice,
   'blois-filings': readBloisFilings,
   'municipal-notice': readMunicipalNotice,
   'balma-table': readBalmaTable,
