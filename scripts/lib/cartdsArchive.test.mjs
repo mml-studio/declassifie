@@ -217,7 +217,7 @@ test('a sweep is due once per French calendar day', async () => {
 test('every intermediate an instance names is a CA signed by a root Node ships', () => {
   const roots = tls.rootCertificates.map((pem) => new X509Certificate(pem));
   const named = new Set(CARTDS_INSTANCES.map((instance) => instance.intermediate).filter(Boolean));
-  assert.deepEqual([...named], ['sectigo-dv-r36']);
+  assert.deepEqual([...named], ['sectigo-dv-r36', 'globalsign-alpha-r6-2025']);
   for (const name of named) {
     const certificate = new X509Certificate(CARTDS_INTERMEDIATES[name]);
     assert.ok(certificate.ca, name);
@@ -225,12 +225,15 @@ test('every intermediate an instance names is a CA signed by a root Node ships',
     assert.notEqual(certificate.subject, certificate.issuer, name);
     const root = roots.find((candidate) => candidate.subject === certificate.issuer);
     assert.ok(root && certificate.checkIssued(root) && certificate.verify(root.publicKey), name);
-    assert.ok(new Date(certificate.validTo) > new Date('2030-01-01'), name);
+    // GlobalSign rotates this intermediate after two years, unlike Sectigo's
+    // fifteen-year ones: it must be valid when its board was measured.
+    assert.ok(new Date(certificate.validTo) > new Date('2026-10-02'), name);
   }
 });
 
 test('the intermediates are added to the default CA list once, after what is already there', () => {
   const intermediate = CARTDS_INTERMEDIATES['sectigo-dv-r36'];
+  const globalsign = CARTDS_INTERMEDIATES['globalsign-alpha-r6-2025'];
   let list = [tls.rootCertificates[0], tls.rootCertificates[1]];
   let sets = 0;
   const tlsApi = {
@@ -239,9 +242,9 @@ test('the intermediates are added to the default CA list once, after what is alr
   };
   const incomplete = CARTDS_INSTANCES.filter((instance) => instance.intermediate);
   assert.deepEqual(incomplete.map((instance) => new URL(instance.base).host.split('.').slice(-2).join('.')),
-    ['lecotentin.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr']);
-  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36']);
-  assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate]);
+    ['lecotentin.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'clissonsevremaine.fr']);
+  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36', 'globalsign-alpha-r6-2025']);
+  assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate, globalsign]);
   // A second server start in the same process adds nothing.
   assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), []);
   assert.equal(sets, 1);

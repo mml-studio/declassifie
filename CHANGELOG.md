@@ -6,6 +6,18 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **146 municipalities ranked after France's 400 most populous now show
+  their published planning permits**, 263,056 additional residents. Nine
+  public Cart@DS boards cover Lannion-Trégor, Clisson Sèvre et Maine,
+  Privas Centre Ardèche, the Diois, Rhône aux Gorges de l'Ardèche,
+  Sarrebourg Moselle-Sud, three municipalities of Les Sables d'Olonne
+  Agglomération, Chanas and Roussillon, and Verdun. Each added municipality
+  posted within the last 92 days and had no existing municipal source;
+  population ranks use the official Geo API reading of 2026-10-02. Filings
+  and decisions join the six-hour cache and daily archive, with private
+  applicants filtered at collection. Clisson's missing public intermediate
+  certificate is added to Node's trust store with certificate verification
+  kept enabled.
 - **Draguignan, 21 more municipalities of Dracénie, Rixheim and Lapalud now
   show their published planning permits**, 133,000 additional residents. The
   former Draguignan hosting address no longer answers; the agglomeration's
