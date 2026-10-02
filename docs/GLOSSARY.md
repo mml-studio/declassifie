@@ -192,6 +192,9 @@ text. `src/i18n/glossary.test.mjs` fails when the two lists drift apart.
 | lotissement | housing subdivision | |
 | certificat d’urbanisme | planning certificate | |
 | préfixe de section | section prefix | Cadastre. |
+| avis de dépôt | filing notice | The posting of a filed application (art. R.423-6). |
+| récépissé de dépôt | filing receipt | A commune that posts the receipt posts a filing. |
+| affichage réglementaire / affichage légal | legal posting board | A commune's board of acts and notices. |
 
 ## Energy
 

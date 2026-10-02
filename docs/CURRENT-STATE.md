@@ -5181,6 +5181,44 @@ no date is printed and the PDFs are session-bound, so its rows carry none,
 and only a numbered site and works phrases are kept from each free-text
 description. Through the proxy on 2026-10-02, Garges placed 28 dossiers of
 28, Cergy 33 of 38, Châlons 79 of 83 and Anglet 184 of 205.
+**Fifty-six communes that post on DematDOC (2026-10-02).**
+`src/data/dematdocFeed.js` registers the tenants of the acts platform
+`<tenant>.dematdoc.eu` whose urbanism shelves carry dossiers posted since July
+— Montélimar, Plaisir, Le Pontet, Fontenay-le-Comte, Saint-Gaudens and 51
+smaller communes. A shelf is asked newest first (`POST
+/api/public/get-documents/<shelf>`, 100 documents and the ids of the rest),
+then 100 at a time through `get-documents-lazy` until a page reaches the
+window: two months for a visitor's reading, twelve for the sweep, though a
+shelf only shows what is on display. A document is kept when its title or
+index fields name a dossier of the commune or a permit's words; road orders,
+pre-emptions, plans and aggregate registers are dropped, and the redacted
+copy the board itself shows (`bifferPath`) is read when there is one. Each
+act is one PDF read once (`dematdoc-notice`, extracted with `wordGapEm`
+0.15): the number from the heading or the title, the site from the first
+site label (« Sur un terrain sis », « Adresse du terrain / des travaux »,
+« Sis à l'adresse suivante », « Lieu ») on its line or under it in its
+column, cut at a 30-point gap so the works printed beside it are not read,
+and refused unless it names a number or a kind of way; the parcels, with
+the commune's own three digits Cart@DS prints before a section dropped
+(`150 CX 585` → `CX 585`); the board from the first heading line, so that an
+order whose header recalls « l'avis de dépôt » stays a decision; the verdict
+from the operative article, which must open a line, then the heading, then
+« Décision signée ». A scan waits for the sweep's OCR, showing meanwhile the
+number and a street the title ends with — never the title's other words,
+which often name the applicant. Measured on 2026-10-02: 1 071 acts posted
+since 1 September; the newest eight of each tenant gave 281 dossiers, every
+one with its site (86 filings; 195 decisions, of which 131 granted, 19
+refused, 16 withdrawn or cancelled and 29 signed with no verdict read); 92
+of 130 text acts sampled gave a row. Darnétal, Fontenilles and Plan-d'Orgon
+post only scans, and Chavanoz posted nothing since August. Every tenant's
+`robots.txt` is the platform's `Disallow: /`, overridden by the project's
+decision as for Saint-Priest. Bizanos and Mazères-Lezons also post there and
+stay with Pau's e-permis board, which has their parcels, and Le Crès stays
+with Montpellier Méditerranée Métropole's open data: a commune on two
+registers would have every dossier twice. Measured against
+geo.api.gouv.fr's populations: 338 535 inhabitants more, 26.8 % of the
+population seen within days, from 26.3 %; 105 of the 300 most populous
+communes, from 103, and 248 of the 1 000, from 243.
 
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
