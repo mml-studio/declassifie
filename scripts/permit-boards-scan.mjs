@@ -157,6 +157,7 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'gu-valeyrieux.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'paysdelor.geosphere.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'urbanisme.payssaintgilles.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'ads.paysvoironnais.com', prefixes: Object.freeze(['/guichet-unique']) }),
 ]);
 
 /**
@@ -196,6 +197,9 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   'supv.pu.sirap.com',
   'valdamboise.pu.sirap.com',
   'valdecharente.pu.sirap.com',
+  // The Ain's SIEA moved its public portal to this host in December 2025.
+  // Bugey-Sud and municipal websites link it; it uses the same PU API.
+  'puu.siea-sig.fr',
 ]);
 
 const { values } = parseArgs({
