@@ -5215,7 +5215,9 @@ post only scans, and Chavanoz posted nothing since August. Every tenant's
 decision as for Saint-Priest. Bizanos and Mazères-Lezons also post there and
 stay with Pau's e-permis board, which has their parcels, and Le Crès stays
 with Montpellier Méditerranée Métropole's open data: a commune on two
-registers would have every dossier twice. Measured against
+registers would have every dossier twice. Viviers, read by Du Rhône aux
+Gorges de l'Ardèche's Cart@DS board since #399 (with its parcels), left the
+DematDOC list the same day, so 55 tenants are read. Measured against
 geo.api.gouv.fr's populations: 338 535 inhabitants more, 26.8 % of the
 population seen within days, from 26.3 %; 105 of the 300 most populous
 communes, from 103, and 248 of the 1 000, from 243.

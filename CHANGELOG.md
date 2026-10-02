@@ -646,6 +646,9 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **Viviers's permits were drawn twice** once two pull requests each began
+  reading it the same day: its Cart@DS board and its DematDOC acts. It is
+  read from Cart@DS alone, which prints the parcels.
 - **The e-permis sweep reported 710 permits for communes their publisher does
   not list; there were none.** Read again on 2026-10-02, all 710 rows were
   files that are not permits — 367 works on public buildings (`AT`), 209 `AP`,
