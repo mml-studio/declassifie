@@ -56,6 +56,8 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
     // A path segment, or none for a board at the root of its host (Massy).
     assert.match(instance.base, /^https:\/\/[^/]+(\/[^/]+)?$/, instance.key);
     assert.ok(['insee', 'number', 'unpadded'].includes(instance.codes), instance.key);
+    // What an odd menu entry sends is kept for a commune the instance reads.
+    for (const insee of Object.keys(instance.values ?? {})) assert.ok(instance.communes.includes(insee), `${instance.key} ${insee}`);
     // The card names the publisher by the head of the label.
     assert.match(instance.label, / — /, instance.key);
     for (const code of instance.communes) {
@@ -111,6 +113,11 @@ test('the commune menu sends an INSEE code on some instances and a bare number o
   // The Allier's agency sends the INSEE code without its leading zero.
   assert.equal(cartdsCommuneValue({ codes: 'unpadded' }, '03058'), '3058');
   assert.equal(cartdsCommuneValue({ codes: 'unpadded' }, '45234'), '45234');
+  // One menu sends the INSEE code for all its communes but one.
+  const lomagne = cartdsInstanceFor('82013');
+  assert.equal(lomagne.key, 'bastidesdelomagne');
+  assert.equal(cartdsCommuneValue(lomagne, '82013'), '13');
+  assert.equal(cartdsCommuneValue(lomagne, '82006'), '82006');
 });
 
 test('the page gives up its token and its commune menu', () => {

@@ -6,6 +6,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Chambœuf, Château-Arnoux-Saint-Auban, Beaumont-de-Lomagne and 22 more
+  communes now show the permits they post themselves**, 19 192 inhabitants.
+  The platform scan had read their boards but could not name them: a
+  ligature (Chambœuf), an article the official list does not carry (Le
+  Mottier), a name of the board's own (Colmars les Alpes for Colmars), or a
+  menu that writes one commune's code differently from the rest (the Bastides
+  de Lomagne). `npm run permits:scan -- --day <date>` judges a saved reading
+  on the day it was read.
 - **Vannes and 58 more communes of the Golfe du Morbihan, Saint-Nazaire, Pau
   and 27 more communes of its agglomeration, Narbonne, Arcachon,
   Ivry-sur-Seine, Clichy, Choisy-le-Roi, Vincennes, Neuilly-sur-Seine and

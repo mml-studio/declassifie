@@ -12,6 +12,8 @@
  *   npm run permits:scan -- --respect-robots     # leave out the boards robots.txt refuses
  *   npm run permits:scan -- --probes <file> --sirap-probes <file> --ask <host>
  *                                                # ask only <host> (a seed) again, keep the rest of both readings
+ *   npm run permits:scan -- --probes <file> --sirap-probes <file> --day 2026-10-01
+ *                                                # judge saved readings on the day they were read
  *
  * Cart@DS first. The Wayback Machine lists the `geosphere.fr` hosts it has
  * seen (the hosting family most instances run on); the DNS is asked about
@@ -153,6 +155,7 @@ const { values } = parseArgs({
     ask: { type: 'string', multiple: true, default: [] },
     concurrency: { type: 'string', default: '2' },
     pause: { type: 'string', default: '500' },
+    day: { type: 'string' },
   },
 });
 
@@ -353,7 +356,11 @@ async function probeSirapHost(host, day, pauseMs) {
   return probe;
 }
 
-const day = new Date().toISOString().slice(0, 10);
+// A saved reading is judged on the day it was read: judged a day later, a
+// commune whose last row is 92 days old falls out of the window and off the
+// layer, for no reason the boards gave.
+const day = values.day ?? new Date().toISOString().slice(0, 10);
+if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`--day ${day}: expected yyyy-mm-dd`);
 const unknownAsks = values.ask.filter((host) => !CARTDS_SCAN_SEEDS.some((seed) => seed.host === host) && !SIRAP_SCAN_HOSTS.includes(host));
 if (unknownAsks.length) console.warn(`[permits-scan] --ask names no seed: ${unknownAsks.join(' ')} (add it to CARTDS_SCAN_SEEDS or SIRAP_SCAN_HOSTS first)`);
 const [communes, epcis] = await Promise.all([getJson(COMMUNES_URL), getJson(EPCIS_URL)]);
