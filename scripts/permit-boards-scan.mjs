@@ -129,6 +129,17 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   // Draguignan's former geosphere tenant moved to the agglomeration's host;
   // its own website links /portailccs, which redirects to /guichet-unique.
   Object.freeze({ host: 'ads.dracenie.com', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Public intercommunal boards found while checking municipalities below
+  // the 400 most populous on 2026-10-02; their sites link these hosts.
+  Object.freeze({ host: 'urbanisme.lannion-tregor.com', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'sig.clissonsevremaine.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu-capca.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu-diois.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu-ccdraga.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.cc-sms.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'sig.lsoagglo.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu.entre-bievreetrhone.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'portail.grandverdun.fr', prefixes: Object.freeze(['']) }),
 ]);
 
 /**

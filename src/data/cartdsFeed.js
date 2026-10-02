@@ -423,6 +423,98 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     // own path published 34 filings and 38 decisions on 2026-10-02.
     communes: Object.freeze(['68278']),
   }),
+  // Public boards checked on 2026-10-02 for municipalities ranked below
+  // the 400 most populous: every listed municipality posted within 92 days,
+  // and none was read by another municipal register. The scope is each
+  // board's measured menu, never its authority's entire territory.
+  Object.freeze({
+    key: 'lanniontregor',
+    base: 'https://urbanisme.lannion-tregor.com/guichet-unique',
+    label: 'Lannion-Trégor Communauté — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze([
+      '22028', '22030', '22034', '22085', '22090', '22101', '22110', '22111',
+      '22113', '22119', '22127', '22131', '22134', '22152', '22166', '22168',
+      '22194', '22195', '22196', '22198', '22199', '22207', '22211', '22217',
+      '22218', '22221', '22224', '22226', '22227', '22228', '22245', '22254',
+      '22257', '22264', '22265', '22319', '22324', '22340', '22343', '22347',
+      '22349', '22353', '22362', '22363', '22379', '22381', '22383', '22387',
+    ]),
+  }),
+  Object.freeze({
+    key: 'clissonsevremaine',
+    base: 'https://sig.clissonsevremaine.fr/guichet-unique',
+    label: 'Clisson Sèvre et Maine Agglo — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    intermediate: 'globalsign-alpha-r6-2025',
+    communes: Object.freeze([
+      '44002', '44022', '44037', '44043', '44063', '44064', '44071', '44088',
+      '44100', '44127', '44142', '44159', '44165', '44173', '44216',
+    ]),
+  }),
+  Object.freeze({
+    key: 'capca',
+    base: 'https://gu-capca.numerian.fr/guichet-unique',
+    label: 'Privas Centre Ardèche — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'unpadded',
+    communes: Object.freeze([
+      '07004', '07008', '07027', '07030', '07048', '07060', '07066', '07072',
+      '07083', '07094', '07096', '07181', '07184', '07194', '07198', '07233',
+      '07237', '07255', '07261', '07274', '07278', '07288', '07295', '07303',
+      '07338', '07349',
+    ]),
+  }),
+  Object.freeze({
+    key: 'diois',
+    base: 'https://gu-diois.numerian.fr/guichet-unique',
+    label: 'CC du Diois — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze([
+      '26001', '26012', '26017', '26025', '26036', '26047', '26055', '26067',
+      '26076', '26086', '26113', '26136', '26142', '26159', '26164', '26167',
+      '26168', '26175', '26178', '26204', '26205', '26215', '26246', '26248',
+      '26253', '26255', '26262', '26282', '26283', '26291', '26299', '26300',
+      '26308', '26321', '26327', '26361', '26378',
+    ]),
+  }),
+  Object.freeze({
+    key: 'draga',
+    base: 'https://gu-ccdraga.numerian.fr/guichet-unique',
+    label: 'CC du Rhône aux Gorges de l’Ardèche — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'unpadded',
+    communes: Object.freeze([
+      '07034', '07042', '07099', '07133', '07259', '07264', '07268', '07279',
+      '07346',
+    ]),
+  }),
+  Object.freeze({
+    key: 'ccsms',
+    base: 'https://urbanisme.cc-sms.fr/guichet-unique',
+    label: 'CC Sarrebourg Moselle-Sud — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['57071', '57324', '57362', '57566', '57630']),
+  }),
+  Object.freeze({
+    key: 'lsoagglo',
+    base: 'https://sig.lsoagglo.fr/guichet-unique',
+    label: 'Les Sables d’Olonne Agglomération — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['85112', '85214', '85250']),
+  }),
+  Object.freeze({
+    key: 'entrebievreetrhone',
+    base: 'https://gu.entre-bievreetrhone.fr/guichet-unique',
+    label: 'Entre Bièvre et Rhône — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['38072', '38344']),
+  }),
+  Object.freeze({
+    key: 'grandverdun',
+    base: 'https://portail.grandverdun.fr',
+    label: 'Grand Verdun — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['55545']),
+  }),
 ]);
 
 /**

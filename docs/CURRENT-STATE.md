@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 208 Cart@DS *affichage réglementaire* boards (1 584 communes) and Sirap PU boards (1 067 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 217 Cart@DS *affichage réglementaire* boards (1 730 municipalities) and Sirap PU boards (1 067 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4825,6 +4825,48 @@ these boards does not age unrelated municipalities out of the registry:
 183 scanned instances, 1,382 municipalities; 208 Cart@DS instances and
 1,584 municipalities in total. Collection, privacy filtering and the daily
 archive use the existing reader.
+
+**Since 2026-10-02, 146 municipalities ranked after the 400 most populous
+gain a fresh municipal permit source.** Their population ranks were checked
+against [Geo API's municipality populations](https://geo.api.gouv.fr/decoupage-administratif/communes)
+on that day, sorted by population descending, with the INSEE code breaking
+ties. The added municipalities range from rank 485 (Lannion) to 34,889;
+they have 263,056 inhabitants in total and none was already read by another
+municipal register. Each posted at least one row within the last 92 days.
+The public menus, rather than the authorities' territorial boundaries,
+define the coverage:
+
+| Public Cart@DS board | Newly covered municipalities |
+| --- | ---: |
+| [Lannion-Trégor Communauté](https://urbanisme.lannion-tregor.com/guichet-unique/Login/AffichageReglementaire) | 48 |
+| [Clisson Sèvre et Maine Agglo](https://sig.clissonsevremaine.fr/guichet-unique/Login/AffichageReglementaire) | 15 |
+| [Privas Centre Ardèche](https://gu-capca.numerian.fr/guichet-unique/Login/AffichageReglementaire) | 26 |
+| [CC du Diois](https://gu-diois.numerian.fr/guichet-unique/Login/AffichageReglementaire) | 37 |
+| [CC du Rhône aux Gorges de l'Ardèche](https://gu-ccdraga.numerian.fr/guichet-unique/Login/AffichageReglementaire) | 9 |
+| [CC Sarrebourg Moselle-Sud](https://urbanisme.cc-sms.fr/guichet-unique/Login/AffichageReglementaire) | 5 |
+| [Les Sables d'Olonne Agglomération](https://sig.lsoagglo.fr/guichet-unique/Login/AffichageReglementaire) | 3 |
+| [Entre Bièvre et Rhône](https://gu.entre-bievreetrhone.fr/guichet-unique/Login/AffichageReglementaire) | 2 |
+| [Grand Verdun](https://portail.grandverdun.fr/Login/AffichageReglementaire) | 1 |
+
+The boards held 2,975 posting rows for these municipalities before family
+filtering and dossier folding. The first complete archive sweep read all
+146 municipalities successfully and retained 2,969 rows on 2026-10-02.
+Clisson's real public board replaces the
+demonstration tenant rejected above; La Haye-Fouassière is left to the Nantes
+source that already reads it. Twelve Diois menu entries had no recent posting
+and are left out. Les Sables d'Olonne's board names Île-d'Olonne, Sainte-Foy
+and Saint-Mathurin, not the central city; Grand Verdun's board names Verdun
+only. The SDEEG 33 Sirap board was also checked: its 94 municipalities last
+posted in February 2026, so they are not counted as fresh coverage.
+
+The nine hosts join `CARTDS_SCAN_SEEDS`, and the measured municipality lists
+live in `cartdsFeed.js`. Cart@DS now reads 217 instances and 1,730
+municipalities. The existing reader, six-hour cache, daily archive, robots
+policy and applicant filtering apply. Clisson's server omits its GlobalSign
+GCC R6 AlphaSSL CA 2025 intermediate; `cartdsArchive.mjs` adds that public
+certificate alongside Node's default roots, as it already does for the
+Sectigo intermediate of the other affected hosts. TLS verification remains
+enabled, and the intermediate expires on 2027-05-21.
 
 Auxonne (21038) was checked the same day and posts nothing: its filings go
 through the Cart@DS of the CC Auxonne Pontailler Val de Saône
