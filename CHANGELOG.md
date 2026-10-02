@@ -39,6 +39,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   inhabitants: each avis de dépôt and decision they publish on the DematDOC
   acts platform is read once, with its site, parcels and verdict. Scanned
   acts are read by OCR in the daily sweep.
+- **614 more communes now show the permits they post themselves**, 771 109
+  inhabitants: the Pays Sud Toulousain, the Pays d'Ancenis, the SIEEEN and
+  fourteen more intercommunal Sirap tenants, the Landes's ADACL, Bayonne,
+  Colomiers, Kourou, Valenton, Saint-Maurice and eighteen communes on the
+  vendor's shared Cart@DS host. Their boards sit where the platform scan could
+  not see them; certificate logs and web archives found them. Bayonne's host
+  leaves an intermediate certificate out of its chain, which the server now
+  supplies.
 - **Chambœuf, Château-Arnoux-Saint-Auban, Beaumont-de-Lomagne and 22 more
   communes now show the permits they post themselves**, 19 192 inhabitants.
   The platform scan had read their boards but could not name them: a

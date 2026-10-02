@@ -5369,6 +5369,39 @@ filing reads *Déposé*; the software changed its words in early 2025
 (`FAVORABLE`, `rejet implicite` became `Accord`, `Rejet`) and both are read;
 `Rejet`, the tacit rejection of a file left incomplete, reads as refused, and
 a withdrawal of a granted permit as cancelled.
+**Since 2026-10-02, 614 more communes on boards the scan could not see.**
+Searching certificate-transparency logs, the Wayback Machine, the
+service-public directory of filing portals and the web for boards outside
+the scan's reach, and checking the Paris inner ring by hand, found hosts that
+post and that no register read (#399 had just written nine of them by hand:
+Lannion-Trégor, Clisson, the Numérian Privas, Diois and DRAGA hosts,
+Sarrebourg Moselle Sud, Les Sables d'Olonne, Entre Bièvre et Rhône, Verdun;
+the scan now leaves those to it). *Cart@DS* (+61 communes): the Landes's
+ADACL (34), Colomiers (the first Toulouse Métropole commune read, while
+Toulouse's own board stays behind its anti-bot challenge), Kourou, Valenton,
+the Numérian `gu-ara` and `gu-valeyrieux` hosts, Saint-Gilles and the Pays de
+l'Or, seeds of the scan asked alone with `--ask`; Saint-Maurice, the fifth
+Paris-Est-Marne et Bois board, named by the `pemb.fr` certificate; Bayonne,
+whose host sends its certificate without GandiCert, the intermediate
+DigiCert Global Root G2 signs — the scan cannot ask it, so it is written by
+hand with `intermediate: 'gandicert'`, which `trustCartdsIntermediates` adds
+as it adds Sectigo's and GlobalSign's; and 18 communes posting on paths of
+the vendor's shared host `guichetunique.geosphere.fr/<tenant>` (Lambesc,
+Beaumont, La Fare-les-Oliviers, Thaon-les-Vosges, Nuits-Saint-Georges,
+Val-d'Isère…), which the scan leaves out as a vendor name and could only ask
+one path of anyway: written by hand, one instance each. *Sirap* (+553
+communes): seventeen intercommunal tenants of `*.pu.sirap.com` the Wayback
+Machine had seen, among them the Pays Sud Toulousain (72), the Pays d'Ancenis
+(19), the SIEEEN (103), Charente Limousine (39), Val d'Amboise (14) and Cœur
+de Charente (45); a name that is not a tenant answers the shared portal's
+whole list, so each was checked by the communes it names. The registry was
+written from the saved readings of 2026-10-01 (`--day`), asking the new hosts
+and the Dracénie and Lapalud hosts of #397 again, so it changed by the new
+hosts only. Measured the same day against geo.api.gouv.fr's populations:
+771 109 inhabitants more, 28.3 % of the population seen within days, from
+27.2 %; 107 of the 300 most populous communes, from 105, and 261 of the
+1 000, from 251.
+
 **Since the evening of 2026-10-01, Pau's agglomeration and eighteen more
 communes answer from e-permis too.** The Wayback Machine had seen boards at
 `depot?id=70` to `119`, one commune each; asking the configuration of every
