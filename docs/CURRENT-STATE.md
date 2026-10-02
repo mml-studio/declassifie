@@ -5105,6 +5105,32 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Thirteen more cities posting their own boards (2026-10-02).** Two more
+families join `permitBoards.js`. `permitBoardsReports.js` reads the lists an
+instruction software prints: Valence's and Décines-Charpieu's Cart@DS
+« Liste des avis de dépôt / des décisions » (one reader, `readReportTable`,
+for cells centred on their row or hung from its top, and rows a page break
+splits), Saint-Genis-Laval's BIRT editions, Arles's quarterly OpenOffice
+sheets, and the Word or Excel tables of Saint-Cloud, Tassin-la-Demi-Lune,
+Sceaux and Pertuis; a cell that stacks a person's name over a company's
+keeps the company's line only. `permitBoardsActs.js` reads acts posted one at
+a time or in weekly registers: Romainville's arrêtés (scans, read by the
+sweep's OCR), Villeneuve-Saint-Georges's weekly filing tables and decision
+extracts, Oullins-Pierre-Bénite's weekly Cart@DS reports printed and scanned
+with an OCR layer (listed through its WordPress media API), L'Haÿ-les-Roses's
+Docs2Web catalogue and Limeil-Brévannes's page opened for the amended
+R.423-6. Live on 2026-10-02 over two months: Valence 145 filings and 152
+decisions, Arles 210 and 219, Décines 103 and 114, Saint-Cloud 73 and 58,
+Pertuis 78 and 83, Saint-Genis-Laval 61 and 79, Tassin 23 and 49, Sceaux 34
+decisions, Villeneuve-Saint-Georges 215 filings, L'Haÿ 55 and 20, Limeil 27
+and 41; every row with an address but one; Oullins's twelve-month sweep 772
+filings and 684 decisions. Le Plessis-Trévise (DataHall), Les Pavillons-sous-
+Bois (delibs.com, numbers without their counter letter) and Bry-sur-Marne
+(rotated 150 dpi scans) were left out. Measured against geo.api.gouv.fr's
+populations: 430 980 inhabitants more, 28.9 % of the population seen within
+days, from 28.3 %; 115 of the 300 most populous communes, from 107, and 274
+of the 1 000, from 261.
+
 **Fourteen cities posting their own boards (2026-10-02).**
 `src/data/permitBoardCities.js` registers fourteen cities ranked 61 to 200 by
 population that had only Sitadel: Cergy, Bourges, Antony, Le Blanc-Mesnil,

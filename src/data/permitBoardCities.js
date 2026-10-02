@@ -56,6 +56,54 @@ const CITIES = [
     page: 'https://www.screensoft.eu/Docs2Web/1525%20-%20VILLE%20DE%20PANTIN/', robots: 'overridden', source: { ocr: true } },
   { key: 'anglet', insee: '64024', postcode: '64600', label: 'Ville d’Anglet — arrêtés d’urbanisme',
     page: 'https://teleservices.anglet.fr/WEBDELIBERATIONS_WEB/FR/PageCategoriesArretes.awp' },
+  // One act at a time, or weekly scanned registers (`permitBoardsActs.js`).
+  { key: 'oullins-pierre-benite', insee: '69149', postcode: '69600', label: 'Ville d’Oullins-Pierre-Bénite — avis de dépôt et décisions d’urbanisme',
+    // Its firewall answers 403 to a User-Agent with the word « scan » in it
+    // (2026-10-02), as Boulogne's does. The lists before 22 July 2026 are
+    // bare scans: the sweep reads them by OCR.
+    page: 'https://www.oullinspierrebenite.fr/ma-mairie/conseil-municipal/arretes-muncipaux/batiments-et-erp/',
+    userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)', source: { ocr: true } },
+  { key: 'lhay-les-roses', insee: '94038', postcode: '94240', label: 'Ville de L’Haÿ-les-Roses — affichage réglementaire d’urbanisme',
+    // The host is spelt « reglemenaire » by the town itself. A few orders are
+    // scans: the sweep reads them by OCR.
+    page: 'https://affichage-reglemenaire.lhaylesroses.fr/', source: { ocr: true } },
+  { key: 'limeil-brevannes', insee: '94044', postcode: '94450', label: 'Ville de Limeil-Brévannes — affichage numérique réglementaire d’urbanisme',
+    page: 'https://www.limeil-brevannes.fr/mon-cadre-de-vie/urbanisme/affichage-numerique-reglementaire/' },
+  { key: 'villeneuve-saint-georges', insee: '94078', postcode: '94190', label: 'Ville de Villeneuve-Saint-Georges — actes réglementaires de l’urbanisme',
+    // Its decisions are one-page scanned extracts: the sweep reads them by OCR.
+    page: 'https://www.villeneuve-saint-georges.fr/l-actu-a-villeneuve/1956-actes-reglementaires-de-l-urbanisme.html', source: { ocr: true } },
+  { key: 'romainville', insee: '93063', postcode: '93230', label: 'Ville de Romainville — arrêtés d’urbanisme',
+    // Every arrêté sampled is a scan: the sweep reads them by OCR.
+    page: 'https://www.ville-romainville.fr/5881-actes-administratifs.htm', source: { ocr: true } },
+  // Lists printed by the instruction software (`permitBoardsReports.js`).
+  { key: 'valence', insee: '26362', postcode: '26000', label: 'Ville de Valence — avis de dépôt et décisions d’urbanisme',
+    // Its firewall answers 403 to a User-Agent with the word « scan » in it,
+    // robots.txt's included (2026-10-02), as Boulogne's does.
+    page: 'https://www.valence.fr/valence-demain/urbanisme/',
+    userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)' },
+  { key: 'arles', insee: '13004', postcode: '13200', label: 'Ville d’Arles — affichage des dépôts et des décisions d’urbanisme',
+    // `robots.txt` disallows /app/, where WordPress keeps every upload, the
+    // sheets included (2026-10-02): read by the project's decision, as
+    // Bourges's are — the posting the Code de l'urbanisme makes public
+    // (art. R.423-6, R.424-15).
+    page: 'https://arles.fr/vivre-a-arles/urbanisme/permis-de-construire/laffichage-de-lautorisation-durbanisme/laffichage-des-depots-durbanisme/',
+    robots: 'overridden' },
+  { key: 'decines-charpieu', insee: '69275', postcode: '69150', label: 'Ville de Décines-Charpieu — dépôts et décisions des autorisations d’urbanisme',
+    page: 'https://www.decines-charpieu.fr/975-depots-et-decisions-des-autorisations-d-urbanisme.htm' },
+  { key: 'saint-cloud', insee: '92064', postcode: '92210', label: 'Ville de Saint-Cloud — autorisations d’urbanisme en cours et décidées',
+    page: 'https://www.saintcloud.fr/autorisations-durbanisme' },
+  { key: 'tassin-la-demi-lune', insee: '69244', postcode: '69160', label: 'Ville de Tassin-la-Demi-Lune — autorisations d’urbanisme déposées, délivrées, affichées',
+    page: 'https://www.tassinlademilune.fr/cadre-de-ville/urbanisme' },
+  { key: 'saint-genis-laval', insee: '69204', postcode: '69230', label: 'Ville de Saint-Genis-Laval — avis de dépôt et décisions d’urbanisme',
+    page: 'https://www.saintgenislaval.fr/mes-services/cadre-de-vie-et-urbanisme/decisions-durbanisme' },
+  { key: 'sceaux', insee: '92071', postcode: '92330', label: 'Ville de Sceaux — décisions d’urbanisme du mois',
+    // Its firewall answers 403 to a User-Agent with the word « scan » in it
+    // (2026-10-02), as Valence's does.
+    page: 'https://www.sceaux.fr/mon-quotidien/urbanisme',
+    userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)' },
+  { key: 'pertuis', insee: '84089', postcode: '84120', label: 'Ville de Pertuis — dépôts et décisions d’autorisation de travaux',
+    // `Crawl-delay: 2` in its robots.txt.
+    page: 'https://www.ville-pertuis.fr/ma-mairie/urbanisme/depots-et-decisions-dautorisation-de-travaux', crawlDelayMs: 2_000 },
 ];
 // i18n-ignore-end
 

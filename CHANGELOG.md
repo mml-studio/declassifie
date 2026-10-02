@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Valence, Arles, Oullins-Pierre-Bénite, Romainville, Villeneuve-Saint-Georges
+  and eight more cities now show the permits they post themselves**, 430 980
+  inhabitants: Décines-Charpieu, L'Haÿ-les-Roses, Saint-Cloud,
+  Limeil-Brévannes, Tassin-la-Demi-Lune, Saint-Genis-Laval, Sceaux and Pertuis.
+  The lists their instruction software prints and the acts they post one at a
+  time are read into the daily permit archive; scans wait for the sweep's OCR.
 - **146 municipalities ranked after France's 400 most populous now show
   their published planning permits**, 263,056 additional residents. Nine
   public Cart@DS boards cover Lannion-Trégor, Clisson Sèvre et Maine,
