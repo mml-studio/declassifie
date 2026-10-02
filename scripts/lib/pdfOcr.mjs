@@ -89,15 +89,17 @@ export async function pdfOcrAvailable({ run = runProgram } = {}) {
  * @param {Function} [options.run] `(file, args, {timeoutMs}) => Promise<?string>`; tests inject one.
  * @param {string} [options.tmpdir]
  * @param {string} [options.lang]
- * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean, positioned?: boolean, rotate?: number}) =>
+ * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean, positioned?: boolean, rotate?: number,
+ *   maxPages?: ?number}) =>
  *   Promise<?{pages: Array<string>, read: number, ms: number}>} Each page's
  *   text — the band's alone for a page the screen set aside — and how many
  *   were read whole; null when the file could not be rendered or read, a
  *   failure the caller keeps for next time. `positioned` also returns a
  *   `document` of word runs in PDF points for column-based list readers.
+ *   `maxPages`: the first pages only, for a form whose fields are on page 1.
  */
 export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'fra' } = {}) {
-  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0 } = {}) {
+  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0, maxPages = null } = {}) {
     const started = Date.now();
     let dir = null;
     try {
@@ -110,7 +112,7 @@ export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'f
       const pages = [];
       const positionedPages = [];
       let read = 0;
-      for (let page = 1; page <= count; page += 1) {
+      for (let page = 1; page <= Math.min(count, maxPages ?? count); page += 1) {
         const at = ['-r', String(PDF_OCR_DPI), '-gray', '-f', String(page), '-l', String(page), '-singlefile'];
         if (screen) {
           const band = path.join(dir, 'band');

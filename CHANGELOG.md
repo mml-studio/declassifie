@@ -6,6 +6,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Cergy, Bourges, Antony, Le Blanc-Mesnil, Troyes, Pantin and eight more
+  cities now show the permits they post themselves**, 742 208 inhabitants:
+  La Roche-sur-Yon, Alès, Saint-Germain-en-Laye, Anglet,
+  Châlons-en-Champagne, Garges-lès-Gonesse, Poissy and Boulogne-sur-Mer.
+  Weekly PDF lists, one PDF per dossier or an HTML list of acts, each read by
+  its own protocol into the daily permit archive; scanned decisions are read
+  by OCR in the daily sweep, at most forty a day per city. 26.1 % of the
+  population is now seen within days, from 25.0 %.
 - **Chambœuf, Château-Arnoux-Saint-Auban, Beaumont-de-Lomagne and 22 more
   communes now show the permits they post themselves**, 19 192 inhabitants.
   The platform scan had read their boards but could not name them: a
