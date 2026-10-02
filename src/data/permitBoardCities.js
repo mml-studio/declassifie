@@ -1,16 +1,41 @@
 /**
- * Fourteen cities that post their permits on boards of their own: weekly PDF
+ * Municipalities that post their permits on boards of their own: weekly PDF
  * lists, one PDF per dossier, or an HTML table of acts. Data only, so that
  * `permitListsFeed.js` can hold them in `PERMIT_LISTS` without importing the
  * readers, which import it (`permitBoards.js` gathers those).
  *
- * Found by a check of the communes ranked 61 to 200 by population with no
- * fresh permit source, on 2026-10-01: every one posted rows dated within the
- * week. `source.protocol` names how its board is read (`permitBoards.js`).
+ * Found through population-ranked surveys of municipalities without a
+ * fresh permit source, on 2026-10-01 and 2026-10-02. `source.protocol` names
+ * how its board is read (`permitBoards.js`).
  */
 
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
+  // Public boards confirmed during the outer Paris suburbs survey on 2026-10-02.
+  { key: 'pontault-combault', insee: '77373', postcode: '77340', label: 'Ville de Pontault-Combault — dépôts et autorisations d’urbanisme',
+    page: 'https://actes.pontault-combault.fr/docs/', source: { protocol: 'outer-pontault' } },
+  { key: 'rambouillet', insee: '78517', postcode: '78120', label: 'Ville de Rambouillet — dépôts et décisions d’urbanisme',
+    page: 'https://datahall.mydigilor.fr/web/#/documents/306',
+    source: { protocol: 'outer-digilor', app: 306, category: 3592 } },
+  { key: 'villepreux', insee: '78674', postcode: '78450', label: 'Ville de Villepreux — décisions d’urbanisme',
+    page: 'https://datahall.mydigilor.fr/web/#/documents/319',
+    source: { protocol: 'outer-digilor', app: 319, category: 3032 } },
+  { key: 'igny', insee: '91312', postcode: '91430', label: 'Ville d’Igny — décisions d’urbanisme',
+    page: 'https://datahall.mydigilor.fr/web/#/documents/22',
+    source: { protocol: 'outer-digilor', app: 22, category: 138 } },
+  { key: 'vaureal', insee: '95637', postcode: '95490', label: 'Ville de Vauréal — dépôts et décisions d’urbanisme',
+    page: 'https://vaureal.fr/au-quotidien/urbanisme-travaux/affichage-des-autorisations-durbanisme',
+    source: { protocol: 'outer-vaureal', filings: '/node/9661', decisions: '/node/9662' } },
+  { key: 'la-celle-saint-cloud', insee: '78126', postcode: '78170', label: 'Ville de La Celle-Saint-Cloud — décisions d’urbanisme',
+    page: 'https://lacellesaintcloud.fr/arretes-municipaux/?t=urbanisme', source: { protocol: 'outer-notices' } },
+  { key: 'le-mee-sur-seine', insee: '77285', postcode: '77350', label: 'Ville du Mée-sur-Seine — dépôts et décisions d’urbanisme',
+    page: 'https://www.lemeesurseine.fr/vos-demarches/urbanisme-amenagement-du-territoire/avis-de-depot/',
+    source: { protocol: 'outer-notices', pages: [
+      'https://www.lemeesurseine.fr/vos-demarches/urbanisme-amenagement-du-territoire/avis-de-depot/affichage-legal-reglementaire/',
+      'https://www.lemeesurseine.fr/vos-demarches/urbanisme-amenagement-du-territoire/avis-de-depot/arretes/',
+    ] } },
+  { key: 'crosne', insee: '91191', postcode: '91560', label: 'Ville de Crosne — dépôts et décisions d’urbanisme',
+    page: 'https://www.crosne.fr/ma-ville/mon-cadre-de-vie/plan-local-durbanisme/', source: { protocol: 'outer-notices' } },
   // Weekly or rolling PDF lists (`permitBoardsLists.js`).
   { key: 'garges', insee: '95268', postcode: '95140', label: 'Ville de Garges-lès-Gonesse — dossiers d’urbanisme déposés et décidés',
     page: 'https://www.villedegarges.fr/ma-ville/ma-mairie/actes-administratifs' },

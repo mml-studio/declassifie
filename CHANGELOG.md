@@ -6,6 +6,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Eight outer Paris municipalities now show their published planning
+  permits:** Pontault-Combault, Rambouillet, Le Mée-sur-Seine,
+  La Celle-Saint-Cloud, Vauréal, Villepreux, Igny and Crosne, representing
+  155,260 additional residents. Weekly lists and individual notices join
+  the existing daily archive; scans use the sweep's OCR. National current
+  municipal-source coverage rises from 29.58% to 29.81%. The research report
+  records the 152 screened municipalities and the remaining leads.
 - **Valence, Arles, Oullins-Pierre-Bénite, Romainville, Villeneuve-Saint-Georges
   and eight more cities now show the permits they post themselves**, 430 980
   inhabitants: Décines-Charpieu, L'Haÿ-les-Roses, Saint-Cloud,
