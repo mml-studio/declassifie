@@ -33,22 +33,27 @@
 import { LIST_BOARD_PROTOCOLS, LIST_BOARD_READERS, LIST_BOARD_TEXT } from './permitBoardsLists.js';
 import { NOTICE_BOARD_PROTOCOLS, NOTICE_BOARD_READERS, NOTICE_BOARD_TEXT } from './permitBoardsNotices.js';
 import { PAGE_BOARD_PROTOCOLS, PAGE_BOARD_READERS, PAGE_BOARD_TEXT } from './permitBoardsPages.js';
+import { REPORT_BOARD_PROTOCOLS, REPORT_BOARD_READERS, REPORT_BOARD_TEXT } from './permitBoardsReports.js';
+import { ACT_BOARD_PROTOCOLS, ACT_BOARD_READERS, ACT_BOARD_TEXT } from './permitBoardsActs.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
 /** Every city's protocol, by `source.protocol`. */
 export const BOARD_PROTOCOLS = Object.freeze({
   ...LIST_BOARD_PROTOCOLS, ...NOTICE_BOARD_PROTOCOLS, ...PAGE_BOARD_PROTOCOLS,
+  ...REPORT_BOARD_PROTOCOLS, ...ACT_BOARD_PROTOCOLS,
 });
 
 /** The PDF readers the boards' files name, by `layout`. */
 export const BOARD_READERS = Object.freeze({
   ...LIST_BOARD_READERS, ...NOTICE_BOARD_READERS, ...PAGE_BOARD_READERS,
+  ...REPORT_BOARD_READERS, ...ACT_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
 export const BOARD_TEXT = Object.freeze({
   ...LIST_BOARD_TEXT, ...NOTICE_BOARD_TEXT, ...PAGE_BOARD_TEXT,
+  ...REPORT_BOARD_TEXT, ...ACT_BOARD_TEXT,
 });
 
 /** The protocol of a board city, or null. */
