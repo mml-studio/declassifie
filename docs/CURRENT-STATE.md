@@ -5027,6 +5027,10 @@ outside the agglomeration are excluded. All 25 municipalities answered on
 Lorient itself yielded 512 distinct dossiers; the full server placed 510.
 Each row reads only the site, project, dates and verdict, never applicant
 fields. Filings assert no continuing instruction or implicit grant.
+Measured on 2026-10-02 against geo.api.gouv.fr's populations, the thirty add
+479 813 inhabitants: 24.9 % of the population is seen within days, from
+24.2 %; 42 of the 100 most populous communes, from 41, 87 of the 300, from
+81, and 225 of the 1 000, from 215.
 
 The four Digilor tenants are 565, 228, 307 and 222. Their urbanism shelf ids
 select the documents, with Blois's mixed shelf separated into deposit lists
@@ -5177,7 +5181,11 @@ are not permits. Each publisher has its reader, its token and its
 environment, and all of them wait in ONE queue (`createEpermisGate`), half a
 second after the last answer: the API refused an address everything for
 about three hours after some forty requests for clients that do not exist,
-in half a minute, on 2026-10-01.
+in half a minute, on 2026-10-01. The first daily sweep of all twenty
+publishers, on the hosted server on 2026-10-02, read 84 communes of 84 in 19
+minutes with no refusal, failure or skipped day: 13 901 new rows, 23 041
+kept, the nineteen back to 2025-08-01 and Nice to 2023-10-01. 710 rows named
+a commune their publisher does not list and were not filed.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on
