@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 206 Cart@DS *affichage réglementaire* boards (1 561 communes) and Sirap PU boards (1 066 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 208 Cart@DS *affichage réglementaire* boards (1 584 communes) and Sirap PU boards (1 067 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4804,6 +4804,27 @@ of the window — the registry gained these 25 and lost none: 206 instances,
 2026-10-02 and answered with dossiers numbered after their own INSEE code.
 Clisson stays out: it posts on Inetum's demonstration tenant, next to a
 commune that does not exist.
+
+**Since 2026-10-02, relocated boards add 24 municipalities.** Draguignan's
+old `draguignan.geosphere.fr` tenant times out; its municipal website now
+links `ads.dracenie.com/portailccs`, which redirects to `/guichet-unique`.
+The public menu and both tables post for all 22 municipalities of Dracénie
+Provence Verdon Agglomération (1,527 board rows on 2026-10-02), now a seed
+of the platform scan. Rixheim's website links the Île Napoléon host's
+`/guichet-rixheim` board (34 filings and 38 decisions), while the scan had
+stopped at its empty `/guichet-pulversheim` board. Like Narbonne's separate
+path, Rixheim is written in `cartdsFeed.js`, with the same hosting-default
+robots override as the other geosphere boards. Lapalud's municipal website
+links `lapalud.pu.sirap.com`, which posts 29 dossiers; the shared Sirap
+portal's municipality list did not name it. Its tenant joins
+`SIRAP_SCAN_HOSTS`, adding one municipality to `sirapScanned.js` (1,011
+scanned, 1,067 in total). The gain across all three boards is 133,000
+residents, with no municipality removed or already covered by another
+register. The old scan's readings remain judged on 2026-10-01, so adding
+these boards does not age unrelated municipalities out of the registry:
+183 scanned instances, 1,382 municipalities; 208 Cart@DS instances and
+1,584 municipalities in total. Collection, privacy filtering and the daily
+archive use the existing reader.
 
 Auxonne (21038) was checked the same day and posts nothing: its filings go
 through the Cart@DS of the CC Auxonne Pontailler Val de Saône

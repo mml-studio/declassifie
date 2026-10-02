@@ -413,6 +413,16 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     codes: 'number',
     communes: Object.freeze(['11262']),
   }),
+  Object.freeze({
+    key: 'rixheim',
+    base: 'https://ilenapoleon.geosphere.fr/guichet-rixheim',
+    label: 'Rixheim — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    // The scan finds this host's empty Pulversheim board first. Rixheim's
+    // own path published 34 filings and 38 decisions on 2026-10-02.
+    communes: Object.freeze(['68278']),
+  }),
 ]);
 
 /**

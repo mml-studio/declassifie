@@ -6,6 +6,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Draguignan, 21 more municipalities of Dracénie, Rixheim and Lapalud now
+  show their published planning permits**, 133,000 additional residents. The
+  former Draguignan hosting address no longer answers; the agglomeration's
+  own Cart@DS board posts for 22 municipalities. Rixheim publishes on a
+  separate path on the Île Napoléon host, whose first board is empty. Both
+  join the existing daily archive, with private applicants filtered at
+  collection. Lapalud's own Sirap tenant posts dossiers although the shared
+  portal's municipality list did not name it.
 - **Cergy, Bourges, Antony, Le Blanc-Mesnil, Troyes, Pantin and eight more
   cities now show the permits they post themselves**, 742 208 inhabitants:
   La Roche-sur-Yon, Alès, Saint-Germain-en-Laye, Anglet,
