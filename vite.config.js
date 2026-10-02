@@ -295,6 +295,7 @@ import {
   mergeRegisters,
   normaliseLocalRow,
   normaliseSitadelRow,
+  parseGeocodedCsv,
   placeOnParcels,
   portalsForCommune,
   projectAdsPermits,
@@ -351,6 +352,7 @@ import {
   PERMIT_LISTS_LICENCE,
   PERMIT_LIST_ROWS,
 } from './src/data/permitListsFeed.js';
+import { permitListGeocodeAccepted } from './src/data/municipalPermitExtensions.js';
 import {
   epermisBoardsByCommune,
   epermisInstanceFor,
@@ -28548,9 +28550,9 @@ function adsFranceProxy() {
    */
   const PERMIT_LISTS_TTL_MS = 6 * 60 * 60 * 1000;
   /** Bumped whenever a cached city's SHAPE changes; see `loadEdition`. */
-  const PERMIT_LISTS_SCHEMA = 1;
+  const PERMIT_LISTS_SCHEMA = 2;
   /** Bumped whenever a kept BAN answer's shape changes. */
-  const PERMIT_LISTS_GEOCODE_SCHEMA = 1;
+  const PERMIT_LISTS_GEOCODE_SCHEMA = 2;
   const PERMIT_LISTS_PDF_TIMEOUT_MS = 60_000;
   const permitListsEditionDir = path.join(process.cwd(), PERMIT_LISTS_EDITION_DIR);
   /** insee → {at, value}. */
@@ -28622,7 +28624,8 @@ function adsFranceProxy() {
    * the BAN cannot place today is not one it will place in six hours. A batch
    * that failed keeps nothing, and its rows are asked again next time.
    */
-  async function placePermitListAddresses(insee, permits) {
+  async function placePermitListAddresses(city, permits) {
+    const insee = city.insee;
     const memo = new Map();
     try {
       const kept = JSON.parse(await fsp.readFile(permitListGeocodeFile(insee), 'utf8'));
@@ -28640,9 +28643,11 @@ function adsFranceProxy() {
     const answer = csv ? await geocodeBatch(csv) : null;
     if (answer) {
       const placed = new Map(applyGeocoding(asked, answer).permits.map((permit) => [permit.id, permit]));
+      const replies = new Map(parseGeocodedCsv(answer).map((row) => [row.ref, row]));
       for (const permit of asked) {
         const hit = placed.get(permit.id);
-        memo.set(keyOf(permit), hit ? [hit.lon, hit.lat, hit.precision, hit.geocodeScore] : 0);
+        memo.set(keyOf(permit), hit && permitListGeocodeAccepted(city, permit, replies.get(permit.id))
+          ? [hit.lon, hit.lat, hit.precision, hit.geocodeScore] : 0);
       }
       try {
         await fsp.mkdir(permitListsEditionDir, { recursive: true });
@@ -28691,7 +28696,7 @@ function adsFranceProxy() {
     // The parcel first where the list names one (Aix), the address for the
     // rest — the order every other register here follows.
     const ground = await placeOnGround(dossiers, { chaseDivisions: false });
-    const placed = await placePermitListAddresses(city.insee, ground.permits);
+    const placed = await placePermitListAddresses(city, ground.permits);
     const standing = placed.permits.filter((permit) => permit.lon !== null && permit.lat !== null);
     return {
       permits: standing,

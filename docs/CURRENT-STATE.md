@@ -4985,6 +4985,44 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Thirty additional municipalities from Lorient, Digilor and Rueil
+(2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
+members of Lorient Agglomération and Bondy, Blois, Aubagne, Thionville and
+Rueil-Malmaison. These sources use the existing permit-list archive and
+six-hour commune cache; the daily sweep progressively reads twelve months.
+Lorient's board page supplies the public commune selectors for its
+`/apps/ads/api/dossiers.php?TYPE=DEP|DEC` JSON API. Both boards must answer
+with the expected commune and family arrays; five empty legacy selectors
+outside the agglomeration are excluded. All 25 municipalities answered on
+2026-10-01: 1,206 filings and 1,894 decisions, certificates included.
+Lorient itself yielded 512 distinct dossiers; the full server placed 510.
+Each row reads only the site, project, dates and verdict, never applicant
+fields. Filings assert no continuing instruction or implicit grant.
+
+The four Digilor tenants are 565, 228, 307 and 222. Their urbanism shelf ids
+select the documents, with Blois's mixed shelf separated into deposit lists
+and individual acts. Bondy reuses the grid reader, Aubagne the under-review
+register; Blois's DDC register reads dates, addresses and compact cadastral
+references from three columns while skipping applicants and landowners.
+Individual notices read labelled project addresses and the first operative
+article. A generic “arrêté” or Thionville's “ARRETE_BAN” is only a signed
+decision until its verdict can be read. Scans are cached with `pendingOcr`
+and retried only in the background sweep, capped at 40 new/retried files;
+visitors never invoke OCR. Completed files are read once. Raw titles and OCR
+text are never stored; invalid PDFs are failures and preserve archived rows.
+
+Rueil's monthly Webdelib+ pages give short dossier numbers, modification
+suffixes, abbreviated project addresses and separate act/publication dates.
+Titles are parsed and scrubbed before a closed month is cached. Individual
+PDFs supply the verdict and filing date; an explicit title refusal survives
+a missing file, and an unread generic act stays “Decision signed”. The BAN
+match must be a house number in 92063, with the same number (including bis
+or ter), a matching final street word and score at least 0.3. A wrong match
+is counted as unplaced. A fresh server reading on 2026-10-02 placed 28 of
+41 dossiers; the thirteen unresolved addresses remain off the map. The
+dedicated reader tests cover rejected communes,
+verdicts, cadastral references, private fields and OCR cache retries.
+
 Saint-Priest's DematDOC JSON index supplies its newest aggregate filing and
 decision lists. The decision list holds 109 rows on 2026-10-01; its filing
 PDFs render blank, so the reader reports a failure without inventing filings.

@@ -27,6 +27,8 @@ import { extractPdfText } from '../../src/data/pdfText.js';
 import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
 import { dematdocFiles, municipalFiles, municipalNextPage, municipalTitleRow } from '../../src/data/municipalPermitsFeed.js';
+import { digilorTitleRow, lorientBoardUrl, readLorientBoard, rueilTitleRow } from '../../src/data/municipalPermitExtensions.js';
+import municipalMessages from '../../src/data/municipalPermitsFeed.i18n.js';
 import {
   arcadeActs,
   arcadeActUrl,
@@ -70,7 +72,7 @@ export const PERMIT_LISTS_ARCHIVE_DIR = path.join('.gev-cache', 'archive', 'perm
 export const PERMIT_LISTS_EDITION_DIR = path.join('.gev-cache', 'permit-lists');
 
 /** Bumped whenever a reader changes, so every edition is read again. */
-export const PERMIT_LISTS_READER_SCHEMA = 2;
+export const PERMIT_LISTS_READER_SCHEMA = 3;
 
 /**
  * How far back the daily sweep reads a Webdelib+ city. A year of Lyon is
@@ -231,7 +233,7 @@ function monthFile(dir, city, { year, month }) {
  * never changes once published, so a kept one is never asked for again — or
  * through `openfile.jsp` and the `showFile.jsp` it names.
  */
-async function readWebdelibAct(list, http, { dir, allows }) {
+async function readWebdelibAct(list, http, { dir, allows }, context = {}) {
   const kept = await readEdition(dir, list.url);
   if (kept) return { rows: kept.rows, reused: true };
   if (!allows(new URL(list.url).pathname)) return null;
@@ -243,7 +245,7 @@ async function readWebdelibAct(list, http, { dir, allows }) {
   if (!response?.ok) return null;
   const bytes = await http.bytes(response, PDF_MAX_BYTES);
   if (!bytes) return null;
-  return keepFile(dir, list, bytes);
+  return keepFile(dir, list, bytes, context);
 }
 
 /**
@@ -254,7 +256,7 @@ async function readWebdelibAct(list, http, { dir, allows }) {
 async function keepFile(dir, list, bytes, context = {}) {
   const rows = rowsOfPdf(bytes, list.layout, list.board, context) ?? [];
   await writeEdition(dir, {
-    url: list.url, title: list.title ?? null, published: list.published ?? null, fields: PERMIT_LIST_FIELDS, rows,
+    url: list.url, published: list.published ?? null, fields: PERMIT_LIST_FIELDS, rows,
   });
   return { rows, reused: false, empty: !rows.length };
 }
@@ -599,7 +601,7 @@ async function readArcopoleCity(city, http, { allows }) {
  * read comes from disk; at most `maxFiles` new ones are fetched, and a reading
  * that left some for later says so (`skipped`).
  */
-async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles }) {
+async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles, ocr }) {
   const indexUrl = digilorIndexUrl(city);
   if (!allows(new URL(indexUrl).pathname)) return null;
   const response = await http.fetch(indexUrl, {
@@ -621,23 +623,49 @@ async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles 
   let skipped = 0;
   let empty = 0;
   let reused = 0;
+  let pendingOcr = 0;
   for (const doc of documents) {
-    const list = { ...doc, layout: 'grid' };
+    const list = { ...doc, layout: doc.layout ?? 'grid' };
     let answer = null;
     const kept = await readEdition(dir, doc.url);
-    if (kept) {
-      answer = { rows: kept.rows, reused: true };
+    if (kept && !(kept.pendingOcr && ocr)) {
+      answer = { ...kept, reused: true };
       reused += 1;
     } else if (fetched >= maxFiles) {
       skipped += 1;
-      continue;
+      answer = kept;
+      if (!answer) continue;
     } else {
       fetched += 1;
       const file = allows(new URL(doc.url).pathname) ? await http.fetch(doc.url) : null;
       const bytes = file?.ok ? await http.bytes(file, PDF_MAX_BYTES) : null;
-      answer = bytes ? await keepFile(dir, list, bytes) : null;
+      if (city.source.formats && (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-'))) {
+        failed += 1;
+        continue;
+      }
+      if (bytes && city.source.formats) {
+        const context = { city, file: list };
+        let rows = rowsOfPdf(bytes, list.layout, list.board, context);
+        let awaitsOcr = false;
+        const needsOcr = list.layout === 'extended-notice' && (!rows?.length
+          || rows.some((row) => row.cells[8] === municipalMessages.definition.signed.fr));
+        if (needsOcr) {
+          // No visitor runs OCR. The daily sweep retries the cached scans.
+          const scanned = ocr ? await ocr(bytes, { positioned: true }) : null;
+          const scannedRows = scanned?.document ? keptRows(PERMIT_LIST_READERS[list.layout](scanned.document, context), list.board) : [];
+          if (scannedRows.length) rows = scannedRows;
+          if (!rows?.length) {
+            const fallback = digilorTitleRow(city, list);
+            rows = fallback ? keptRows([fallback], list.board) : [];
+          }
+          awaitsOcr = !scanned?.document;
+        }
+        answer = { url: doc.url, fields: PERMIT_LIST_FIELDS, rows: rows ?? [], pendingOcr: awaitsOcr };
+        await writeEdition(dir, answer);
+      } else answer = bytes ? await keepFile(dir, list, bytes) : null;
     }
     if (!answer) { failed += 1; continue; }
+    if (answer.pendingOcr) pendingOcr += 1;
     if (!answer.rows.length) empty += 1;
     for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
   }
@@ -646,8 +674,75 @@ async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles 
     lists: [{ url: indexUrl, files: documents.length, fetched, reused, empty, skipped }],
     failed,
     skipped,
-    incomplete: failed > 0 || skipped > 0,
+    pendingOcr,
+    incomplete: failed > 0 || skipped > 0 || pendingOcr > 0,
   };
+}
+
+/** Lorient is three small requests per commune, with both boards required. */
+async function readLorientCity(city, http, { allows }) {
+  if (!allows(new URL(city.page).pathname)) return null;
+  const page = await http.fetch(city.page);
+  const html = page?.ok ? await http.text(page, PAGE_MAX_BYTES) : null;
+  if (!html) return null;
+  const boards = {};
+  const lists = [];
+  for (const board of ['filings', 'decisions']) {
+    const url = lorientBoardUrl(city, html, board);
+    if (!url || !allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response?.ok) return null;
+    let rows;
+    try { rows = readLorientBoard(city, board, JSON.parse(await http.text(response, PAGE_MAX_BYTES))); } catch { return null; }
+    if (!rows) return null;
+    boards[board] = keptRows(rows, board).map((row) => row.cells);
+    lists.push({ board, url, rows: boards[board].length });
+  }
+  return { boards, lists, failed: 0, incomplete: false };
+}
+
+/** Rueil's month cache contains scrubbed title fields, never raw titles. */
+async function readRueilCity(city, http, { dir, allows, months, day, maxFiles }) {
+  const acts = [];
+  for (const [i, month] of webdelibMonths(day, months).entries()) {
+    const closed = i >= 2 && dir;
+    const cache = dir ? monthFile(dir, city, month) : null;
+    if (closed) {
+      try { acts.push(...JSON.parse(await fsp.readFile(cache, 'utf8'))); continue; } catch { /* not read yet */ }
+    }
+    const url = webdelibMonthUrl(city, month);
+    if (!allows(new URL(url).pathname)) return null;
+    const response = await http.fetch(url, { headers: { Accept: 'text/html' } });
+    const html = response?.ok ? await http.text(response, PAGE_MAX_BYTES) : null;
+    if (html === null) return null;
+    const found = parseWebdelibActs(html, url, { actDate: true }).flatMap((act) => {
+      const row = rueilTitleRow(city, act);
+      return row ? [{ url: act.url, published: act.published, row }] : [];
+    });
+    acts.push(...found);
+    if (closed) {
+      try { await fsp.mkdir(dir, { recursive: true }); await fsp.writeFile(cache, JSON.stringify(found)); } catch { /* optional cache */ }
+    }
+  }
+  const boards = { decisions: [] };
+  const lists = [];
+  let fetched = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const file of [...new Map(acts.map((act) => [act.url, act])).values()]) {
+    const kept = await readEdition(dir, file.url);
+    let answer = kept;
+    if (!kept && fetched < maxFiles) {
+      fetched += 1;
+      const list = { ...file, board: 'decisions', layout: 'extended-notice' };
+      answer = await readWebdelibAct(list, http, { dir, allows }, { city, file: list });
+      if (!answer) failed += 1;
+    } else if (!kept) skipped += 1;
+    const rows = answer?.rows?.length ? answer.rows : keptRows([file.row], 'decisions');
+    boards.decisions.push(...rows.map((row) => row.cells));
+    lists.push({ url: file.url, board: 'decisions', rows: rows.length, reused: Boolean(kept) });
+  }
+  return { boards, lists, failed, skipped, incomplete: failed > 0 || skipped > 0 };
 }
 
 /**
@@ -720,11 +815,13 @@ export async function readPermitCity(city, http, {
   dir, allows = () => true, months = 2, day = cartdsDay(), maxFiles = PERMIT_LISTS_SCAN_FILES,
   ocr = null, maxPages, log, background = false,
 } = {}) {
+  if (city.source?.kind === 'lorient') return readLorientCity(city, http, { allows });
+  if (city.source?.kind === 'rueil') return readRueilCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'municipal') return readMunicipalCity(city, http, { dir, allows, months, day, maxFiles, ocr, background });
   if (city.source?.kind === 'bulletin') return readBulletinCity(city, http, { dir, allows, months, day, ocr, maxFiles, maxPages, log });
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
   if (city.source?.kind === 'arcopole') return readArcopoleCity(city, http, { allows });
-  if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles });
+  if (city.source?.kind === 'digilor') return readDigilorCity(city, http, { dir, allows, months, day, maxFiles, ocr: background ? ocr : null });
   if (city.source?.kind === 'drive') return readDriveCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'liferay') return readLiferayCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'arcade') return readArcadeCity(city, http, { dir, allows, months, day, maxFiles });
@@ -949,8 +1046,8 @@ export async function sweepPermitLists({
     }
     const answer = await readPermitCity(city, pacedFor(city), {
       dir, allows: verdict.allows, months, day, log, background: true,
-      maxFiles: bulletin || city.source?.kind === 'municipal' ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
-      ...(bulletin || city.source?.kind === 'municipal' ? { ocr } : {}),
+      maxFiles: bulletin || city.source?.kind === 'municipal' || city.source?.ocr ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
+      ...(bulletin || city.source?.kind === 'municipal' || city.source?.ocr ? { ocr } : {}),
     });
     if (!answer) { summary.failed.push(city.key); continue; }
     if (answer.failed) summary.failed.push(`${city.key}:${answer.failed}`);

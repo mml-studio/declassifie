@@ -134,6 +134,7 @@ import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 import {
   MUNICIPAL_PERMIT_SOURCES, readMunicipalNotice, readBalmaTable, readWattrelosTable, saintPriestGridSpec,
 } from './municipalPermitsFeed.js';
+import { EXTENDED_PERMIT_SOURCES, readBloisFilings, readExtendedNotice } from './municipalPermitExtensions.js';
 import {
   CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
@@ -397,6 +398,7 @@ export const PERMIT_LISTS = Object.freeze([
     ]),
   }),
   ...MUNICIPAL_PERMIT_SOURCES,
+  ...EXTENDED_PERMIT_SOURCES,
 ]);
 
 /**
@@ -455,7 +457,7 @@ export function webdelibMonthUrl(city, { year, month }) {
  * @param {string} pageUrl The page's own address, to resolve the links.
  * @returns {Array<{title: string, url: string, published: ?string}>}
  */
-export function parseWebdelibActs(html, pageUrl) {
+export function parseWebdelibActs(html, pageUrl, { actDate = false } = {}) {
   const out = [];
   const chunks = String(html ?? '').split(/<td\b[^>]*class="tableActe"[^>]*>/i).slice(1);
   for (const chunk of chunks) {
@@ -469,7 +471,8 @@ export function parseWebdelibActs(html, pageUrl) {
     const title = text(decodeEntities(cell.replace(/<[^>]*>/g, ' '))
       // i18n-ignore-next-line — the platform's own link words, dropped
       .replace(/\s+-\s*(?:arr[êe]t[ée])\s*-\s*\(sans annexe\)\s*$/i, ''));
-    if (title) out.push({ title, url, published: listDay(days.at(-1)) });
+    if (title) out.push({ title, url, published: listDay(days.at(-1)),
+      ...(actDate ? { decidedOn: listDay(days[0]) } : {}) });
   }
   return out;
 }
@@ -1568,16 +1571,21 @@ export function digilorIndexUrl(city) {
  */
 export function digilorDocuments(city, index, since) {
   if (!Array.isArray(index)) return null;
-  const { category, filings, decisions } = city.source;
+  const { category, filings, decisions, mixedShelf, formats } = city.source;
   const out = [];
   for (const doc of index) {
     if (Number(doc?.id_cat) !== category) continue;
     const sub = Number(doc.id_sscat);
-    const board = sub === filings ? 'filings' : sub === decisions ? 'decisions' : null;
+    const title = text(doc.nom_affichage) ?? '';
+    const board = mixedShelf && sub === mixedShelf
+      ? /^(?:LISTE|REGISTRE).*DOSSIERS.*DEPOSE/i.test(fold(title)) ? 'filings'
+        : /\b(?:PC|DP|PA|PD|CU)\s*0?\s*41\s*018\b/i.test(title) ? 'decisions' : null
+      : sub === filings ? 'filings' : sub === decisions ? 'decisions' : null;
     const published = isoDay(doc.aff_deb);
     const file = String(doc.url_uiid ?? '').replace(/^(?:\.\.\/bo\/|bo\/|\.\/)/, '');
     if (!board || !file || !published || published < since) continue;
-    out.push({ board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published });
+    out.push({ board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published,
+      ...(formats ? { layout: formats[board], title } : {}) });
   }
   return out.sort((a, b) => b.published.localeCompare(a.published));
 }
@@ -3055,6 +3063,8 @@ export const PERMIT_LIST_TEXT = Object.freeze({
 
 /** The readers, by the `layout` a list names. */
 export const PERMIT_LIST_READERS = Object.freeze({
+  'extended-notice': readExtendedNotice,
+  'blois-filings': readBloisFilings,
   'municipal-notice': readMunicipalNotice,
   'balma-table': readBalmaTable,
   'wattrelos-table': readWattrelosTable,
