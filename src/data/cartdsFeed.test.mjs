@@ -68,12 +68,17 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   }
   // Written by hand: 129 communes on 2026-09-30, 65 and Grand Reims's 5 more
   // on 2026-10-01, then Leucate and Narbonne, the two paths of the Grand
-  // Narbonne host. The scan's are on top, and the loop above already refused
+  // Narbonne host, then Rixheim's separate path on 2026-10-02. The scan's
+  // are on top, and the loop above already refused
   // any it shares.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 201);
+  assert.equal(seen.size - scanned, 202);
   assert.equal(cartdsInstanceFor('11262').key, 'narbonne');
   assert.equal(cartdsInstanceFor('11202').key, 'grandnarbonne');
+  assert.equal(cartdsInstanceFor('68278').base, 'https://ilenapoleon.geosphere.fr/guichet-rixheim');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('68278'), '68278'), '278');
+  assert.equal(cartdsInstanceFor('83050').base, 'https://ads.dracenie.com/guichet-unique');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('83050'), '83050'), '50');
   assert.ok(CARTDS_SCANNED_INSTANCES.every((instance) => CARTDS_INSTANCES.includes(instance)));
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
@@ -82,10 +87,12 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   assert.equal(cartdsInstanceFor(null), null);
 });
 
-test('the five hosts whose robots.txt refused robots on 2026-09-30 are read only by an explicit override', () => {
+test('documented hosts with a robots.txt exception are read only by an explicit override', () => {
   const refused = [
     'ads.lecotentin.fr', 'grandlibournais.geosphere.fr', 'conches-en-ouche.geosphere.fr',
     'stemarie.geosphere.fr', 'brie-nangissienne.geosphere.fr',
+    // Rixheim's path joined the hosting-default exception on 2026-10-02.
+    'ilenapoleon.geosphere.fr',
   ];
   const documented = CARTDS_INSTANCES.filter((instance) => !CARTDS_SCANNED_INSTANCES.includes(instance));
   const overridden = documented.filter((instance) => instance.robots !== undefined);

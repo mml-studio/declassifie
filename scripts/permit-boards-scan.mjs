@@ -126,6 +126,9 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'urbanisme.mairie-foix.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'urbanisme.portededromardeche.fr', prefixes: Object.freeze(['']) }),
   Object.freeze({ host: 'urbanisme.saintnazaireagglo.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Draguignan's former geosphere tenant moved to the agglomeration's host;
+  // its own website links /portailccs, which redirects to /guichet-unique.
+  Object.freeze({ host: 'ads.dracenie.com', prefixes: Object.freeze(['/guichet-unique']) }),
 ]);
 
 /**
@@ -142,6 +145,9 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   'rgd.pu.sirap.com',
   // Villejuif's own host, found on 2026-10-01; its list names Villejuif alone.
   'urbanisme.villejuif.fr',
+  // Lapalud's own municipal website links this tenant. Its board posts even
+  // though the shared portal's commune list did not name it on 2026-10-01.
+  'lapalud.pu.sirap.com',
 ]);
 
 const { values } = parseArgs({
