@@ -652,23 +652,37 @@ export function epermisCommuneOf(reference) {
  * One reading of the métropole's two lists, split by commune.
  *
  * Every listed commune gets an entry, empty or not, so that the archive
- * records a day on which it posted nothing. A row whose number names a
- * commune the publisher does not list is not filed anywhere, and counted.
+ * records a day on which it posted nothing. Two kinds of row are filed
+ * nowhere, and kept apart because they mean different things:
+ *
+ * - `notPermits`, a row whose number is not a building authorisation — a
+ *   sign (`EN`), works on a public building (`AT`), an `AP`, an advertising
+ *   board (`PP`). `scrubEpermisRow` would not keep it anyway. All 710 rows
+ *   the first sweep of the twenty publishers filed nowhere, on 2026-10-02,
+ *   were these: 367 `AT`, 209 `AP`, 130 `EN`, 4 `PP`, 608 of them the Pau
+ *   agglomeration's, every one in a listed commune.
+ * - `unlisted`, a permit whose number names a commune the publisher does
+ *   not list — the one a reader should look at, as a commune the registry
+ *   may be missing. One entry per row: the commune its number names, or
+ *   null when the number names none.
  *
  * @param {object} instance One of {@link EPERMIS_INSTANCES}.
  * @param {Record<string, Array<object>>} boards Raw rows per list.
- * @returns {{communes: Map<string, Record<string, Array<object>>>, unlisted: number}}
+ * @returns {{communes: Map<string, Record<string, Array<object>>>, unlisted: Array<?string>, notPermits: number}}
  */
 export function epermisBoardsByCommune(instance, boards) {
   const communes = new Map(instance.communes.map((code) => [code, { depots: [], decisions: [] }]));
-  let unlisted = 0;
+  const unlisted = [];
+  let notPermits = 0;
   for (const board of Object.values(EPERMIS_BOARDS)) {
     for (const row of boards?.[board] || []) {
-      const entry = communes.get(epermisCommuneOf(row?.REFERENCE));
-      if (entry) entry[board].push(row); else unlisted += 1;
+      if (!cartdsKind(row?.REFERENCE)) { notPermits += 1; continue; }
+      const code = epermisCommuneOf(row.REFERENCE);
+      const entry = communes.get(code);
+      if (entry) entry[board].push(row); else unlisted.push(code);
     }
   }
-  return { communes, unlisted };
+  return { communes, unlisted, notPermits };
 }
 
 /**

@@ -613,6 +613,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **The e-permis sweep reported 710 permits for communes their publisher does
+  not list; there were none.** Read again on 2026-10-02, all 710 rows were
+  files that are not permits — 367 works on public buildings (`AT`), 209 `AP`,
+  130 signs (`EN`), 4 advertising boards (`PP`) — in communes already read, so
+  the map lost nothing. The sweep now counts them apart (`notPermits` in
+  `sweep.json`), keeps `unlisted` for a permit whose commune is not listed,
+  and names that commune in its log line.
 - **The six communes of the Cotentin stopped updating on 2026-09-30, the day
   the agglomeration renewed its certificate**: the new one is served without
   the Sectigo intermediate that signed it, so the board answered every request

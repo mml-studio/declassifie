@@ -368,7 +368,11 @@ function dayOrNull(value) {
  *
  * Every listed commune is recorded, posted or not, so its archive says it was
  * read that day. The summary has the shape of the other sweeps', so the same
- * stamp functions read it.
+ * stamp functions read it. A row filed nowhere is counted on one of two
+ * lines (`epermisBoardsByCommune`): `notPermits`, which needs nothing, and
+ * `unlisted`, a permit for a commune the publisher does not list, with the
+ * communes it names in `unlistedCommunes` and in the log line — so that the
+ * one count worth a look names what to look at.
  *
  * @param {object} options
  * @param {Array<object>} options.instances `EPERMIS_INSTANCES`, or a subset.
@@ -397,6 +401,8 @@ export async function sweepEpermisArchive({
     truncated: [],
     skipped: [],
     unlisted: 0,
+    unlistedCommunes: {},
+    notPermits: 0,
     history: { ...(previous?.history && typeof previous.history === 'object' ? previous.history : {}) },
   };
   for (const instance of instances) {
@@ -421,8 +427,13 @@ export async function sweepEpermisArchive({
     }
     summary.history[instance.key] = from;
     if (truncated) summary.truncated.push(instance.key);
-    const { communes, unlisted } = epermisBoardsByCommune(instance, boards);
-    summary.unlisted += unlisted;
+    const { communes, unlisted, notPermits } = epermisBoardsByCommune(instance, boards);
+    summary.unlisted += unlisted.length;
+    for (const code of unlisted) {
+      const key = code ?? 'unread';
+      summary.unlistedCommunes[key] = (summary.unlistedCommunes[key] ?? 0) + 1;
+    }
+    summary.notPermits += notPermits;
     for (const [insee, mine] of communes) {
       const { archive, added, saved } = await store.record(instance, insee, mine, day);
       if (!saved) summary.unsaved.push(insee);
@@ -436,6 +447,10 @@ export async function sweepEpermisArchive({
     + `${summary.added} new rows, ${summary.rows} kept`
     + (Object.keys(summary.history).length
       ? `, history from ${Object.entries(summary.history).map(([key, since]) => `${key} ${since}`).join(' ')}`
+      : '')
+    + (summary.notPermits ? `, ${summary.notPermits} rows not permits` : '')
+    + (summary.unlisted
+      ? `, permits for communes not listed: ${Object.entries(summary.unlistedCommunes).map(([code, rows]) => `${code} ×${rows}`).join(' ')}`
       : '')
     + (summary.skipped.length ? `, skipped: ${summary.skipped.join(', ')}` : '')
     + (summary.failed.length ? `, failed: ${summary.failed.join(' ')}` : '')

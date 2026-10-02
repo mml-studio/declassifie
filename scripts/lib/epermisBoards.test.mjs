@@ -273,21 +273,28 @@ test('the sweep files every commune, walks history a year a day, and keeps no pe
         depots: (query) => {
           windows.push(query);
           return query.to === '01-10-2026'
-            ? [FILING('DP0060882600001'), FILING('DP0061472600002', 'SCI DES EXEMPLES'), FILING('DP0130552600003')]
+            ? [
+              FILING('DP0060882600001'), FILING('DP0061472600002', 'SCI DES EXEMPLES'), FILING('DP0130552600003'),
+              FILING('EN0060882600004'),
+            ]
             : [];
         },
-        decisions: (query) => (query.from === '01-06-2026' ? [DECISION('PC0060882500009')] : []),
+        decisions: (query) => (query.from === '01-06-2026' ? [DECISION('PC0060882500009'), DECISION('AT0060882500010')] : []),
       },
     });
     const reader = createEpermisReader(NICE, http, { pauseMs: 0, sleep: noSleep, log: quiet });
+    const said = [];
     const summary = await sweepEpermisArchive({
       instances: [NICE], store, readerFor: () => reader, robots: async () => ({ allowed: true }),
-      day: '2026-10-01', log: quiet,
+      day: '2026-10-01', log: { log: (line) => said.push(line), warn() {} },
     });
     assert.equal(summary.communes, 2);
     assert.equal(summary.read, 2);
     assert.equal(summary.added, 3);
     assert.equal(summary.unlisted, 1, 'a Marseille-area number is filed nowhere');
+    assert.deepEqual(summary.unlistedCommunes, { 13055: 1 }, 'and the sweep says which commune it names');
+    assert.equal(summary.notPermits, 2, 'a sign and works on a public building are counted apart');
+    assert.match(said.join('\n'), /2 rows not permits, permits for communes not listed: 13055 ×1/);
     assert.deepEqual(summary.failed, []);
     // The recent window, then twelve calendar months before it.
     assert.deepEqual(windows[0], { from: '31-07-2026', to: '01-10-2026' });

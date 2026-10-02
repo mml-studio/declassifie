@@ -187,15 +187,23 @@ test('the commune is the one the dossier number names', () => {
   assert.equal(epermisCommuneOf('PC9744112600001'), '97411');
   assert.equal(epermisCommuneOf('IA0060882600001'), null);
   assert.equal(epermisCommuneOf(null), null);
-  const { communes, unlisted } = epermisBoardsByCommune(NICE, {
-    depots: [FILING, { ...FILING, REFERENCE: 'DP0130552600001' }],
-    decisions: [DECIDED],
+  const { communes, unlisted, notPermits } = epermisBoardsByCommune(NICE, {
+    depots: [
+      FILING,
+      { ...FILING, REFERENCE: 'DP0130552600001' },
+      { ...FILING, REFERENCE: 'PC0060212600001' },
+      { ...FILING, REFERENCE: 'PC6412225B0012' },
+      { ...FILING, REFERENCE: 'EN0060882600001' },
+    ],
+    decisions: [DECIDED, { ...DECIDED, REFERENCE: 'AT0060882600002' }, { ...DECIDED, REFERENCE: 'AP006088260003' }],
   });
   assert.equal(communes.size, 38, 'every commune read is recorded, posted or not');
   assert.equal(communes.get('06088').depots.length, 1);
   assert.equal(communes.get('06147').decisions.length, 1);
   assert.deepEqual(communes.get('06006'), { depots: [], decisions: [] });
-  assert.equal(unlisted, 1);
+  assert.deepEqual(unlisted, ['13055', '06021', null],
+    'a permit for a commune not listed, silent ones included, and one whose number names none');
+  assert.equal(notPermits, 3, 'a sign, works on a public building and an AP are not permits, wherever they are');
 });
 
 test('the parcels resolve to the cadastre’s key in every spelling seen', () => {
