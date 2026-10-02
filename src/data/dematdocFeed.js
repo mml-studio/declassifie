@@ -9,7 +9,7 @@
  * rest, which `POST /api/public/get-documents-lazy` returns 100 at a time.
  * A document carries its title, its PDF and the shelf's index fields
  * (`OBJET`, `DATEACTE`, the first day of display). Measured on 2026-10-02
- * over the 56 tenants below: 1 071 urbanism acts posted since 1 September.
+ * over 56 tenants (Viviers since left out): 1 071 urbanism acts posted since 1 September.
  * Reading the newest eight of each gave 281 dossiers, every one with its
  * site: 86 filings and 195 decisions (131 granted, 19 refused, 16 withdrawn
  * or cancelled, 29 signed with no verdict read). About a dozen tenants post
@@ -37,7 +37,9 @@ const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
  * acts. Bizanos and Mazères-Lezons post here too, and are read from the Pau
  * agglomeration's e-permis board (`epermisFeed.js`), which has their parcels;
  * Le Crès too, and stays with Montpellier Méditerranée Métropole's open data
- * (`mmmPermitsFeed.js`): one register per commune, or every dossier twice.
+ * (`mmmPermitsFeed.js`), and Viviers with Du Rhône aux Gorges de l'Ardèche's
+ * Cart@DS board (`cartdsFeed.js`, since #399), which prints its parcels: one
+ * register per commune, or every dossier twice.
  */
 const TENANTS = [
   ['montelimar', '26198', '26200', 'Montélimar', [14]],
@@ -71,7 +73,6 @@ const TENANTS = [
   ['agneaux', '50002', '50180', 'Agneaux', [14]],
   ['saintjustmalmont', '43205', '43240', 'Saint-Just-Malmont', [22]],
   ['mairievlm', '01450', '01800', 'Villieu-Loyes-Mollon', [14]],
-  ['mairie-viviers', '07346', '07220', 'Viviers', [28, 25]],
   ['sauvagnon', '64511', '64230', 'Sauvagnon', [14]],
   ['plandorgon', '13076', '13750', 'Plan-d’Orgon', [22]],
   ['chateaugay', '63099', '63119', 'Châteaugay', [19]],
