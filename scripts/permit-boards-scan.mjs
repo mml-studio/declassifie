@@ -140,6 +140,23 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'sig.lsoagglo.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'gu.entre-bievreetrhone.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'portail.grandverdun.fr', prefixes: Object.freeze(['']) }),
+  // Found on 2026-10-02 by searching the web and certificate logs for boards
+  // on hosts of their own, and by checking the communes of the Paris inner
+  // ring by hand: Bayonne, Colomiers, Kourou, Valenton, and three communes of
+  // Les Sables d'Olonne Agglomération.
+  Object.freeze({ host: 'portailurbanisme.bayonne.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbanisme.ville-kourou.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.ville-valenton.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbausagers.mairie-colomiers.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Found on 2026-10-02 in certificate logs, the Wayback Machine and the
+  // service-public directory of filing portals: Lannion-Trégor Communauté's,
+  // the Landes's ADACL, five Numérian hosts and five more.
+  Object.freeze({ host: 'ads.adacl40.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'cartads.communaute-coutances.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu-ara.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'gu-valeyrieux.numerian.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'paysdelor.geosphere.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.payssaintgilles.fr', prefixes: Object.freeze(['']) }),
 ]);
 
 /**
@@ -159,6 +176,26 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   // Lapalud's own municipal website links this tenant. Its board posts even
   // though the shared portal's commune list did not name it on 2026-10-01.
   'lapalud.pu.sirap.com',
+  // Found on 2026-10-02 in the Wayback Machine's list of `*.pu.sirap.com`
+  // names: intercommunal instruction services, each naming its own tenant
+  // (an unknown name answers the shared portal's whole list).
+  '4b.pu.sirap.com',
+  'apgl.pu.sirap.com',
+  'ccbg.pu.sirap.com',
+  'ccgvm.pu.sirap.com',
+  'ccpv.pu.sirap.com',
+  'charente-limousine.pu.sirap.com',
+  'coeurdecharente.pu.sirap.com',
+  'matheysine.pu.sirap.com',
+  'ossau.pu.sirap.com',
+  'pays-ancenis.pu.sirap.com',
+  'payssudtoulousain.pu.sirap.com',
+  'reolais-sud-gironde.pu.sirap.com',
+  'rochefoucauld-perigord.pu.sirap.com',
+  'sieeen.pu.sirap.com',
+  'supv.pu.sirap.com',
+  'valdamboise.pu.sirap.com',
+  'valdecharente.pu.sirap.com',
 ]);
 
 const { values } = parseArgs({

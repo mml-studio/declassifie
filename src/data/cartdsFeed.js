@@ -391,6 +391,156 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     communes: Object.freeze(['94046']),
   }),
   Object.freeze({
+    key: 'stmaurice',
+    base: 'https://demarche-urbanisme-stmaurice.pemb.fr/gu_stmaurice',
+    label: 'Saint-Maurice — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    intermediate: 'sectigo-dv-r36',
+    // The fifth of Paris-Est-Marne et Bois's boards to post, found on
+    // 2026-10-02 in the hosts its `pemb.fr` certificate names.
+    communes: Object.freeze(['94069']),
+  }),
+  Object.freeze({
+    key: 'bayonne',
+    base: 'https://portailurbanisme.bayonne.fr',
+    label: 'Bayonne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    // Found on 2026-10-02 by searching the web for the board's path. The host
+    // leaves GandiCert out of its chain, so the scan cannot ask it.
+    intermediate: 'gandicert',
+    communes: Object.freeze(['64102']),
+  }),
+  // Tenants on paths of the vendor's shared host `guichetunique.geosphere.fr`,
+  // which the scan leaves out as a vendor name and asks one path per host
+  // anyway: found on 2026-10-02 in the Wayback Machine's list of that host's
+  // paths, each posting within the week.
+  Object.freeze({
+    key: 'gu-beaumont',
+    base: 'https://guichetunique.geosphere.fr/beaumont',
+    label: 'Beaumont — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['63032']),
+  }),
+  Object.freeze({
+    key: 'gu-bois-le-roi',
+    base: 'https://guichetunique.geosphere.fr/bois-le-roi',
+    label: 'Bois-le-Roi — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['77037']),
+  }),
+  Object.freeze({
+    key: 'gu-chateauneuf-le-rouge',
+    base: 'https://guichetunique.geosphere.fr/chateauneuf-le-rouge',
+    label: 'Châteauneuf-le-Rouge — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13025']),
+  }),
+  Object.freeze({
+    key: 'gu-fare-les-oliviers',
+    base: 'https://guichetunique.geosphere.fr/fare-les-oliviers',
+    label: 'La Fare-les-Oliviers — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13037']),
+  }),
+  Object.freeze({
+    key: 'gu-jouques',
+    base: 'https://guichetunique.geosphere.fr/jouques',
+    label: 'Jouques — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13048']),
+  }),
+  Object.freeze({
+    key: 'gu-ladestrousse',
+    base: 'https://guichetunique.geosphere.fr/ladestrousse',
+    label: 'La Destrousse — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13031']),
+  }),
+  Object.freeze({
+    key: 'gu-lambesc',
+    base: 'https://guichetunique.geosphere.fr/lambesc',
+    label: 'Lambesc — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13050']),
+  }),
+  Object.freeze({
+    key: 'gu-lethoronet',
+    base: 'https://guichetunique.geosphere.fr/lethoronet',
+    label: 'Le Thoronet — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['83136']),
+  }),
+  Object.freeze({
+    key: 'gu-leval',
+    base: 'https://guichetunique.geosphere.fr/leval',
+    label: 'Le Val — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['83143']),
+  }),
+  Object.freeze({
+    key: 'gu-nuitsstgeorges',
+    base: 'https://guichetunique.geosphere.fr/nuitsstgeorges',
+    label: 'Nuits-Saint-Georges — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['21464']),
+  }),
+  Object.freeze({
+    key: 'gu-puget-ville',
+    base: 'https://guichetunique.geosphere.fr/puget-ville',
+    label: 'Puget-Ville — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['83100']),
+  }),
+  Object.freeze({
+    key: 'gu-quint-fonsegrives',
+    base: 'https://guichetunique.geosphere.fr/quint-fonsegrives',
+    label: 'Quint-Fonsegrives — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['31445']),
+  }),
+  Object.freeze({
+    key: 'gu-rognes',
+    base: 'https://guichetunique.geosphere.fr/rognes',
+    label: 'Rognes — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['13082']),
+  }),
+  Object.freeze({
+    key: 'gu-saint-jean-de-moirans',
+    base: 'https://guichetunique.geosphere.fr/saint-jean-de-moirans',
+    label: 'Saint-Jean-de-Moirans — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['38400']),
+  }),
+  Object.freeze({
+    key: 'gu-st-lary-soulan',
+    base: 'https://guichetunique.geosphere.fr/st-lary-soulan',
+    label: 'Saint-Lary-Soulan — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['65388']),
+  }),
+  Object.freeze({
+    key: 'gu-stprivatdesvieux',
+    base: 'https://guichetunique.geosphere.fr/stprivatdesvieux',
+    label: 'Saint-Privat-des-Vieux — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['30294']),
+  }),
+  Object.freeze({
+    key: 'gu-thaon-les-vosges',
+    base: 'https://guichetunique.geosphere.fr/thaon-les-vosges',
+    label: 'Thaon-les-Vosges — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['88465']),
+  }),
+  Object.freeze({
+    key: 'gu-valdisere',
+    base: 'https://guichetunique.geosphere.fr/valdisere',
+    label: 'Val-d’Isère — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['73304']),
+  }),
+  Object.freeze({
     key: 'grandreims',
     base: 'https://portailprourba.grandreims.fr/guichet-unique',
     label: 'Grand Reims — affichage réglementaire', // i18n-ignore-line — the publisher and its page title

@@ -70,9 +70,10 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   // on 2026-10-01, then Leucate and Narbonne, the two paths of the Grand
   // Narbonne host, then Rixheim's separate path on 2026-10-02. The scan's
   // are on top, then 146 municipalities below the top 400 on nine public
-  // intercommunal boards. The loop above already refused any shared code.
+  // intercommunal boards, then Saint-Maurice, Bayonne and 18 path tenants of
+  // guichetunique.geosphere.fr. The loop above already refused any shared code.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 348);
+  assert.equal(seen.size - scanned, 368);
   assert.equal(cartdsInstanceFor('11262').key, 'narbonne');
   assert.equal(cartdsInstanceFor('11202').key, 'grandnarbonne');
   assert.equal(cartdsInstanceFor('68278').base, 'https://ilenapoleon.geosphere.fr/guichet-rixheim');

@@ -217,7 +217,7 @@ test('a sweep is due once per French calendar day', async () => {
 test('every intermediate an instance names is a CA signed by a root Node ships', () => {
   const roots = tls.rootCertificates.map((pem) => new X509Certificate(pem));
   const named = new Set(CARTDS_INSTANCES.map((instance) => instance.intermediate).filter(Boolean));
-  assert.deepEqual([...named], ['sectigo-dv-r36', 'globalsign-alpha-r6-2025']);
+  assert.deepEqual([...named], ['sectigo-dv-r36', 'gandicert', 'globalsign-alpha-r6-2025']);
   for (const name of named) {
     const certificate = new X509Certificate(CARTDS_INTERMEDIATES[name]);
     assert.ok(certificate.ca, name);
@@ -242,9 +242,9 @@ test('the intermediates are added to the default CA list once, after what is alr
   };
   const incomplete = CARTDS_INSTANCES.filter((instance) => instance.intermediate);
   assert.deepEqual(incomplete.map((instance) => new URL(instance.base).host.split('.').slice(-2).join('.')),
-    ['lecotentin.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'clissonsevremaine.fr']);
-  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36', 'globalsign-alpha-r6-2025']);
-  assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate, globalsign]);
+    ['lecotentin.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'pemb.fr', 'bayonne.fr', 'clissonsevremaine.fr']);
+  assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), ['sectigo-dv-r36', 'gandicert', 'globalsign-alpha-r6-2025']);
+  assert.deepEqual(list, [tls.rootCertificates[0], tls.rootCertificates[1], intermediate, CARTDS_INTERMEDIATES.gandicert, globalsign]);
   // A second server start in the same process adds nothing.
   assert.deepEqual(trustCartdsIntermediates(CARTDS_INSTANCES, tlsApi), []);
   assert.equal(sets, 1);

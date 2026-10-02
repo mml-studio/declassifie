@@ -64,6 +64,44 @@ export const CARTDS_SWEEP_STAMP = 'sweep.json';
  * valid until 2036-03-21.
  */
 export const CARTDS_INTERMEDIATES = Object.freeze({
+  // GandiCert, which signs `*.bayonne.fr` (Bayonne's Cart@DS board, sent
+  // without it) and is signed by DigiCert Global Root G2, a root Node ships.
+  // Downloaded on 2026-10-02 from the address the certificate names
+  // (`http://cacerts.digicert.com/GandiCert.crt`); SHA-256
+  // 33:37:D4:E4:B4:EF:6A:94:F0:49:15:D2:E8:6B:1F:8F:47:A3:C8:36:67:DA:25:19:D9:B9:5A:E7:27:0A:FF:E1,
+  // valid until 2034-04-16.
+  gandicert: `-----BEGIN CERTIFICATE-----
+MIIFeDCCBGCgAwIBAgIQC5tef2dzroxkMiFlfO5nwTANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0yNDA0MTcwMDAwMDBaFw0zNDA0MTYyMzU5NTlaMDUxCzAJBgNVBAYTAkZS
+MRIwEAYDVQQKEwlHYW5kaSBTQVMxEjAQBgNVBAMTCUdhbmRpQ2VydDCCAiIwDQYJ
+KoZIhvcNAQEBBQADggIPADCCAgoCggIBAK49Qu5ro3pTKXIqtRxyGZaCbX9989lh
+B3aBDQyWLN99EjYcbuQNKwNrom/lkVOL7CqZMVsxXjCO+Vqho2VI2u87KaEYOrMn
+0K4gICbUJrho0LpDNeFkZwwOLvEFmfaGPugXdHm1iOHj/ACdVtO4c96jJsBXrPl1
+07MmN/nMbZ8zbW/Lmx/3lrA9f0SpRqQz6FwoOe/BEn+52AzRJeEzUQgzI+nKzR9K
+xFBWiVRzMhU5c/NEE7QmWynOYMI/dPuUCkMhhmYftkQZCXXMORigQjt+IoO4PRkJ
+rbJFD1JkQpkEIDZkxj5JgUsGqQUZoeiQh73v3ggp3xfUUDyMApI972ewc7S2PG9I
+KO9QNzjU2aFruEJbPJzfnWy6cZ/JtsASjyjdah6oNdNof/HSqyxcxw1ozD4ifRCA
+EYf7fId9SAwsut0Q92tECSbRUYMYdX1QqZD7teT40IQ4AaPWiXIru1MsyEKlEOUL
+TBrXf1vl7PGJUoUo9+P5dOtFwo0iHdAONg8mO7/AWyPTTPJZDsxjq4aRcZiBzdwT
+RxbVhgZc3BrDYaDUg8nT6lnc3tQNMHuLNTLGLyfmWwWMRcjsn5MF0E9UkA8trEoe
+MIdCutolrVWsG7sagUMEBbZPSs9j+JLZXcfw3gfDLcpl2YKy78JU1/F6erjm1K+m
+JSY3eVqjp4RJAgMBAAGjggFWMIIBUjASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1Ud
+DgQWBBS6u0aIRezdWisYxdFO7OM8BlJTrDAfBgNVHSMEGDAWgBROIlQgGJXm427m
+D/r6uRLtBhePOTAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0lBBYwFAYIKwYBBQUHAwEG
+CCsGAQUFBwMCMHYGCCsGAQUFBwEBBGowaDAkBggrBgEFBQcwAYYYaHR0cDovL29j
+c3AuZGlnaWNlcnQuY29tMEAGCCsGAQUFBzAChjRodHRwOi8vY2FjZXJ0cy5kaWdp
+Y2VydC5jb20vRGlnaUNlcnRHbG9iYWxSb290RzIuY3J0MEIGA1UdHwQ7MDkwN6A1
+oDOGMWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydEdsb2JhbFJvb3RH
+Mi5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0GCSqGSIb3DQEBCwUAA4IBAQAqsQTC
+dbSSfPRpe+H+zWSok/VfzwhXviQwNiWZ9S93IRl47Yt9HGJn4YBBvLbmD2UgQc7s
+nOKVGzStvt9J5/MhZzilji+dUhkdUtDZbUsfqy/Fii5AU/2RRXCRWS+6qljOGdpV
+eSGqqgI88IGOKILH/h7jtJtlHDpriwwKTpXl4FudKWZaqK2Wrz9Fz0jfyY1FbZhk
+v/dzjN29FQVaxmWr7cNqjKb+H9LuXvuTUxt/uFTzFZHMNw0+iM4Tn4vMVPwa3X02
+fZ8V1IVWxLcvbhLOEIes1tjdWRXnzDQNDhCJh18t83R8GBEMU3ZX3ZtTaY3iTEJc
+zHfg5c8HflGcPZoZ
+-----END CERTIFICATE-----\n`,
   // Clisson Sèvre et Maine sends its leaf without this GlobalSign intermediate.
   // Fetched on 2026-10-02 from its certificate's CA Issuers URL:
   // https://secure.globalsign.com/cacert/gsgccr6alphasslca2025.crt
