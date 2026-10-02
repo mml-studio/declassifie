@@ -5165,6 +5165,37 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Eight outer Paris municipalities posting their own boards (2026-10-02).**
+`src/data/outerParisPermits.js` adds Pontault-Combault's weekly WordPress
+lists, Rambouillet's Digilor GDS filing table and scanned orders, Vauréal's
+weekly PDF tables, Villepreux's and Igny's Digilor decisions, and the
+municipal PDF notices of La Celle-Saint-Cloud, Le Mée-sur-Seine and Crosne.
+They use the existing six-hour cache, daily permit-list archive, OCR in the
+sweep only and cadastral/BAN placement. Their public indexes and file
+requests honour robots.txt; no new override is introduced.
+
+Repeated family headers, split house-number columns and cadastral lines
+are read separately from applicants. An operative first article identifies
+a decision even if its recitals mention a filing notice. Digilor titles
+may abbreviate counter zeros; the PDF's printed number is retained, with
+explicit amendment suffixes. Conflicting file numbers are rejected.
+Unknown verdicts remain signed decisions; future OCR dates are withheld
+and month-only upload paths supply no invented exact posting day. Igny's
+individual decisions are covered; its scanned weekly filing registers
+still need a section-prefix reader.
+
+The two-month live check read 120 PDF editions and 440 rows: Pontault 29
+filings and 23 decisions, Rambouillet 47 and 40, Vauréal 54 and 197,
+Villepreux 12 decisions, Igny 12, La Celle-Saint-Cloud 13, Le Mée seven
+filings and one decision, and Crosne four and one. They contain 274 distinct
+permit files, each with a project address in at least one row; one Vauréal
+filing row is unaddressed but another posting of that file supplies it.
+No downloads failed and no files remained skipped or pending OCR.
+Population coverage gains 155,260 residents: 29.58% to 29.81%, 279 to 286
+of the top 1,000 municipalities. The [research report](research/outer-paris-permits-2026-10-02.md)
+and its machine-readable survey preserve the 152-municipality screening,
+verified sources and unconfirmed leads for the next pass.
+
 **Thirteen more cities posting their own boards (2026-10-02).** Two more
 families join `permitBoards.js`. `permitBoardsReports.js` reads the lists an
 instruction software prints: Valence's and Décines-Charpieu's Cart@DS
