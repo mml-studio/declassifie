@@ -5212,8 +5212,13 @@ about three hours after some forty requests for clients that do not exist,
 in half a minute, on 2026-10-01. The first daily sweep of all twenty
 publishers, on the hosted server on 2026-10-02, read 84 communes of 84 in 19
 minutes with no refusal, failure or skipped day: 13 901 new rows, 23 041
-kept, the nineteen back to 2025-08-01 and Nice to 2023-10-01. 710 rows named
-a commune their publisher does not list and were not filed.
+kept, the nineteen back to 2025-08-01 and Nice to 2023-10-01. It filed 710
+rows nowhere, and read again that day, every one was a file that is not a
+permit — 367 works on public buildings (`AT`), 209 `AP`, 130 signs (`EN`), 4
+advertising boards (`PP`), 608 of them the Pau agglomeration's — and none a
+permit for a commune its publisher does not list. The sweep now counts the
+two apart (`notPermits`, `unlisted` in `sweep.json`) and names in its log
+line the communes an unlisted permit names.
 
 **Three more communes answer with the acts they publish.** Ustaritz (64547),
 Ciboure (64189) and Monts (37159) publish their permit decisions as acts on
