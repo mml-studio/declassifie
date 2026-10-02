@@ -4875,6 +4875,66 @@ a request for each way of writing its code answers an empty table. The
 quarterly scan reads that host already and will keep the commune once it
 posts.
 
+**Later on 2026-10-02, Pays Voironnais adds eleven municipalities.** The
+[public board](https://ads.paysvoironnais.com/guichet-unique/Login/AffichageReglementaire)
+posts for La Buisse, Charavines, Charnècles, Massieu, Merlas, Montferrat,
+Saint-Blaise-du-Buis, Saint-Bueil, Saint-Cassien, Saint-Étienne-de-Crossey and
+Saint-Geoire-en-Valdaine. Its menu sends the bare municipality number, not
+its full INSEE code, and does not list Voiron. The municipalities have
+18,047 inhabitants and all posted within 92 days without an existing reader.
+The initial production archive sweep retained 176 posting rows, all
+normalisable. Its documented menu lives in `cartdsFeed.js`, and the host
+joins `CARTDS_SCAN_SEEDS`; the existing cache, archive, robots policy and
+privacy filter apply.
+
+The [Syndicat d'Urbanisme du Pays de Vitré board](https://supv.pu.sirap.com)
+was also checked: fifteen Roche aux Fées municipalities, 26,883 inhabitants
+and 273 published dossiers. The parallel integration in #396 already
+registered them in `sirapScanned.js`, so this batch preserves that reader
+without adding a duplicate documented instance. Both boards were linked by
+their authorities' public sites; their menus do not include Voiron or Vitré.
+Cahors, Saint-Dizier, Saint-Lô, Riom and Lomagne Gersoise have empty public
+menus; Sélestat's portal answers HTTP 503 during announced maintenance.
+They are not added.
+
+**Another batch on 2026-10-02 adds 246 municipalities in the Ain.** The
+[SIEA's current public portal](https://puu.siea-sig.fr), linked by
+[Bugey-Sud](https://ccbugeysud.com/nos-services/urbanisme/) and municipal
+websites, uses the existing Sirap PU JSON API despite its own hostname.
+[Saint-Genis-sur-Menthon's municipal notice](https://saint-genis-sur-menthon.fr/formulaires-urbanisme/)
+records the change of address in January 2026. Its public menu lists 376
+entries, including a test municipality. All 372 valid municipalities without
+another municipal reader were asked for their boards: no request failed;
+246 had a filing or decision within 92 days, holding 5,250 dossiers in
+total. Empty and older boards are excluded, as are the test entry and
+municipalities already covered by another register. A menu entry alone is
+not coverage: Oyonnax and Ambérieu-en-Bugey both answer empty boards.
+
+The added municipalities have 417,326 inhabitants and range from population
+rank 595 (Valserhône) to 33,071 in the same Geo API reading. They include
+Saint-Genis-Pouilly, Gex, Ferney-Voltaire, Divonne-les-Bains, Belley,
+Prévessin-Moëns, Meximieux, Viriat and Trévoux. The measured municipality
+list lives in `sirapFeed.js` (`siea`); `puu.siea-sig.fr` joins
+`SIRAP_SCAN_HOSTS`. Sirap now reads 1,866 municipalities, including the parallel integration in #396. The existing
+six-hour cache, daily archive and private-applicant filtering apply;
+`robots.txt` answers the portal's HTML app, which is the absence of a
+robots file, as on the other PU hosts.
+
+The initial production archive sweep read all 246 boards, with no failed,
+refused or unsaved municipality, retaining 5,246 rows. Every retained row
+normalises, 5,182 carry a cadastral parcel, and every dossier number names
+the municipality whose board supplied it.
+
+The same day's incremental check of SITMAHP's existing Cart@DS board adds
+Vergons (04236, 118 inhabitants): one decision posted on 2026-10-02, with no
+existing municipal reader. Its menu sends `4236`, the INSEE code without
+its leading zero. `cartdsScanned.js` is regenerated with that municipality
+added to the existing instance; the earlier readings keep their original
+day and no municipality is removed. Cart@DS now reads 1,803 municipalities across 246 instances, including #396.
+The Ain and Vergons additions cover 247 municipalities and 417,444 residents.
+With Pays Voironnais, this batch adds 258 municipalities and 435,491 residents;
+the retained archive has 5,423 posting rows.
+
 **Since 2026-10-02, Brive-la-Gaillarde answers with its public permit tables**
 (`src/data/webdevPermitsFeed.js`, `scripts/lib/permitLists.mjs`). The stable
 [municipal permit page](https://www.brive.fr/urbanisme/affichage-municipal-autorisations-durbanisme/)

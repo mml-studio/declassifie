@@ -665,6 +665,19 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     codes: 'number',
     communes: Object.freeze(['55545']),
   }),
+  // The Pays Voironnais public menu lists these eleven municipalities,
+  // not Voiron or the whole agglomeration. Both boards checked 2026-10-02:
+  // 176 posting rows, with a September or October posting in each municipality.
+  Object.freeze({
+    key: 'paysvoironnais',
+    base: 'https://ads.paysvoironnais.com/guichet-unique',
+    label: 'Pays Voironnais — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze([
+      '38061', '38082', '38084', '38222', '38228', '38256', '38368', '38372',
+      '38373', '38383', '38386',
+    ]),
+  }),
 ]);
 
 /**

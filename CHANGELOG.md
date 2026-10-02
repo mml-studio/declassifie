@@ -12,6 +12,25 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Limeil-Brévannes, Tassin-la-Demi-Lune, Saint-Genis-Laval, Sceaux and Pertuis.
   The lists their instruction software prints and the acts they post one at a
   time are read into the daily permit archive; scans wait for the sweep's OCR.
+- **246 more municipalities in the Ain now show their published planning
+  permits**, covering 417,326 additional residents. The SIEA's current public
+  Sirap portal supplies 5,250 dossiers across their boards, including
+  Valserhône, Saint-Genis-Pouilly, Gex, Ferney-Voltaire and Belley. Each
+  municipality posted within 92 days and had no existing municipal reader.
+  Empty boards, the portal's test municipality and already-covered
+  municipalities are excluded. The host joins the quarterly discovery scan,
+  six-hour cache and daily archive, with private applicants filtered at
+  collection.
+- **Vergons now shows its municipal permit decision**, posted on 2026-10-02
+  through the existing SITMAHP Cart@DS board. The incremental discovery adds
+  its 118 residents without removing any municipality from the earlier scan.
+- **Eleven more municipalities now show their published planning permits**,
+  covering 18,047 additional residents on the Pays Voironnais public Cart@DS
+  board. All posted recently and had no existing municipal source. The initial
+  archive sweep retained 176 posting rows. The host joins the quarterly
+  discovery scan and the existing six-hour cache and daily archive, with
+  private applicants filtered at collection. Its public menu defines coverage:
+  Voiron is not listed.
 - **146 municipalities ranked after France's 400 most populous now show
   their published planning permits**, 263,056 additional residents. Nine
   public Cart@DS boards cover Lannion-Trégor, Clisson Sèvre et Maine,

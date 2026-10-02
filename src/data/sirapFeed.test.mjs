@@ -68,8 +68,15 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
     }
   }
   // Written by hand: Rennes Métropole 40, Dunkerque 14, Antibes, Asnières. The
+  // SIEA's 246 joined on 2026-10-02. The
   // scan's communes are on top, and the loop above refused any it shares.
-  assert.equal(seen.size - SIRAP_SCANNED_INSTANCES.reduce((sum, i) => sum + i.communes.length, 0), 56);
+  assert.equal(seen.size - SIRAP_SCANNED_INSTANCES.reduce((sum, i) => sum + i.communes.length, 0), 302);
+  const siea = sirapInstanceFor('01033');
+  assert.equal(siea.key, 'siea');
+  assert.equal(sirapInstanceFor('01160'), siea);
+  assert.equal(sirapBoardUrl(siea, '01160'), 'https://puu.siea-sig.fr/api/v1/communes/001160/affichage-reglementaire');
+  assert.equal(sirapInstanceFor('01283'), null, 'Oyonnax is listed but its board is empty');
+  assert.equal(sirapInstanceFor('01999'), null, 'the SIEA test municipality is not coverage');
   assert.equal(sirapInstanceFor('35238'), RENNES);
   assert.equal(sirapInstanceFor('59183'), CUD);
   assert.equal(sirapInstanceFor('59248'), null, 'Fort-Mardyck is read as Dunkerque');

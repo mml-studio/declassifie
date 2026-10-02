@@ -71,15 +71,18 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   // Narbonne host, then Rixheim's separate path on 2026-10-02. The scan's
   // are on top, then 146 municipalities below the top 400 on nine public
   // intercommunal boards, then Saint-Maurice, Bayonne and 18 path tenants of
-  // guichetunique.geosphere.fr. The loop above already refused any shared code.
+  // guichetunique.geosphere.fr, then eleven on the Pays Voironnais board.
+  // The loop above already refused any shared code.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 368);
+  assert.equal(seen.size - scanned, 379);
   assert.equal(cartdsInstanceFor('11262').key, 'narbonne');
   assert.equal(cartdsInstanceFor('11202').key, 'grandnarbonne');
   assert.equal(cartdsInstanceFor('68278').base, 'https://ilenapoleon.geosphere.fr/guichet-rixheim');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('68278'), '68278'), '278');
   assert.equal(cartdsInstanceFor('83050').base, 'https://ads.dracenie.com/guichet-unique');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('83050'), '83050'), '50');
+  assert.equal(cartdsInstanceFor('04236').key, 'sitmahp');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('04236'), '04236'), '4236');
   assert.ok(CARTDS_SCANNED_INSTANCES.every((instance) => CARTDS_INSTANCES.includes(instance)));
   assert.equal(cartdsInstanceFor('13114'), MAMP);
   assert.equal(cartdsInstanceFor('2a247'), PORTO);
