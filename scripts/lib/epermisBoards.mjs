@@ -11,9 +11,15 @@
  *
  * ONE REQUEST AT A TIME. Every request a reader makes — a scan's, the sweep's
  * — goes through one queue, {@link EPERMIS_PAUSE_MS} after the previous answer
- * was read, whoever asked. NETWORK THROUGH THE CALLER, as for the other
- * boards: `{fetch, text}`, neither of which ever throws. Nothing here logs a
- * row, and the client secret is never logged either.
+ * was read, whoever asked; and the server gives every reader the same gate
+ * ({@link createEpermisGate}), so that twenty publishers on one API are
+ * still one request at a time: about forty requests for clients that do not
+ * exist, in half a minute, got an address refused everything for some three
+ * hours (2026-10-01).
+ *
+ * NETWORK THROUGH THE CALLER, as for the other boards: `{fetch, text}`,
+ * neither of which ever throws. Nothing here logs a row, and the client
+ * secret is never logged either.
  */
 
 import path from 'node:path';
@@ -108,6 +114,40 @@ export async function epermisRobotsVerdict(instance, http) {
 }
 
 /**
+ * The queue requests to clicmap wait in: each one leaves `pauseMs` after the
+ * previous answer was read, whoever asked.
+ *
+ * @param {object} [options]
+ * @param {() => number} [options.now]
+ * @param {number} [options.pauseMs]
+ * @param {(ms: number) => Promise<void>} [options.sleep]
+ * @returns {{run: <T>(task: () => Promise<T>) => Promise<T>}}
+ */
+export function createEpermisGate({
+  now = Date.now,
+  pauseMs = EPERMIS_PAUSE_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  let lastAt = -Infinity;
+  let tail = Promise.resolve();
+  return {
+    run(task) {
+      const run = tail.then(async () => {
+        const wait = lastAt + pauseMs - now();
+        if (wait > 0) await sleep(wait);
+        try {
+          return await task();
+        } finally {
+          lastAt = now();
+        }
+      });
+      tail = run.catch(() => {});
+      return run;
+    },
+  };
+}
+
+/**
  * A reader for one publisher: the token, the environment and the queue.
  *
  * `readWindow` answers both lists for a window, or null — ALL OR NONE, as a
@@ -123,18 +163,18 @@ export async function epermisRobotsVerdict(instance, http) {
  * @param {number} [options.pauseMs]
  * @param {(ms: number) => Promise<void>} [options.sleep]
  * @param {{warn?: Function}} [options.log]
+ * @param {{run: Function}} [options.gate] Shared by every publisher's reader; its own by default.
  */
 export function createEpermisReader(instance, http, {
   now = Date.now,
   pauseMs = EPERMIS_PAUSE_MS,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   log = console,
+  gate = createEpermisGate({ now, pauseMs, sleep }),
 } = {}) {
   let client = null;
   let token = null;
   let config = null;
-  let lastAt = -Infinity;
-  let tail = Promise.resolve();
   const warned = new Set();
 
   /** Said once per process and cause: a daily sweep must not fill the log. */
@@ -146,24 +186,16 @@ export function createEpermisReader(instance, http, {
 
   /** One request, after every earlier one has been read, `pauseMs` later. */
   function send(url, init = {}, maxBytes = PAGE_MAX_BYTES) {
-    const run = tail.then(async () => {
-      const wait = lastAt + pauseMs - now();
-      if (wait > 0) await sleep(wait);
-      try {
-        const response = await http.fetch(url, init);
-        if (!response) return null;
-        if (!response.ok) {
-          await response.body?.cancel?.().catch?.(() => {});
-          return { status: response.status, ok: false, body: null };
-        }
-        const body = await http.text(response, maxBytes);
-        return body === null ? null : { status: response.status, ok: true, body };
-      } finally {
-        lastAt = now();
+    return gate.run(async () => {
+      const response = await http.fetch(url, init);
+      if (!response) return null;
+      if (!response.ok) {
+        await response.body?.cancel?.().catch?.(() => {});
+        return { status: response.status, ok: false, body: null };
       }
+      const body = await http.text(response, maxBytes);
+      return body === null ? null : { status: response.status, ok: true, body };
     });
-    tail = run.catch(() => {});
-    return run;
   }
 
   /** The public client, read off the page's script (Trap 1). */

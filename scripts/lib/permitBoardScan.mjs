@@ -136,6 +136,15 @@ export function foldCommuneName(name) {
 }
 
 /**
+ * Names a board's menu gives a commune that the official list does not, folded,
+ * and the official name they stand for. Clichy's own board calls it by its
+ * usual name, Clichy-la-Garenne; the COG has only Clichy (92024).
+ */
+export const MENU_NAME_ALIASES = Object.freeze({
+  'clichy la garenne': 'clichy',
+});
+
+/**
  * The INSEE code a board's menu entry stands for, or null.
  *
  * A menu sends one of three things as the commune's value: the INSEE code;
@@ -143,7 +152,8 @@ export function foldCommuneName(name) {
  * Porto-Vecchio, 2A247); or the INSEE code with its leading zero dropped
  * (`3058` for Châtillon, 03058, on the Allier's agency). The name settles the
  * last two, and the instance's other communes settle a name two departments
- * share.
+ * share. A name the official list does not know is read through
+ * {@link MENU_NAME_ALIASES}.
  *
  * @param {{value: string, name: string}} entry
  * @param {{byCode: Map, byName: Map}} index From {@link indexCommunes}.
@@ -158,7 +168,7 @@ export function resolveMenuCommune(entry, index, departments = null) {
     const commune = index.byCode.get(`0${value}`);
     if (commune && foldCommuneName(commune.nom) === name) return commune.code;
   }
-  const named = index.byName.get(name) ?? [];
+  const named = index.byName.get(name) ?? index.byName.get(MENU_NAME_ALIASES[name]) ?? [];
   const narrow = (list) => (list.length > 1 && departments ? list.filter((c) => departments.has(c.codeDepartement)) : list);
   if (/^\d{1,3}$/.test(value)) {
     const numbered = narrow(named.filter((c) => c.code.endsWith(value.padStart(3, '0'))));
@@ -217,6 +227,7 @@ function daysBefore(day, days) {
 const SERVICE_WORDS = new Set([
   'guichet', 'unique', 'urbanisme', 'urba', 'urb', 'demarches', 'demarche', 'ads', 'sig', 'intrageo', 'dau',
   'gfi', 'demat', 'droit', 'sol', 'cartads', 'extrageo', 'geo', 'gu', 'www', 'ville', 'mairie',
+  'portail', 'dia', 'clicurba',
 ]);
 
 /**

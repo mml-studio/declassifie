@@ -68,8 +68,18 @@ const SCRIPT = 'const x=1;mC=async()=>{const e="https://auth.clicmap.fr/oauth2/t
   + 'r.append("grant_type","client_credentials"),r.append("client_id",t),'
   + 'r.append("client_secret",n),r.append("scope","openid");try{}catch(i){}}';
 
-test('the registry is one publisher, the 38 communes that post, none read twice', () => {
-  assert.equal(EPERMIS_INSTANCES.length, 1);
+test('the registry is Nice’s 38 communes, Pau’s agglomeration and eighteen one-commune publishers, none read twice', () => {
+  assert.equal(EPERMIS_INSTANCES.length, 20);
+  const read = EPERMIS_INSTANCES.flatMap((instance) => [...instance.communes, ...(instance.silent ?? [])]);
+  assert.equal(new Set(read).size, read.length, 'a commune belongs to one publisher');
+  assert.equal(new Set(EPERMIS_INSTANCES.map((instance) => instance.client)).size, 20);
+  assert.equal(new Set(EPERMIS_INSTANCES.map((instance) => instance.key)).size, 20);
+  for (const instance of EPERMIS_INSTANCES.slice(1)) assert.match(instance.label, / — affichage réglementaire$/);
+  const pau = epermisInstanceFor('64445');
+  assert.equal(pau.client, 97, 'Pau is read through its agglomeration');
+  assert.equal(pau.communes.length + pau.silent.length, 31);
+  assert.equal(epermisInstanceFor('64348'), null, 'Lons is listed and posted nothing in a year');
+  assert.equal(EPERMIS_INSTANCES.filter((instance) => instance.communes.length === 1).length, 18);
   assert.equal(NICE.communes.length, 38);
   assert.equal(NICE.silent.length, 13);
   // The 51 the publisher lists, each once: read, or named as silent.

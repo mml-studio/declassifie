@@ -398,6 +398,7 @@ import {
   MMM_ARCHIVE_DIR,
 } from './scripts/lib/mmmPermits.mjs';
 import {
+  createEpermisGate,
   createEpermisReader,
   epermisRobotsVerdict as askEpermisRobots,
   sweepEpermisArchive,
@@ -28113,11 +28114,14 @@ function adsFranceProxy() {
   /** Every row the board ever showed, kept like a Cart@DS board's. */
   const epermisArchive = createCartdsArchiveStore(path.join(process.cwd(), EPERMIS_ARCHIVE_DIR), console, EPERMIS_ROWS);
 
-  /** ONE reader per publisher, shared by scans and the sweep, so that every
-   *  request to clicmap waits for the one before it. */
+  /** One queue for every publisher: they share clicmap's API. */
+  const epermisGate = createEpermisGate();
+
+  /** ONE reader per publisher, shared by scans and the sweep, and one gate for
+   *  all of them, so that every request to clicmap waits for the one before it. */
   function epermisReader(instance) {
     if (!epermisReaders.has(instance.key)) {
-      epermisReaders.set(instance.key, createEpermisReader(instance, cartdsHttp, { log: console }));
+      epermisReaders.set(instance.key, createEpermisReader(instance, cartdsHttp, { log: console, gate: epermisGate }));
     }
     return epermisReaders.get(instance.key);
   }

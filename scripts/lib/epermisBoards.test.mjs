@@ -8,6 +8,7 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createEpermisGate,
   createEpermisReader,
   epermisRobotsVerdict,
   readEpermisByDay,
@@ -156,6 +157,24 @@ test('the reader finds the client, asks a token once, and pages every list to it
   await reader.readList('decisions', { from: '2026-09-01', to: '2026-09-30' });
   assert.equal(http.issued, 2);
   assert.equal(http.calls.filter((call) => call.pathname === '/depot').length, 1);
+});
+
+test('readers of two publishers sharing one gate still send one request at a time', async () => {
+  const http = fakeClicmap({ lists: { decisions: () => [DECISION('PC0061472690021')] } });
+  const slept = [];
+  let clock = 1_000_000;
+  const options = { now: () => clock, sleep: async (ms) => { slept.push(ms); clock += ms; } };
+  const gate = createEpermisGate({ ...options, pauseMs: 500 });
+  const PAU = Object.freeze({ key: 'pau', client: 96, label: 'Pau — affichage réglementaire', communes: Object.freeze(['64445']) });
+  const readers = [NICE, PAU].map((instance) => createEpermisReader(instance, http, { ...options, log: quiet, gate }));
+  const window = { from: '2026-09-01', to: '2026-09-30' };
+  const answers = await Promise.all(readers.map((reader) => reader.readWindow(window)));
+  assert.ok(answers.every((answer) => answer.boards.decisions.length === 1));
+  // Two readers, each with its page, script, token, configuration and two
+  // lists: twelve requests, every one half a second after the one before.
+  assert.equal(http.calls.length, 12);
+  assert.equal(slept.length, http.calls.length - 1);
+  assert.ok(slept.every((ms) => ms === 500));
 });
 
 test('a 401 re-reads the page’s script for the client and asks once more', async () => {
