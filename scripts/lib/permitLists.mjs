@@ -29,6 +29,7 @@ import { cartdsDay } from '../../src/data/cartdsArchive.js';
 import { dematdocFiles, municipalFiles, municipalNextPage, municipalTitleRow } from '../../src/data/municipalPermitsFeed.js';
 import { digilorTitleRow, lorientBoardUrl, readLorientBoard, rueilTitleRow } from '../../src/data/municipalPermitExtensions.js';
 import municipalMessages from '../../src/data/municipalPermitsFeed.i18n.js';
+import { BOARD_READERS, BOARD_TEXT, boardProtocol } from '../../src/data/permitBoards.js';
 import {
   webdevPortalUrl, webdevSession, webdevRequestBody, webdevMenu, webdevYears,
   webdevFolders, webdevLatestPosting, webdevLists,
@@ -128,7 +129,7 @@ export async function permitListsRobots(city, http) {
   // An override asks nothing (see `robots` in `PERMIT_LISTS`).
   if (city.robots === 'overridden') return { allows: () => true, final: true };
   const refuse = { allows: () => false };
-  const response = await http.fetch(permitListRobotsUrl(city));
+  const response = await http.fetch(permitListRobotsUrl(city), city.userAgent ? { headers: { 'User-Agent': city.userAgent } } : undefined);
   if (!response) return { ...refuse, final: false };
   if (response.status >= 500) return { ...refuse, final: true };
   if (response.status >= 400 || /html/i.test(response.headers?.get?.('content-type') || '')) {
@@ -214,11 +215,12 @@ export async function readPermitList(list, http, { dir } = {}) {
 
 /** Parse a PDF's bytes with a list's reader into kept rows, or null. */
 function rowsOfPdf(bytes, layout, board, context = {}) {
-  const reader = PERMIT_LIST_READERS[layout];
+  const reader = PERMIT_LIST_READERS[layout] ?? BOARD_READERS[layout];
   let document = null;
   try {
     document = extractPdfText(bytes, {
-      inflate: (data) => zlib.inflateSync(data), maxPages: PDF_MAX_PAGES, ...(PERMIT_LIST_TEXT[layout] ?? {}),
+      inflate: (data) => zlib.inflateSync(data), maxPages: PDF_MAX_PAGES,
+      ...(PERMIT_LIST_TEXT[layout] ?? BOARD_TEXT[layout] ?? {}),
     });
   } catch {
     return null;
@@ -819,6 +821,7 @@ export async function readPermitCity(city, http, {
   dir, allows = () => true, months = 2, day = cartdsDay(), maxFiles = PERMIT_LISTS_SCAN_FILES,
   ocr = null, maxPages, log, background = false,
 } = {}) {
+  if (city.source?.kind === 'board') return readBoardCity(city, http, { dir, allows, months, day, maxFiles, ocr, background, log });
   if (city.source?.kind === 'lorient') return readLorientCity(city, http, { allows });
   if (city.source?.kind === 'rueil') return readRueilCity(city, http, { dir, allows, months, day, maxFiles });
   if (city.source?.kind === 'webdev') return readWebdevCity(city, http, { dir, allows, maxFiles, day });
@@ -843,6 +846,156 @@ export async function readPermitCity(city, http, {
   } else links = body ? permitListLinks(city, body) : null;
   if (!links) return null;
   return readLinkedLists(links, http, { dir, allows, maxFiles });
+}
+
+/** Index requests one reading of a board city follows, at most. */
+const BOARD_MAX_PAGES = 40;
+
+/**
+ * Files one sweep of a board city reads by OCR, at most: La Roche-sur-Yon
+ * posts some 955 scanned acts a year, about a second a page to read — the
+ * newest forty first, the backlog over the days after.
+ */
+export const BOARD_SWEEP_OCR_FILES = 40;
+
+/** A request's answer as its protocol reads it, or null. */
+async function boardAnswer(city, http, request, allows) {
+  if (!allows(new URL(request.url).pathname)) return null;
+  const accept = request.as === 'json' ? 'application/json' : request.as === 'html' ? 'text/html' : '*/*';
+  const response = await http.fetch(request.url, {
+    ...(request.method ? { method: request.method } : {}),
+    ...(request.body !== undefined ? { body: request.body } : {}),
+    headers: { Accept: accept, ...(city.userAgent ? { 'User-Agent': city.userAgent } : {}), ...(request.headers ?? {}) },
+  });
+  if (!response?.ok) {
+    await response?.body?.cancel?.().catch?.(() => {});
+    return null;
+  }
+  const body = await http.text(response, INDEX_MAX_BYTES);
+  if (body === null) return null;
+  if (request.as !== 'json') return body;
+  try { return JSON.parse(body); } catch { return null; }
+}
+
+/**
+ * A city of `permitBoardCities.js`: its protocol's index requests, then the
+ * files they name, newest first. A file read once is kept by its address and
+ * never asked for again unless it is `rolling`; at most `maxFiles` new ones
+ * per reading, the others counted as `skipped` and drawn from what their
+ * index said of them. OCR runs in the daily sweep only, on at most
+ * {@link BOARD_SWEEP_OCR_FILES} files: an `ocr` file whose text yields no
+ * row, and a `scan` — a file the board only ever posts scanned, which a
+ * visitor's reading does not even download. Until then its index row
+ * stands, and the reading says it awaits OCR.
+ *
+ * ALL OR NONE for the first index: nothing answered is null, and the archive
+ * keeps what it had. A later index or a file that fails makes the reading
+ * incomplete, never empty.
+ */
+async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, ocr, background }) {
+  const protocol = boardProtocol(city);
+  if (!protocol) return null;
+  const [first] = webdelibMonths(day, months).slice(-1);
+  const since = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
+  const options = { since, day };
+  const queue = [...protocol.start(city, options)];
+  const seen = new Set();
+  const files = [];
+  const indexRows = [];
+  let answered = 0;
+  let incomplete = false;
+  for (let pages = 0; queue.length; pages += 1) {
+    const request = queue.shift();
+    const id = `${request.method ?? 'GET'} ${request.url} ${request.body ?? ''}`;
+    if (seen.has(id)) continue;
+    if (pages >= BOARD_MAX_PAGES) { incomplete = true; break; }
+    seen.add(id);
+    const body = await boardAnswer(city, http, request, allows);
+    const found = body === null ? null : protocol.index(city, body, request, options);
+    if (!found) {
+      if (!answered) return null;
+      incomplete = true;
+      continue;
+    }
+    answered += 1;
+    files.push(...(found.files ?? []));
+    indexRows.push(...(found.rows ?? []));
+    queue.push(...(found.next ?? []));
+  }
+  const boards = {};
+  const lists = [];
+  for (const row of keptRows(indexRows)) (boards[row.board] ??= []).push(row.cells);
+  if (indexRows.length) lists.push({ url: city.page, rows: indexRows.length, reused: false });
+  const selected = [...new Map(files.map((file) => [file.url, file])).values()]
+    .filter((file) => !file.published || file.published >= since)
+    .sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '') || b.url.localeCompare(a.url));
+  let fetched = 0;
+  let reused = 0;
+  let failed = 0;
+  let skipped = 0;
+  let pendingOcr = 0;
+  let ocrRuns = 0;
+  const canOcr = () => Boolean(ocr && background && ocrRuns < BOARD_SWEEP_OCR_FILES);
+  const fallback = (file) => (file.row ? keptRows([file.row], file.board) : []);
+  for (const file of selected) {
+    const kept = await readEdition(dir, file.url);
+    let answer = null;
+    const retry = kept?.pendingOcr && canOcr();
+    if (kept && !file.rolling && !retry) {
+      answer = kept;
+      reused += 1;
+    } else if (file.scan && !kept && !canOcr()) {
+      // Nothing a visitor could read: the index row, awaiting the sweep.
+      answer = { rows: fallback(file), pendingOcr: true };
+    } else if (fetched >= maxFiles) {
+      skipped += 1;
+      answer = kept ?? { rows: fallback(file), pendingOcr: Boolean(file.ocr) };
+    } else {
+      fetched += 1;
+      // `Accept` tells the proxy a file is coming, whatever its address says
+      // (`/download/55135`, `/file?filename=…`): it waits longer for one.
+      const headers = { Accept: 'application/pdf', ...(city.userAgent ? { 'User-Agent': city.userAgent } : {}), ...(file.headers ?? {}) };
+      if (file.rolling && kept?.etag) headers['If-None-Match'] = kept.etag;
+      if (file.rolling && kept?.modified) headers['If-Modified-Since'] = kept.modified;
+      const response = allows(new URL(file.url).pathname) ? await http.fetch(file.url, { headers }) : null;
+      if (response?.status === 304 && kept) {
+        answer = kept;
+      } else {
+        const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
+        if (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-')) {
+          failed += 1;
+          answer = kept ?? (file.row ? { rows: fallback(file) } : null);
+        } else {
+          const context = { city, file };
+          let rows = file.scan ? null : rowsOfPdf(bytes, file.layout, file.board, context);
+          let awaitsOcr = false;
+          if (!rows && (file.ocr || file.scan)) {
+            let scanned = null;
+            if (canOcr()) {
+              ocrRuns += 1;
+              scanned = await ocr(bytes, { positioned: true, maxPages: file.ocrPages });
+            }
+            const reader = PERMIT_LIST_READERS[file.layout] ?? BOARD_READERS[file.layout];
+            rows = scanned?.document && reader ? keptRows(reader(scanned.document, context), file.board) : null;
+            if (!rows?.length) { rows = null; awaitsOcr = !scanned?.document; }
+          }
+          answer = {
+            url: file.url, fields: PERMIT_LIST_FIELDS, rows: rows ?? fallback(file), pendingOcr: awaitsOcr,
+            etag: response.headers?.get?.('etag') || null, modified: response.headers?.get?.('last-modified') || null,
+          };
+          await writeEdition(dir, answer);
+        }
+      }
+    }
+    if (!answer) continue;
+    if (answer.pendingOcr) pendingOcr += 1;
+    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+    lists.push({ url: file.url, board: file.board, rows: answer.rows.length, reused: answer === kept });
+  }
+  return {
+    boards, lists, fetched, reused, failed, skipped, pendingOcr,
+    incomplete: incomplete || failed > 0 || skipped > 0 || pendingOcr > 0,
+  };
 }
 
 /**
@@ -1106,10 +1259,14 @@ export async function sweepPermitLists({
       (verdict.final === false ? summary.failed : summary.refused).push(city.key);
       continue;
     }
+    // A board city caps its OCR apart (`BOARD_SWEEP_OCR_FILES`): its text
+    // files are read at the usual pace.
+    const board = city.source?.kind === 'board';
+    const scanned = bulletin || city.source?.kind === 'municipal' || (city.source?.ocr && !board);
     const answer = await readPermitCity(city, pacedFor(city), {
       dir, allows: verdict.allows, months, day, log, background: true,
-      maxFiles: bulletin || city.source?.kind === 'municipal' || city.source?.ocr ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
-      ...(bulletin || city.source?.kind === 'municipal' || city.source?.ocr ? { ocr } : {}),
+      maxFiles: scanned ? PERMIT_LISTS_SWEEP_BULLETINS : PERMIT_LISTS_SWEEP_FILES,
+      ...(scanned || (board && city.source?.ocr) ? { ocr } : {}),
     });
     if (!answer) { summary.failed.push(city.key); continue; }
     if (answer.failed) summary.failed.push(`${city.key}:${answer.failed}`);

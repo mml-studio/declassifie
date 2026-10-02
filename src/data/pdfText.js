@@ -678,12 +678,16 @@ function runContent(content, decoders, wordGapEm = null) {
  *   space — for a file that draws no space glyphs (Firefox's print to PDF).
  * @returns {?{pages: Array<{runs: Array<{x: number, x1: number, y: number, size: number,
  *   text: string, clip: ?{x0: number, y0: number, x1: number, y1: number}}>}>}}
- *   Null for a file that is not a PDF or is encrypted.
+ *   Null for a file that is not a PDF or is encrypted. Blank lines before
+ *   the header are allowed.
  */
 export function extractPdfText(bytes, { inflate, maxPages = 40, wordGapEm = null } = {}) {
   if (!bytes || !bytes.length) return null;
   const src = binaryString(bytes);
-  if (!src.startsWith('%PDF-')) return null;
+  // A header after a few stray bytes is still a PDF, as readers take it:
+  // Bourges's portal serves its lists behind five blank lines.
+  const header = src.indexOf('%PDF-');
+  if (header < 0 || header > 1024 || /\S/.test(src.slice(0, header))) return null;
   if (/\/Encrypt\s*\d+\s+\d+\s+R|\/Encrypt\s*<</.test(src.slice(-4096))) return null;
   const objects = readObjects(src, inflate);
   const resolve = (value) => {

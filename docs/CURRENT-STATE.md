@@ -5042,6 +5042,83 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Fourteen cities posting their own boards (2026-10-02).**
+`src/data/permitBoardCities.js` registers fourteen cities ranked 61 to 200 by
+population that had only Sitadel: Cergy, Bourges, Antony, Le Blanc-Mesnil,
+Troyes, Pantin, La Roche-sur-Yon, Alès, Saint-Germain-en-Laye, Anglet,
+Châlons-en-Champagne, Garges-lès-Gonesse, Poissy and Boulogne-sur-Mer, 742 208
+inhabitants. Measured against geo.api.gouv.fr's populations as #391 did,
+26.1 % of the population is seen within days, from 25.0 %; 48 of the 100 most
+populous communes, from 42, 102 of the 300, from 88, and 240 of the 1 000,
+from 226. Their entries join `PERMIT_LISTS` with `source.kind: 'board'`.
+
+`src/data/permitBoards.js` states the contract: one pure protocol per city
+(`start` gives the index requests, `index` reads an answer into files, rows
+and further requests) and the PDF readers its files name, gathered from three
+family modules. `readBoardCity` in `scripts/lib/permitLists.mjs` makes the
+requests. The first index must answer, or the reading is null and the archive
+keeps what it had; a later index or a file that fails makes it incomplete. A
+file is read once and kept by its address, newest first: at most 60 new files
+per visitor scan and 400 per daily sweep, a skipped file standing on what its
+index said. An `ocr` file whose text yields no row, and a `scan` (a board that
+only ever posts scans), are read by OCR in the sweep only, at most 40 a day per
+city (`BOARD_SWEEP_OCR_FILES`), `ocrPages` pages each; a visitor's reading
+never downloads a `scan`. Files are asked for as `application/pdf`, which
+routes them through the proxy's 60-second PDF fetch whatever their address.
+A city's `userAgent` goes with every request to its host, robots.txt's
+included: Boulogne-sur-Mer's firewall answers 403 to any name containing
+« scan », and the same honest name without that word is let through.
+`extractPdfText` now accepts blank lines before `%PDF-`, as Bourges serves.
+
+Six post lists (`src/data/permitBoardsLists.js`). Word draws each cell under
+its own clipping rectangle (Garges, Troyes, Cergy): `readCellTable` groups runs
+by rectangle and rows by height band, finds the header by its words and reads
+every section under it. « Print To PDF » and LibreOffice keep no cell
+rectangle and centre each cell on its row (Le Blanc-Mesnil, Bourges, Alès):
+`readNearestTable` places columns from the first header of the file and gives
+each line to the nearest dossier number of its section, section titles and
+header lines excluded. Garges and Le Blanc-Mesnil replace a filing table and a
+decision table in place under a dated file name; both must be linked or the
+page is not read (15 filings and 13 decisions, 93 and 64 on 2026-10-02).
+Troyes posts a filing list a week, signs' lists skipped (206 filings over the
+twelve files linked). Bourges's document portal lists every act oldest first,
+its theme filter held in a session, so the reading walks back from the last
+page until the window is passed; its `robots.txt` disallows every agent, read
+by decision (`robots: 'overridden'`). Its register prints the applicant, the
+applicant's own address and the parcel in one column: only the parcel is
+read there (165 filings, 167 decisions over the two months it keeps). Cergy
+posts on A2Display, whose JSON lists the urbanism category (619 filings and
+1 002 decision rows over twelve months). Alès posts a WordPress article a week
+per list, found through the REST API (53 filings, 37 grants); a site column
+reading « IDEM » means the applicant's address, whose street lines alone are
+then read as the site.
+
+Three post one PDF per dossier (`src/data/permitBoardsNotices.js`). Antony's
+Dematii list answers one POST (686 text filing notices and 72 scanned decision
+extracts in twelve months); file names, « applicant - address », are never
+read, and a filing's site is what lies between its land-area and parcel lines.
+La Roche-sur-Yon lists every act on one 1.6 MB page (955 permit acts in twelve
+months), all scans: rows carry the file name's number until the sweep's OCR
+reads page 1 (40 files read on 2026-10-02, 39 placed). Poissy's register is
+asked one month at a time by its own form (one POST, 150 kB, instead of the
+6 MB page); only files it marks published are read, the verdict from Article 1
+or the register line's closing words, never the applicant's name before them.
+
+Five post HTML lists (`src/data/permitBoardsPages.js`). Châlons-en-Champagne's
+citizen portal lists a year's filing notices and planning orders on one page
+each (533 notices to 28 September, 85 orders since 13 May); titles give the
+number and site, PDFs the filing date and parcels, two orders in five need
+OCR. Saint-Germain-en-Laye's acts search gives verdict, site and works in each
+title (92 orders over two months), its PDFs the filing date and parcel.
+Boulogne-sur-Mer's six folders name each dossier and its site; filings are
+typed, orders scanned. Pantin's Docs2Web board is read from the tree its page
+loads (`params.js`, 3.7 MB, asked at most every six hours); orders are scans.
+Anglet's WebDev lists answer four plain GETs with 207 orders still posted;
+no date is printed and the PDFs are session-bound, so its rows carry none,
+and only a numbered site and works phrases are kept from each free-text
+description. Through the proxy on 2026-10-02, Garges placed 28 dossiers of
+28, Cergy 33 of 38, Châlons 79 of 83 and Anglet 184 of 205.
+
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
 members of Lorient Agglomération and Bondy, Blois, Aubagne, Thionville and

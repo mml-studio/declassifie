@@ -17,6 +17,7 @@ import { createCartdsArchiveStore } from './cartdsArchive.mjs';
 import { PERMIT_LIST_ROWS, PERMIT_LISTS, normalisePermitListRow } from '../../src/data/permitListsFeed.js';
 import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES } from '../../src/data/municipalPermitExtensions.js';
+import { BOARD_PERMIT_SOURCES } from '../../src/data/permitBoardCities.js';
 
 test('Lorient requires both boards and rejects a mismatched commune without archiving a partial answer', async () => {
   const city = EXTENDED_PERMIT_SOURCES.find((c) => c.key === 'lorient-56121');
@@ -939,4 +940,106 @@ test('a bulletin city fails closed on a challenge, a refusal or an answer that i
   const refused = bulletinHttp({ files: { 28: { ok: false, status: 403, payload: '', headers: { get: () => null } } } });
   const after = await readPermitCity(BULLETIN, refused, { dir: await tempDir(), day: '2026-10-01', ocr, log: quiet });
   assert.deepEqual([after.failed, after.skipped, refused.calls.length], [1, 2, 2]);
+});
+
+// --- Board cities (`permitBoards.js`) ----------------------------------------
+
+/** A Word-style grid: every cell's text under its own clipping rectangle. */
+function cellPdf(cells) {
+  const content = cells.map(([x0, y0, x1, y1, words]) => `q ${x0} ${y0} ${x1 - x0} ${y1 - y0} re W n BT /F1 9 Tf 1 0 0 1 ${x0 + 4} ${y0 + 8} Tm (${words}) Tj ET Q`).join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >>',
+  ];
+  // Five blank lines first, as Bourges's portal serves its files.
+  let out = '\n\n\n\n\n%PDF-1.7\n';
+  objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  out += 'trailer\n<< /Root 1 0 R >>\n%%EOF\n';
+  return new Uint8Array(Buffer.from(out, 'latin1'));
+}
+
+function filingGrid(number, applicant) {
+  return cellPdf([
+    [20, 430, 100, 450, 'Date de d\xe9p\xf4t'], [100, 430, 260, 450, 'Num\xe9ro de dossier'], [260, 430, 420, 450, 'P\xe9titionnaire'],
+    [420, 430, 600, 450, 'Adresse du projet'], [600, 430, 820, 450, 'Description du projet'],
+    [20, 400, 100, 430, '15/09/2026'], [100, 400, 260, 430, number], [260, 400, 420, 430, applicant],
+    [420, 400, 600, 430, '9 All\xe9e Exemple'], [600, 400, 820, 430, 'Extension'],
+  ]);
+}
+
+test('a board city reads its index, then each file once; a failed file leaves the reading incomplete, not empty', async () => {
+  const dir = await tempDir();
+  const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'cergy');
+  const index = 'https://api.a2display.fr/cvv/documents/7JTBO0t24L6o8LHEahRkbluhcQStGXNed6DZA1qv8dxpIDXiYVs7CTFwZYiWnfjm?l=100&s=creationDatetime&d=desc&fc=10016&fo=true&fa=true';
+  const json = JSON.stringify({ data: { items: [
+    { name: 'Affichage dépôt du 24-09-2026', file: { name: 'a1.pdf' } },
+    { name: 'Affichage décision du 24-09-2026', file: { name: 'b2.pdf' } },
+    { name: 'Affichage dépôt du 02-01-2025', file: { name: 'old.pdf' } },
+  ] } });
+  const files = {
+    'https://api.a2display.fr/file?filename=a1.pdf': { bytes: filingGrid('PC 95127 26 U0034', 'Monsieur PRIVATE PERSON') },
+    'https://api.a2display.fr/file?filename=b2.pdf': 503,
+  };
+  const http = fakeHttp({ pages: { [index]: json }, files });
+  const first = await readPermitCity(city, http, { dir, day: '2026-10-02' });
+  assert.equal(first.boards.filings.length, 1);
+  const [cells] = first.boards.filings;
+  assert.deepEqual([cells[0], cells[3], cells[4], cells[7]], ['PC 095127 26 U0034', null, '9 All\xe9e Exemple', '2026-09-15']);
+  assert.equal(first.failed, 1);
+  assert.equal(first.incomplete, true);
+  assert.ok(!http.calls.some((call) => call.url.endsWith('old.pdf')), 'a file older than the window is not asked for');
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE|PERSON/);
+  const again = fakeHttp({ pages: { [index]: json }, files });
+  await readPermitCity(city, again, { dir, day: '2026-10-02' });
+  assert.ok(!again.calls.some((call) => call.url.endsWith('a1.pdf')), 'a file read once is not asked for again');
+  assert.ok(again.calls.some((call) => call.url.endsWith('b2.pdf')), 'a failed file is asked for again');
+  assert.equal(await readPermitCity(city, fakeHttp({ pages: { [index]: '{"error":1}' } }), { day: '2026-10-02' }), null);
+});
+
+test('a board city past its file budget keeps what its index said, and says it is incomplete', async () => {
+  const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'garges');
+  const page = '<a href="/sites/default/files/tableau_affichage_depot_01.10.2026.pdf">D</a><a href="/sites/default/files/tableau_affichage_decision_01.10.2026.pdf">D</a>';
+  const http = fakeHttp({ pages: { [city.page]: page } });
+  const answer = await readPermitCity(city, http, { day: '2026-10-02', maxFiles: 0 });
+  assert.equal(answer.skipped, 2);
+  assert.equal(answer.incomplete, true);
+  assert.deepEqual(answer.boards, {});
+  assert.equal(await readPermitCity(city, fakeHttp({ pages: { [city.page]: page.split('</a>')[0] } }), { day: '2026-10-02' }), null);
+});
+
+test('a board\'s scans are never downloaded for a visitor, and the sweep reads them by OCR within its budget', async () => {
+  const dir = await tempDir();
+  const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'la-roche-sur-yon');
+  const link = (n) => `<a href="/wp-content/uploads/2026-09-2${n}_x_2026-Ville-41${n}0-dp-26-0048${n}.pdf">2${n}/09/2026</a>`;
+  const page = `<h1>Liste des actes</h1>${[1, 2].map(link).join('')}`;
+  const files = Object.fromEntries([1, 2].map((n) => [`https://actes.larochesuryon.fr/wp-content/uploads/2026-09-2${n}_x_2026-Ville-41${n}0-dp-26-0048${n}.pdf`,
+    { bytes: new Uint8Array(Buffer.from('%PDF-1.7\nscanned')) }]));
+  const visitor = fakeHttp({ pages: { [city.page]: page }, files });
+  const seen = await readPermitCity(city, visitor, { dir, day: '2026-10-02' });
+  assert.equal(visitor.calls.filter((call) => call.url.endsWith('.pdf')).length, 0);
+  assert.equal(seen.pendingOcr, 2);
+  assert.deepEqual(seen.boards.decisions.map((cells) => cells[0]).sort(), ['DP 085191 26 00481', 'DP 085191 26 00482']);
+  const asked = [];
+  const ocr = async (bytes, options) => { asked.push(options); return { document: { pages: [{ width: 595, runs: [
+    { text: 'Sur un terrain sis à : 12 rue Exemple', x: 40, y: 600, x1: 200 }, { text: 'LE MAIRE', x: 40, y: 500, x1: 90 },
+    { text: 'Article 1 : il n’est pas fait opposition', x: 40, y: 400, x1: 300 },
+  ] }] } }; };
+  const swept = await readPermitCity(city, fakeHttp({ pages: { [city.page]: page }, files }), { dir, day: '2026-10-02', ocr, background: true });
+  assert.equal(asked.length, 2);
+  assert.ok(asked.every((options) => options.maxPages === 1 && options.positioned));
+  assert.equal(swept.pendingOcr, 0);
+  assert.deepEqual(swept.boards.decisions.map((cells) => [cells[4], cells[8]]), [['12 rue Exemple', 'Non-opposition'], ['12 rue Exemple', 'Non-opposition']]);
+});
+
+test('a city\'s own User-Agent goes with every request to its host, robots.txt included', async () => {
+  const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'boulogne-sur-mer');
+  const http = fakeHttp({ robots: { 'www.ville-boulogne-sur-mer.fr': 'User-agent: *\nDisallow: /app/\n' } });
+  const robots = await permitListsRobots(city, http);
+  assert.equal(robots.allows('/votre-mairie/'), true);
+  await readPermitCity(city, http, { day: '2026-10-02' });
+  assert.ok(http.calls.length > 1);
+  for (const call of http.calls) assert.equal(call.headers['User-Agent'], city.userAgent);
 });

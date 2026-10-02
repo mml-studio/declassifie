@@ -135,6 +135,7 @@ import {
   MUNICIPAL_PERMIT_SOURCES, readMunicipalNotice, readBalmaTable, readWattrelosTable, saintPriestGridSpec,
 } from './municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES, readBloisFilings, readExtendedNotice } from './municipalPermitExtensions.js';
+import { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 import {
   CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
@@ -420,6 +421,7 @@ export const PERMIT_LISTS = Object.freeze([
   }),
   ...MUNICIPAL_PERMIT_SOURCES,
   ...EXTENDED_PERMIT_SOURCES,
+  ...BOARD_PERMIT_SOURCES,
 ]);
 
 /**
