@@ -4812,6 +4812,34 @@ a request for each way of writing its code answers an empty table. The
 quarterly scan reads that host already and will keep the commune once it
 posts.
 
+**Since 2026-10-02, Brive-la-Gaillarde answers with its public permit tables**
+(`src/data/webdevPermitsFeed.js`, `scripts/lib/permitLists.mjs`). The stable
+[municipal permit page](https://www.brive.fr/urbanisme/affichage-municipal-autorisations-durbanisme/)
+links an anonymous WEBDEV board on `doc.brive.org`. The server discovers
+the current portal link, session and publisher/category/year menu positions,
+then opens the newest dated posting under the city's urbanism folder. The
+2026 tables are under Documents; older postings use the Urbanisme category.
+The current and previous calendar years are checked when the newest year's
+collection is empty. Folder and PDF identifiers are discovered afresh;
+the JavaScript display program in the portal's XML response is never executed,
+only its quoted HTML links read. All four tables are required: prior
+declaration filings and decisions, and permit filings and decisions.
+
+The posting of 2026-09-30 holds 329 distinct dossiers: 107 filings and 222
+decisions, including 46 refusals and nine withdrawals, with dates through
+2026-09-28. The existing positioned grid reader retains wrapped amendment
+numbers, project addresses, works, dates, verdicts and published floor areas.
+A filing says Filed, with no claim that it is still under review. The
+permit card labels a refusal or withdrawal date as Decision, in both locales,
+instead of calling it a grant (`adsUrbanisme.js`, `permitProjects.i18n.js`). The
+standard six-hour cache, daily archive, applicant filtering, BAN address
+placement and Sitadel merge apply: the first live proxy scan places 319 of
+329 dossiers at their published project address. Each origin's robots file
+is honoured; a challenge, missing table or unreadable file preserves the
+shared archive.
+Coverage is only Brive (`19031`): the shared filing portal serves surrounding
+municipalities, but no shared public permit register has been confirmed.
+
 **Since 2026-10-01, Marseille and Nîmes answer with the lists they publish
 as PDF** (`src/data/permitListsFeed.js`, `scripts/lib/permitLists.mjs`).
 Marseille links two files from its urbanism page: every dossier still under

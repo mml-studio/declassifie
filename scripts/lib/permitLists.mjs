@@ -30,6 +30,10 @@ import { dematdocFiles, municipalFiles, municipalNextPage, municipalTitleRow } f
 import { digilorTitleRow, lorientBoardUrl, readLorientBoard, rueilTitleRow } from '../../src/data/municipalPermitExtensions.js';
 import municipalMessages from '../../src/data/municipalPermitsFeed.i18n.js';
 import {
+  webdevPortalUrl, webdevSession, webdevRequestBody, webdevMenu, webdevYears,
+  webdevFolders, webdevLatestPosting, webdevLists,
+} from '../../src/data/webdevPermitsFeed.js';
+import {
   arcadeActs,
   arcadeActUrl,
   arcadeContentUrl,
@@ -817,6 +821,7 @@ export async function readPermitCity(city, http, {
 } = {}) {
   if (city.source?.kind === 'lorient') return readLorientCity(city, http, { allows });
   if (city.source?.kind === 'rueil') return readRueilCity(city, http, { dir, allows, months, day, maxFiles });
+  if (city.source?.kind === 'webdev') return readWebdevCity(city, http, { dir, allows, maxFiles, day });
   if (city.source?.kind === 'municipal') return readMunicipalCity(city, http, { dir, allows, months, day, maxFiles, ocr, background });
   if (city.source?.kind === 'bulletin') return readBulletinCity(city, http, { dir, allows, months, day, ocr, maxFiles, maxPages, log });
   if (city.source?.kind === 'webdelib') return readWebdelibCity(city, http, { dir, allows, months, day });
@@ -838,6 +843,63 @@ export async function readPermitCity(city, http, {
   } else links = body ? permitListLinks(city, body) : null;
   if (!links) return null;
   return readLinkedLists(links, http, { dir, allows, maxFiles });
+}
+
+/**
+ * Brive's anonymous WEBDEV board. Read the stable municipal page for its
+ * portal URL, then the live publisher/category/year menus and newest posting
+ * folder. Current files are not pinned to yesterday's numeric IDs. The
+ * previous year is checked too when January's collection is still empty.
+ * Every origin's own robots file applies to its requests. No browser needed.
+ */
+async function readWebdevCity(city, http, { dir, allows, maxFiles, day }) {
+  if (!allows(new URL(city.page).pathname)) return null;
+  const page = await http.fetch(city.page);
+  const portal = page?.ok ? webdevPortalUrl(city, await http.text(page, PAGE_MAX_BYTES)) : null;
+  if (!portal) return null;
+  const portalRobots = await permitListsRobots({ page: portal }, http);
+  if (!portalRobots.allows(new URL(portal).pathname)) return null;
+  const response = await http.fetch(portal, { headers: { Accept: 'text/html' } });
+  const session = response?.ok ? webdevSession(city, await http.text(response, PAGE_MAX_BYTES), portal) : null;
+  if (!session || !portalRobots.allows(new URL(session.url).pathname)) return null;
+  const post = async (options) => {
+    const result = await http.fetch(session.url, { method: 'POST', headers: {
+      'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/xml',
+      Referer: portal, Origin: new URL(portal).origin,
+    }, body: webdevRequestBody(session, options) });
+    const xml = result?.ok ? await http.text(result, PAGE_MAX_BYTES) : null;
+    return /^\s*<\?xml\b[^>]*>\s*<WAJAX\b/i.test(xml ?? '') && /<\/WAJAX>\s*$/.test(xml) ? xml : null;
+  };
+  const publisher = await post({ context: 'A41' });
+  if (!publisher) return null;
+  const categories = webdevMenu(publisher, 'A9');
+  // i18n-ignore-next-line — the publisher's category names, newest layout first
+  for (const title of ['Documents', 'Urbanisme']) {
+    const category = categories.find((item) => item.title === title)?.value;
+    if (!category) continue;
+    const root = await post({ context: 'A16', category });
+    if (!root) return null;
+    const currentYear = Number(day.slice(0, 4));
+    const years = webdevYears(root).filter((item) => item.year <= currentYear && item.year >= currentYear - 1);
+    for (const year of years) {
+      const options = { category, year: year.value };
+      const collection = year.value === '1' ? root : await post({ ...options, context: 'A28' });
+      if (!collection) return null;
+      // i18n-ignore-next-line — the publisher's folder name
+      const urbanism = webdevFolders(collection).find((folder) => /^urbanisme$/i.test(folder.title));
+      if (!urbanism) continue;
+      const folders = await post({ ...options, context: 'A18', folder: urbanism.id });
+      if (!folders) return null;
+      const posting = webdevLatestPosting(folders);
+      if (!posting) continue;
+      const content = await post({ ...options, context: 'A18', folder: posting.id });
+      const lists = content ? webdevLists(city, content) : null;
+      if (!lists) return null;
+      const filesRobots = await permitListsRobots({ page: city.source.fileBase }, http);
+      return readLinkedLists(lists, http, { dir, maxFiles, allows: filesRobots.allows });
+    }
+  }
+  return null;
 }
 
 /**

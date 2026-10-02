@@ -14,7 +14,7 @@ import {
   sweepPermitLists,
 } from './permitLists.mjs';
 import { createCartdsArchiveStore } from './cartdsArchive.mjs';
-import { PERMIT_LIST_ROWS } from '../../src/data/permitListsFeed.js';
+import { PERMIT_LIST_ROWS, PERMIT_LISTS, normalisePermitListRow } from '../../src/data/permitListsFeed.js';
 import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES } from '../../src/data/municipalPermitExtensions.js';
 
@@ -214,6 +214,119 @@ const FILE_URL = 'https://ville.example/files/20260921-etat-registre_dossiers_af
 async function tempDir() {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'permit-lists-'));
 }
+
+/** A synthetic Brive table in the same searchable Word PDF layout. */
+function brivePdf(board, kind) {
+  const entry = kind === 'PC' ? 'PC 19031 26 00042' : `DP 19031 26 ${board === 'filings' ? '00001' : '00002'}`;
+  const runs = board === 'filings' ? [
+    [40, 500, 'Date de d\xe9p\xf4t'], [140, 500, 'Num\xe9ro de dossier'], [260, 500, 'P\xe9titionnaire'],
+    [400, 500, 'Adresse du projet'], [590, 500, 'Description du projet'],
+    [40, 475, '25/09/2026'], [140, 475, entry], [260, 475, 'Jane Example'],
+    [400, 475, '34 Rue Exemple'], [400, 465, '19100 BRIVE-LA-GAILLARDE'], [590, 475, 'Extension'],
+    ...(kind === 'PC' ? [[140, 465, 'M01']] : []),
+  ] : [
+    [40, 500, 'Num\xe9ro de dossier'], [160, 500, 'P\xe9titionnaire'], [280, 500, 'D\xe9cision'],
+    [400, 500, 'Date de'], [400, 490, 'signature'], [460, 500, 'Nature des travaux'],
+    [620, 500, 'Adresse des travaux'], [790, 500, 'Surface'],
+    [40, 475, entry], [160, 475, 'Jane Example'], [280, 475, kind === 'PC' ? 'D\xe9favorable' : 'Favorable'],
+    [400, 475, '28/09/2026'], [460, 475, 'Extension'], [620, 475, '34 Rue Exemple'],
+    [620, 465, '19100 BRIVE-LA-GAILLARDE'], [790, 475, '12,5 m\xb2'],
+    ...(kind === 'PC' ? [[40, 465, 'M01']] : []),
+  ];
+  const content = runs.map(([x, y, text]) => `BT /F1 7 Tf 1 0 0 1 ${x} ${y} Tm (${text}) Tj ET`).join('\n');
+  return Buffer.from(`%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n`
+    + `2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >> endobj\n`
+    + `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Contents 4 0 R >> endobj\n`
+    + `4 0 obj << /Length ${Buffer.byteLength(content, 'latin1')} >> stream\n${content}\nendstream endobj\n`
+    + `5 0 obj << /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >> endobj\n`
+    + `trailer << /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+}
+
+/** Anonymous WEBDEV host: deliberately different menu, folder and file IDs. */
+function briveHttp({ start = 800, missingTable = false, failedPdf = false, challenge = false, rollover = false, robots = {} } = {}) {
+  const city = PERMIT_LISTS.find((item) => item.key === 'brive');
+  const portal = `${city.source.portal}?site=public%2Btoken`;
+  const action = `${city.source.portal}PAGE_accueil_publication_document_html/new-session`;
+  const escapeXml = (v) => v.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll("'", '&apos;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const xml = (content) => `<?xml version="1.0"?><WAJAX>${content}</WAJAX>`;
+  const folders = (html) => xml(`<CHAMP ALIAS="A21"><PROP NUM="21">${escapeXml(`jQuery('#target').append(${JSON.stringify(html)});`)}</PROP></CHAMP>`);
+  const folder = (id, title) => `<a id='lienDossier${id}'>${title}</a>`;
+  const years = `<CHAMP ALIAS="A42"><OPTIONS>${rollover ? '<OPTION>ANNÉE 2027</OPTION>' : ''}<OPTION>ANNÉE 2026</OPTION></OPTIONS></CHAMP>`;
+  const documents = [
+    ['filings', 'DP', 'Dépot DP'], ['decisions', 'DP', 'Décision DP'],
+    ['filings', 'PC', 'Dépot Permis'], ['decisions', 'PC', 'Décision Permis'],
+  ].map(([board, kind, title], i) => ({ id: start + i, board, kind, title }));
+  const base = fakeHttp({ robots, pages: {
+    [city.page]: `<a href="${portal}">Public posting</a>`,
+    [portal]: `<form action="${action}"></form><div id="zrl_7_A39">Ville de Brive</div>`,
+  }, files: Object.fromEntries(documents.map((doc, i) => [`${city.source.fileBase}DOC_${doc.id}.pdf`,
+    failedPdf && i === 3 ? 503 : { bytes: brivePdf(doc.board, doc.kind), etag: `"${doc.id}"` }])) });
+  const posts = [];
+  return { ...base, posts, async fetch(url, init = {}) {
+    if (url !== action) return base.fetch(url, init);
+    const fields = Object.fromEntries(new URLSearchParams(init.body)); posts.push(fields);
+    assert.equal(init.method, 'POST'); assert.equal(fields.A35, '7');
+    assert.equal(fields.A21, undefined);
+    let body;
+    if (challenge) body = '<html>Challenge</html>';
+    else if (fields.WD_CONTEXTE_ === 'A41') body = xml('<CHAMP ALIAS="A5"><div id="zrl_9_A9">Documents</div><div id="zrl_4_A9">Urbanisme</div></CHAMP>');
+    else if (fields.WD_CONTEXTE_ === 'A16' || fields.WD_CONTEXTE_ === 'A28') {
+      const empty = rollover && fields.A42 === '1';
+      body = folders(empty ? folder(99, 'Other documents') : folder(9001, 'Urbanisme')).replace('</WAJAX>', `${years}</WAJAX>`);
+    } else if (fields.A19 === '9001') body = folders(folder(9002, 'Affichage au 30/09/2026') + folder(9003, 'Affichage au 02/10/2026'));
+    else if (fields.A19 === '9003') body = folders(documents.filter((_, i) => !missingTable || i !== 3).map((doc) =>
+      `<a onclick="selectionArrete('A29', 'A19', this, true, 'VDB/DOCUMENTS/', '${doc.id}');">20261002 - ${doc.title}</a>`).join(''));
+    else throw new Error(`Unexpected WEBDEV request ${JSON.stringify(fields)}`);
+    return { ok: true, status: 200, payload: body };
+  } };
+}
+
+test('Brive discovers all four live tables, retains amendments and refusals, and caches no private applicant', async () => {
+  const city = PERMIT_LISTS.find((item) => item.key === 'brive');
+  const dir = await tempDir();
+  const http = briveHttp();
+  const answer = await readPermitCity(city, http, { dir, day: '2026-10-02' });
+  assert.equal(answer.boards.filings.length, 2);
+  assert.equal(answer.boards.decisions.length, 2);
+  assert.ok(http.posts.every((p) => p.A19 !== '9002'), 'only the newest posting is read');
+  assert.ok(http.posts.filter((p) => p.WD_CONTEXTE_ !== 'A41').every((p) => p.A5 === '9'), 'category positions are discovered');
+  const filed = normalisePermitListRow(city, 'filings', answer.boards.filings[1], { current: true });
+  const refused = normalisePermitListRow(city, 'decisions', answer.boards.decisions[1], { current: true });
+  assert.equal(filed.state, 'depose');
+  assert.equal(filed.depositedOn, '2026-09-25');
+  assert.equal(refused.state, 'refuse');
+  assert.equal(refused.decidedOn, '2026-09-28');
+  assert.equal(filed.dossier, refused.dossier, 'the wrapped amendment number joins the filing to its decision');
+  assert.equal(refused.surfaceCreatedM2, 12.5);
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /Jane Example/);
+  const again = await readPermitCity(city, http, { dir, day: '2026-10-02' });
+  assert.ok(again.lists.every((list) => list.reused), 'validators reuse the scrubbed edition');
+  const replaced = await readPermitCity(city, briveHttp({ start: 1000 }), { dir, day: '2026-10-02' });
+  assert.ok(replaced.lists.every((list) => /DOC_100\d\.pdf$/.test(list.url)));
+});
+
+test('an empty January collection falls back to the previous calendar year', async () => {
+  const city = PERMIT_LISTS.find((item) => item.key === 'brive');
+  const http = briveHttp({ rollover: true });
+  const answer = await readPermitCity(city, http, { day: '2027-01-02' });
+  assert.equal(answer.lists.length, 4);
+  assert.ok(http.posts.some((p) => p.WD_CONTEXTE_ === 'A28' && p.A42 === '2' && p.A14 === '2'));
+});
+
+test('missing Brive tables, failed PDFs, challenges and either host robots refusal do not replace the archive', async () => {
+  const city = PERMIT_LISTS.find((item) => item.key === 'brive');
+  for (const options of [
+    { missingTable: true }, { failedPdf: true }, { challenge: true },
+    { robots: { 'doc.brive.org': 'User-agent: *\nDisallow: /' } },
+    { robots: { 'dunfw.brive.org': 'User-agent: *\nDisallow: /' } },
+  ]) {
+    const http = briveHttp(options);
+    assert.equal(await readPermitCity(city, http, { day: '2026-10-02' }), null);
+    if (options.missingTable || options.challenge || options.robots) {
+      assert.ok(!http.calls.some((call) => call.url.endsWith('.pdf')));
+    }
+  }
+});
 
 test('a city\'s list is read off its page, scrubbed, and kept per edition', async () => {
   const dir = await tempDir();

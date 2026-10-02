@@ -34,6 +34,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Scanned Digilor decisions await background OCR; a signed act without a
   readable verdict is never assumed granted. Rueil's abbreviated addresses
   must match the municipality, house number and street before being drawn.
+- **Brive-la-Gaillarde now shows its filed and decided planning permits**
+  from the city's public document board: 329 dossiers in the 30 September
+  2026 posting, including 107 filings, 46 refusals and nine withdrawals.
+  The four current PDF tables are discovered automatically and join the
+  daily archive. Coverage is the municipality of Brive; the neighbouring
+  municipalities' public registers have not been confirmed.
+  Refusal and withdrawal dates now read “Decision” in the permit card.
 - **Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin now show
   their published planning permits**, including prior declarations, refusals
   and withdrawals. Municipal PDF lists and individual notices join the daily

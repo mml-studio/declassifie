@@ -187,6 +187,27 @@ export const PERMIT_LIST_BOARDS = Object.freeze({ filings: 'filings', decisions:
  */
 export const PERMIT_LISTS = Object.freeze([
   Object.freeze({
+    key: 'brive',
+    insee: '19031',
+    label: 'Ville de Brive-la-Gaillarde — dossiers d’urbanisme déposés et décidés', // i18n-ignore-line — the publisher and its lists
+    page: 'https://www.brive.fr/urbanisme/affichage-municipal-autorisations-durbanisme/',
+    source: Object.freeze({
+      kind: 'webdev',
+      portal: 'https://doc.brive.org/service30_publication_reglementaire/',
+      publisher: 'Ville de Brive', // i18n-ignore-line — the publisher's menu label
+      directory: 'VDB/DOCUMENTS/',
+      fileBase: 'https://dunfw.brive.org/SERVICE30_PUBREG/VDB/DOCUMENTS/',
+    }),
+    // i18n-ignore-start — the words of the city's four current table links
+    lists: Object.freeze([
+      Object.freeze({ board: 'filings', layout: 'grid', title: /\bd[ée]p[ôo]t\s+DP$/i }),
+      Object.freeze({ board: 'decisions', layout: 'grid', title: /\bd[ée]cision\s+DP$/i }),
+      Object.freeze({ board: 'filings', layout: 'grid', title: /\bd[ée]p[ôo]t\s+Permis$/i }),
+      Object.freeze({ board: 'decisions', layout: 'grid', title: /\bd[ée]cision\s+Permis$/i }),
+    ]),
+    // i18n-ignore-end
+  }),
+  Object.freeze({
     key: 'marseille',
     insee: '13055',
     underReview: true,
