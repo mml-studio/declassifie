@@ -301,7 +301,7 @@ export function permitProjectTag({ dwellings = null, classId, approximate = fals
  * @param {?string} [project.nature] « Nouvelle construction »…
  * @param {?string} [project.address]
  * @param {?string} [project.commune]
- * @param {{filed?: ?string, granted?: ?string, started?: ?string, completed?: ?string}} [project.dates]
+ * @param {{filed?: ?string, granted?: ?string, decided?: ?string, started?: ?string, completed?: ?string}} [project.dates]
  *   ISO dates.
  * @param {boolean} [project.approximate] The marker is not on the project's own ground.
  * @param {string[]} [project.details] What the fold holds, one line each.
@@ -332,7 +332,8 @@ export function permitProjectCard({
   }
   const color = permitProjectColor(classId);
   // The timeline: the moments the register can publish, in order. A permit
-  // still at the counter opens on its filing; every other one on its grant.
+  // still at the counter opens on its filing; a refusal or withdrawal on its
+  // decision, and a granted permit on its grant.
   // A cancelled or refused file has no work to come, so the two work steps
   // are not drawn at all rather than drawn « non renseignée »; nor are they
   // for a demolition (below).
@@ -342,6 +343,7 @@ export function permitProjectCard({
     steps.push({ label, value: value || m.steps.missing, done: Boolean(value), color: value ? color : null });
   };
   if (classId === 'filed') step(m.steps.filed, dates.filed);
+  else if (dates.decided) step(m.steps.decided, dates.decided);
   else if (!dates.granted && permitDate(dates.grantedBy)) {
     // A register that publishes no decision day but the day it made the
     // decision public: the grant is at the latest that day, and says so.

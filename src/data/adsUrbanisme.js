@@ -988,7 +988,8 @@ export function adsPermitPanel(permit, { others = 0 } = {}) {
     commune: permit.commune || null,
     dates: {
       filed: permit.depositedOn,
-      granted: permit.decidedOn,
+      granted: ['refuse', 'annule'].includes(permit.state) ? null : permit.decidedOn,
+      decided: ['refuse', 'annule'].includes(permit.state) ? permit.decidedOn : null,
       grantedBy: permit.state === 'accorde' ? permit.postedOn : null,
       started: permit.startedOn,
       completed: permit.completedOn,

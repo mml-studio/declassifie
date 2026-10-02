@@ -38,6 +38,7 @@ import adsUrbanismeLayer, {
   adsBuildingThemeLine,
   adsBuildingThemePoints,
   adsDateLine,
+  adsPermitPanel,
   adsEmpriseLine,
   adsPrecisionLine,
   adsRowControls,
@@ -65,6 +66,23 @@ function bordeauxPayload() {
 
 /** Proper nouns the portal publishes and this layer relays. */
 const PUBLISHED = ['Bordeaux Métropole'];
+
+test('a municipal refusal or withdrawal carries a decision date, never a grant, in both languages', () => {
+  for (const [locale, label, date] of [['fr', 'Décision', '28 sept. 2026'], ['en', 'Decision', 'Sep 28, 2026']]) {
+    for (const state of ['refuse', 'annule']) {
+      const panel = withLocale(locale, () => adsPermitPanel({
+        id: 'permit-list:brive:DP0190312600001', kind: 'DP', state, decidedOn: '2026-09-28',
+        address: '34 Rue Exemple', sourceLabel: 'Ville de Brive-la-Gaillarde',
+      }));
+      assert.equal(panel.steps.items.length, 1);
+      assert.equal(panel.steps.items[0].label, label);
+      assert.equal(panel.steps.items[0].value, date);
+      assert.equal(panel.steps.items[0].done, true);
+    }
+  }
+  const granted = withLocale('en', () => adsPermitPanel({ kind: 'PC', state: 'accorde', decidedOn: '2026-09-28' }));
+  assert.equal(granted.steps.items[0].label, 'Permit granted');
+});
 
 /* ── the chips ───────────────────────────────────────────────────────────── */
 
