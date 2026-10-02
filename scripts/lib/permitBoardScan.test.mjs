@@ -28,6 +28,15 @@ const COMMUNES = indexCommunes([
   { code: '93066', nom: 'Saint-Denis', codeDepartement: '93', codeEpci: '200057867' },
   { code: '97411', nom: 'Saint-Denis', codeDepartement: '974', codeEpci: '249740119' },
   { code: '92024', nom: 'Clichy', codeDepartement: '92', codeEpci: '200054781' },
+  { code: '21132', nom: 'Chambœuf', codeDepartement: '21', codeEpci: '200070894' },
+  { code: '25609', nom: 'Verrières-de-Joux', codeDepartement: '25', codeEpci: '242500338' },
+  { code: '04049', nom: 'Château-Arnoux-Saint-Auban', codeDepartement: '04', codeEpci: '200067437' },
+  { code: '04061', nom: 'Colmars', codeDepartement: '04', codeEpci: '200068625' },
+  { code: '38437', nom: "Saint-Paul-d'Izeaux", codeDepartement: '38', codeEpci: '200059392' },
+  { code: '30308', nom: 'Sanilhac-Sagriès', codeDepartement: '30', codeEpci: '200034379' },
+  { code: '82013', nom: 'Beaumont-de-Lomagne', codeDepartement: '82', codeEpci: '248200065' },
+  { code: '82006', nom: 'Auterive', codeDepartement: '82', codeEpci: '248200065' },
+  { code: '82053', nom: 'Escazeaux', codeDepartement: '82', codeEpci: '248200065' },
 ]);
 
 test('the archive names the tenants and the board path each one uses', () => {
@@ -70,11 +79,34 @@ test('a menu entry is matched by code, by number and name, or by unpadded code',
   assert.equal(resolveMenuCommune({ value: '24', name: 'Clichy-la-Garenne' }, COMMUNES), '92024');
 });
 
-test('an instance is written with the one way its menu sends communes', () => {
-  assert.equal(menuCodes([{ value: '68066', insee: '68066' }]), 'insee');
-  assert.equal(menuCodes([{ value: '66', insee: '68066' }, { value: '118', insee: '68118' }]), 'number');
-  assert.equal(menuCodes([{ value: '3058', insee: '03058' }]), 'unpadded');
-  assert.equal(menuCodes([{ value: '66', insee: '68066' }, { value: '68118', insee: '68118' }]), null);
+test('a menu entry named its own way is matched by its code, where the names start alike', () => {
+  // The COG writes the ligature, the menu does not.
+  assert.equal(foldCommuneName('Chambœuf'), 'chamboeuf');
+  assert.equal(resolveMenuCommune({ value: '132', name: 'Chamboeuf' }, COMMUNES), '21132');
+  // An article the COG does not carry.
+  assert.equal(resolveMenuCommune({ value: '609', name: 'LES VERRIERES DE JOUX' }, COMMUNES), '25609');
+  // A name of its own: the code settles it within the board's departments.
+  const alpes = new Set(['04']);
+  assert.equal(resolveMenuCommune({ value: '4049', name: 'CHATEAU-ARNOUX' }, COMMUNES), null);
+  assert.equal(resolveMenuCommune({ value: '4049', name: 'CHATEAU-ARNOUX' }, COMMUNES, alpes), '04049');
+  assert.equal(resolveMenuCommune({ value: '4061', name: 'Colmars les Alpes' }, COMMUNES, alpes), '04061');
+  assert.equal(resolveMenuCommune({ value: '437', name: 'SAINT PAUL IZEAUX' }, COMMUNES, new Set(['38'])), '38437');
+  assert.equal(resolveMenuCommune({ value: '308', name: 'SANILHAC-ET-SAGRIES' }, COMMUNES, new Set(['30'])), '30308');
+  // The code alone is not enough: a name that starts otherwise is another commune.
+  assert.equal(resolveMenuCommune({ value: '4061', name: 'ALLOS' }, COMMUNES, alpes), null);
+  // Nor is the name alone, outside the board's departments.
+  assert.equal(resolveMenuCommune({ value: '4049', name: 'CHATEAU-ARNOUX' }, COMMUNES, new Set(['05'])), null);
+});
+
+test('an instance is written with the way its menu sends communes, and the odd ones out', () => {
+  assert.deepEqual(menuCodes([{ value: '68066', insee: '68066' }]), { codes: 'insee', values: {} });
+  assert.deepEqual(menuCodes([{ value: '66', insee: '68066' }, { value: '118', insee: '68118' }]), { codes: 'number', values: {} });
+  assert.deepEqual(menuCodes([{ value: '3058', insee: '03058' }]), { codes: 'unpadded', values: {} });
+  // The Bastides de Lomagne's menu: INSEE codes, and 13 for Beaumont-de-Lomagne.
+  assert.deepEqual(menuCodes([
+    { value: '82006', insee: '82006' }, { value: '13', insee: '82013' }, { value: '82053', insee: '82053' },
+  ]), { codes: 'insee', values: { 82013: '13' } });
+  assert.equal(menuCodes([{ value: 'X1', insee: '68066' }]), null);
   assert.equal(menuCodes([]), null);
 });
 
@@ -139,6 +171,15 @@ test('the scan keeps the communes that posted lately and that nobody else reads'
       base: 'https://urba.plainecommune.fr/guichet-unique',
       communes: [entry('93066', 'COMMUNE NOUVELLE DE SAINT-DENIS', 138, 88, '01/10/2026')],
     },
+    {
+      host: 'bastidesdelomagne.geosphere.fr',
+      base: 'https://bastidesdelomagne.geosphere.fr/guichet-unique',
+      communes: [
+        entry('82006', 'AUTERIVE', 3, 0, '17/09/2026'),
+        entry('13', 'BEAUMONT DE LOMAGNE', 15, 17, '29/09/2026', '18/09/2026'),
+        entry('82053', 'ESCAZEAUX', 1, 1, '08/09/2026', '04/08/2026'),
+      ],
+    },
     { host: 'down.geosphere.fr', base: null },
     {
       // The vendor's demonstration tenant posts made-up dossiers under real names.
@@ -148,7 +189,7 @@ test('the scan keeps the communes that posted lately and that nobody else reads'
     },
   ];
   for (const probe of probes) {
-    for (const item of probe.communes ?? []) item.insee = resolveMenuCommune(item, COMMUNES, new Set(['93', '83', '68', '03']));
+    for (const item of probe.communes ?? []) item.insee = resolveMenuCommune(item, COMMUNES, new Set(['93', '83', '68', '03', '82']));
   }
   // Saint-Denis's commune nouvelle is named on its menu by what it became.
   probes[4].communes[0].insee = '93066';
@@ -162,10 +203,14 @@ test('the scan keeps the communes that posted lately and that nobody else reads'
   });
   assert.deepEqual(instances.map((i) => [i.key, i.codes, i.communes]), [
     ['atda03', 'unpadded', ['03058']],
+    ['bastidesdelomagne', 'insee', ['82006', '82013', '82053']],
     ['cacolmar', 'number', ['68066']],
     ['cavem', 'insee', ['83118']],
   ]);
   const by = Object.fromEntries(instances.map((i) => [i.key, i]));
+  // A mixed menu is kept, with what it sends for the odd one out.
+  assert.deepEqual(by.bastidesdelomagne.values, { 82013: '13' });
+  assert.equal(by.cacolmar.values, undefined);
   assert.equal(by.atda03.robots, 'overridden');
   assert.equal(by.cacolmar.robots, undefined);
   assert.equal(by.cavem.robots5xx, 'absent');
@@ -186,12 +231,17 @@ test('the module the scan writes is the instances it kept', async () => {
       key: 'atda03', base: 'https://atda03.geosphere.fr/guichet-unique', label: "L'Allier — affichage réglementaire", codes: 'unpadded',
       robots: 'overridden', communes: ['03001', '03002', '03003', '03004', '03005', '03006', '03007', '03008', '03009'],
     },
+    {
+      key: 'bastidesdelomagne', base: 'https://bastidesdelomagne.geosphere.fr/guichet-unique', label: 'CC de la Lomagne Tarn-et-Garonnaise — affichage réglementaire',
+      codes: 'insee', values: { 82013: '13' }, communes: ['82006', '82013'],
+    },
   ];
   const source = renderScannedModule(instances, { day: '2026-10-01', hosts: 320, boards: 252 });
   assert.match(source, /^\/\/ GENERATED by `npm run permits:scan`/);
   const module = await import(`data:text/javascript,${encodeURIComponent(source)}`);
   assert.deepEqual(JSON.parse(JSON.stringify(module.CARTDS_SCANNED_INSTANCES)), instances);
   assert.ok(Object.isFrozen(module.CARTDS_SCANNED_INSTANCES[1].communes));
+  assert.ok(Object.isFrozen(module.CARTDS_SCANNED_INSTANCES[2].values));
 });
 
 test('tenant names are guessed the ways the tenants found were written', () => {

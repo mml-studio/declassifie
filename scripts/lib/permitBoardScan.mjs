@@ -121,9 +121,14 @@ export function tenantGuesses(communes, epcis, limit = 6000) {
   return [...names].sort();
 }
 
-/** A commune name folded for matching: no accent, no article in brackets, `St` spelled out. */
+/**
+ * A commune name folded for matching: no accent, no ligature, no article in
+ * brackets, `St` spelled out. The ligature is spelled out because the COG
+ * writes Chambœuf and the menus CHAMBOEUF, and `œ` has no accent to drop.
+ */
 export function foldCommuneName(name) {
-  let folded = String(name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  let folded = String(name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/œ/g, 'oe').replace(/æ/g, 'ae').trim();
   const article = /^(.*?)\s*\((l'|l’|la|le|les)\)\s*$/.exec(folded);
   if (article) folded = `${article[2].replace(/['’]/, '')} ${article[1]}`;
   return folded
@@ -168,14 +173,48 @@ export function resolveMenuCommune(entry, index, departments = null) {
     const commune = index.byCode.get(`0${value}`);
     if (commune && foldCommuneName(commune.nom) === name) return commune.code;
   }
-  const named = index.byName.get(name) ?? index.byName.get(MENU_NAME_ALIASES[name]) ?? [];
+  const named = index.byName.get(name)
+    ?? index.byName.get(name.replace(/^(?:l|la|le|les) /, ''))
+    ?? index.byName.get(MENU_NAME_ALIASES[name]) ?? [];
   const narrow = (list) => (list.length > 1 && departments ? list.filter((c) => departments.has(c.codeDepartement)) : list);
   if (/^\d{1,3}$/.test(value)) {
     const numbered = narrow(named.filter((c) => c.code.endsWith(value.padStart(3, '0'))));
     if (numbered.length === 1) return numbered[0].code;
   }
   const only = narrow(named);
-  return only.length === 1 ? only[0].code : null;
+  if (only.length === 1) return only[0].code;
+  return departments ? renamedCommune(value, name, index, departments) : null;
+}
+
+/** A folded name's first word that is neither an article nor a saint. */
+function headWord(folded) {
+  return folded.split(' ').find((word) => !['l', 'la', 'le', 'les', 'saint', 'sainte'].includes(word)) ?? '';
+}
+
+/**
+ * A commune the menu names its own way, found by the code it sends.
+ *
+ * Boards keep the name a commune had, or the one it goes by: Colmars les
+ * Alpes for Colmars, Senez - Le Poil for Senez, Château-Arnoux for
+ * Château-Arnoux-Saint-Auban, Sanilhac-et-Sagries for Sanilhac-Sagriès — 10
+ * entries that posted between July and September 2026, on 6 boards. Their
+ * value is still the number or the unpadded code: in the departments of the
+ * board's other communes it names one commune, which counts when the two
+ * names start with the same word.
+ *
+ * @param {string} value What the menu sends, upper-cased.
+ * @param {string} name The menu's name, folded.
+ * @param {{byCode: Map}} index
+ * @param {Set<string>} departments
+ * @returns {?string}
+ */
+function renamedCommune(value, name, index, departments) {
+  if (!/^\d{1,5}$/.test(value)) return null;
+  const head = headWord(name);
+  const sent = (code) => (value.length > 3 ? code === value.padStart(5, '0') : code.endsWith(value.padStart(3, '0')));
+  const found = [...index.byCode.values()].filter((commune) => departments.has(commune.codeDepartement)
+    && sent(commune.code) && headWord(foldCommuneName(commune.nom)) === head);
+  return found.length === 1 ? found[0].code : null;
 }
 
 /** Lookups over geo.api.gouv.fr's commune list. */
@@ -193,10 +232,15 @@ export function indexCommunes(communes) {
 
 /**
  * What the instance's menu sends for its communes, as `cartdsCommuneValue`
- * reads it, or null when its entries do not agree on one way.
+ * reads it: the way most of its entries follow, and what the others send.
+ * Null when no entry follows any way.
+ *
+ * A menu can mix them. The Bastides de Lomagne's sends the INSEE code for 24
+ * communes and the bare number, 13, for Beaumont-de-Lomagne (82013), which
+ * posts the most of the 25 (2026-10-01); `values` keeps that 13.
  *
  * @param {Array<{value: string, insee: string}>} entries Resolved entries.
- * @returns {?('insee'|'number'|'unpadded')}
+ * @returns {?{codes: ('insee'|'number'|'unpadded'), values: Object<string, string>}}
  */
 export function menuCodes(entries) {
   const ways = [
@@ -204,10 +248,16 @@ export function menuCodes(entries) {
     ['number', (insee) => String(Number.parseInt(insee.slice(-3), 10))],
     ['unpadded', (insee) => insee.replace(/^0+/, '')],
   ];
+  const sent = (entry) => String(entry.value).toUpperCase();
+  let best = null;
   for (const [way, write] of ways) {
-    if (entries.length && entries.every((entry) => String(entry.value).toUpperCase() === write(entry.insee))) return way;
+    const follow = entries.filter((entry) => sent(entry) === write(entry.insee)).length;
+    if (follow && (!best || follow > best.follow)) best = { way, write, follow };
   }
-  return null;
+  if (!best) return null;
+  const values = {};
+  for (const entry of entries) if (sent(entry) !== best.write(entry.insee)) values[entry.insee] = sent(entry);
+  return { codes: best.way, values };
 }
 
 /** `dd/mm/yyyy` → `yyyy-mm-dd`, or null. */
@@ -254,8 +304,9 @@ export function instanceKey(host) {
  * holds at least one row posted within {@link LIVE_WITHIN_DAYS}, and that no
  * other register already reads (`claimed`) — a hand-written Cart@DS instance,
  * a métropole portal, a Sirap board. A commune two boards post for goes to the
- * one with more rows. An instance keeps its communes only if its menu sends
- * them one way (`menuCodes`).
+ * one with more rows. An instance is written with the way most of its menu
+ * sends communes, and `values` for a kept commune it sends another way
+ * (`menuCodes`).
  *
  * @param {object} options
  * @param {Array<object>} options.probes What the script read, one per host.
@@ -277,7 +328,7 @@ export function keepScannedInstances({ probes, index, claimed, epciNames = new M
     const resolved = (probe.communes ?? []).filter((entry) => entry.insee);
     if (!resolved.length) { skipped.push({ host: probe.host, why: 'no commune on its menu' }); continue; }
     const codes = menuCodes(resolved);
-    if (!codes) { skipped.push({ host: probe.host, why: 'menu sends communes more than one way' }); continue; }
+    if (!codes) { skipped.push({ host: probe.host, why: 'menu sends communes no known way' }); continue; }
     for (const entry of resolved) {
       const rows = (Number(entry.filings) || 0) + (Number(entry.decisions) || 0);
       const latest = [boardDay(entry.latestFiling), boardDay(entry.latestDecision)].filter(Boolean).sort().pop() ?? null;
@@ -299,11 +350,13 @@ export function keepScannedInstances({ probes, index, claimed, epciNames = new M
     for (let n = 2; keys.has(key); n += 1) key = `${instanceKey(new URL(probe.base).host)}${n}`;
     keys.add(key);
     communes.sort();
+    const values = Object.fromEntries(communes.filter((insee) => insee in codes.values).map((insee) => [insee, codes.values[insee]]));
     instances.push({
       key,
       base: probe.base,
       label: `${boardPublisher(communes, index, epciNames, probe.host)} — affichage réglementaire`,
-      codes,
+      codes: codes.codes,
+      ...(Object.keys(values).length ? { values } : {}),
       ...(probe.robotsAllows === false ? { robots: 'overridden' } : {}),
       ...(probe.robots5xx ? { robots5xx: 'absent' } : {}),
       communes,
@@ -355,6 +408,10 @@ export function renderScannedModule(instances, meta) {
     lines.push(`    base: ${quote(instance.base)},`);
     lines.push(`    label: ${quote(instance.label)}, // i18n-ignore-line — the publisher and its page title`);
     lines.push(`    codes: ${quote(instance.codes)},`);
+    if (instance.values) {
+      const values = Object.entries(instance.values).map(([insee, value]) => `${quote(insee)}: ${quote(value)}`);
+      lines.push(`    values: Object.freeze({ ${values.join(', ')} }),`);
+    }
     if (instance.robots) lines.push(`    robots: ${quote(instance.robots)},`);
     if (instance.robots5xx) lines.push(`    robots5xx: ${quote(instance.robots5xx)},`);
     const codes = instance.communes.map(quote);

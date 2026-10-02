@@ -188,7 +188,8 @@ export const CARTDS_LICENCE = 'Information publique — CRPA, art. L.321-1';
  * with its leading zero dropped (`'unpadded'`, so Châtillon in the Allier,
  * 03058, is `3058` — two departmental agencies found by the scan). Ten of the
  * fifteen send the number, and sending the INSEE code to one of them answers an
- * empty table rather than an error.
+ * empty table rather than an error. A menu that sends one commune another way
+ * than the rest carries it in `values`, INSEE code → what it sends.
  *
  * `robots5xx` is set on the one host whose front answers every path outside the
  * application with HTTP 503 — `robots.txt`, and an invented `nope.txt` alike,
@@ -448,6 +449,7 @@ export function cartdsInstanceFor(communeCode) {
  */
 export function cartdsCommuneValue(instance, insee) {
   const code = String(insee ?? '').trim().toUpperCase();
+  if (instance.values?.[code]) return instance.values[code];
   if (instance.codes === 'number') return String(Number.parseInt(code.slice(-3), 10));
   if (instance.codes === 'unpadded') return code.replace(/^0+/, '');
   return code;

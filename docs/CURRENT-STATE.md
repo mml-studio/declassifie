@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 204 Cart@DS *affichage réglementaire* boards (1 536 communes) and Sirap PU boards (1 066 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 206 Cart@DS *affichage réglementaire* boards (1 561 communes) and Sirap PU boards (1 066 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -4782,6 +4782,35 @@ communes found no third. Measured the same evening against
 geo.api.gouv.fr's populations, with the e-permis publishers below: 24.2 % of
 the population is seen within days, from 22.7 %; 41 of the 100 most
 populous communes, from 35, and 215 of the 1 000, from 198.
+
+**Since 2026-10-02, 25 communes the scan read but could not write.** Their
+boards posted between July and September 2026, yet the registry left them
+out. Fourteen menu entries named no commune of the COG: two for a ligature
+the folding kept (Chambœuf, Morteaux-Coulibœuf; `foldCommuneName` now spells
+`œ` and `æ` out), two for an article the COG does not carry (Le Mottier, Les
+Verrières de Joux), and ten for a name of the board's own — Colmars les Alpes,
+Senez - Le Poil, Château-Arnoux, Fillé-sur-Sarthe, Sanilhac-et-Sagries.
+Those still send their number or unpadded code, and in the departments of the
+board's other communes it names one commune; `resolveMenuCommune` takes it
+when the two names start with the same word. And the Bastides de Lomagne's
+board was dropped whole, its menu sending the INSEE code for 24 communes and
+the bare number, 13, for Beaumont-de-Lomagne, the one that posts the most:
+`menuCodes` now writes the way most entries follow and keeps the odd ones in
+`values` (INSEE code → what the menu sends), which `cartdsCommuneValue`
+reads first. Written from the reading of 2026-10-01 with `--day 2026-10-01`
+— judged a day later, two communes whose last row was 92 days old fell out
+of the window — the registry gained these 25 and lost none: 206 instances,
+1 561 communes, 19 192 inhabitants more. Seven were asked again on
+2026-10-02 and answered with dossiers numbered after their own INSEE code.
+Clisson stays out: it posts on Inetum's demonstration tenant, next to a
+commune that does not exist.
+
+Auxonne (21038) was checked the same day and posts nothing: its filings go
+through the Cart@DS of the CC Auxonne Pontailler Val de Saône
+(`valdesaone.geosphere.fr`), whose board is installed with an empty menu, and
+a request for each way of writing its code answers an empty table. The
+quarterly scan reads that host already and will keep the commune once it
+posts.
 
 **Since 2026-10-01, Marseille and Nîmes answer with the lists they publish
 as PDF** (`src/data/permitListsFeed.js`, `scripts/lib/permitLists.mjs`).
