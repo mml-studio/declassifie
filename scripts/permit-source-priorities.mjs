@@ -5,6 +5,9 @@
  *
  * npm run permits:priorities -- --exclude 31555 --out .context/priorities.json
  * Optional: --communes <Geo-API-JSON> --candidates <JSON-array> --minimum 50000
+ * Research history defaults to docs/research/permit-research-history.json.
+ * --research <JSON-array> replaces it; --revisit <INSEE> reopens a checked town
+ * when a new public source is found. Explicit --exclude still takes precedence.
  * Candidates: {key, url, communes: [INSEE], verified, latestPublication}.
  * `verified` means a public, placeable planning item was checked; a filing
  * portal, general legal board or protected endpoint is not verified.
@@ -21,6 +24,7 @@ import { permitSourcePriorities } from './lib/permitSourcePriorities.mjs';
 
 const { values } = parseArgs({ options: {
   communes: { type: 'string' }, candidates: { type: 'string' }, out: { type: 'string' },
+  research: { type: 'string' }, revisit: { type: 'string', multiple: true },
   exclude: { type: 'string', multiple: true }, minimum: { type: 'string', default: '50000' },
   day: { type: 'string', default: new Date().toISOString().slice(0, 10) },
 } });
@@ -37,12 +41,13 @@ else {
   communes = await response.json();
 }
 const candidates = values.candidates ? JSON.parse(await readFile(values.candidates, 'utf8')) : [];
+const research = JSON.parse(await readFile(values.research ?? new URL('../docs/research/permit-research-history.json', import.meta.url), 'utf8'));
 const report = permitSourcePriorities(communes, [
   ...CARTDS_INSTANCES, ...SIRAP_INSTANCES, ...EPERMIS_INSTANCES,
   ...LOCAL_ADS_PORTALS, ...PUBLICATION_ACTES_COMMUNES, ...PERMIT_LISTS,
-], { minimumPopulation, excluded: values.exclude ?? [], candidates, day: values.day });
+], { minimumPopulation, excluded: values.exclude ?? [], candidates, research, revisit: values.revisit ?? [], day: values.day });
 // Montpellier's annual open-data export and national Sitadel are not current
 // municipal boards and intentionally do not remove a city from this queue.
 if (values.out) await writeFile(values.out, `${JSON.stringify(report, null, 2)}\n`);
 else process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-if (values.out) console.log(`${report.coverage.municipalities} municipalities, ${report.coverage.population} residents (${report.coverage.percentage.toFixed(4)}%); ${report.towns.length} town priorities, ${report.intermunicipalities.length} intermunicipal priorities; verified new residents: ${report.verifiedAdditionalPopulation}`);
+if (values.out) console.log(`${report.coverage.municipalities} municipalities, ${report.coverage.population} residents (${report.coverage.percentage.toFixed(4)}%); ${report.towns.length} town priorities, ${report.deferredTowns.length} previously checked towns deferred, ${report.intermunicipalities.length} intermunicipal priorities; verified new residents: ${report.verifiedAdditionalPopulation}`);

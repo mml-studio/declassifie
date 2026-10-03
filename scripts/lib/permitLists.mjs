@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { permitPublicSession } from './permitPublicSession.mjs';
 import { extractPdfText } from '../../src/data/pdfText.js';
 import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
@@ -132,6 +133,7 @@ export const PERMIT_LISTS_BULLETIN_SCHEMA = 1;
 export async function permitListsRobots(city, http) {
   // An override asks nothing (see `robots` in `PERMIT_LISTS`).
   if (city.robots === 'overridden') return { allows: () => true, final: true };
+  http = permitPublicSession(city, http);
   const refuse = { allows: () => false };
   const response = await http.fetch(permitListRobotsUrl(city), city.userAgent ? { headers: { 'User-Agent': city.userAgent } } : undefined);
   if (!response) return { ...refuse, final: false };
@@ -913,6 +915,7 @@ export async function readPermitCity(city, http, {
   dir, allows = () => true, months = 2, day = cartdsDay(), maxFiles = PERMIT_LISTS_SCAN_FILES,
   ocr = null, maxPages, log, background = false,
 } = {}) {
+  http = permitPublicSession(city, http);
   if (city.source?.kind === 'board') return readBoardCity(city, http, { dir, allows, months, day, maxFiles, ocr, background, log });
   if (city.source?.kind === 'lorient') return readLorientCity(city, http, { allows });
   if (city.source?.kind === 'rueil') return readRueilCity(city, http, { dir, allows, months, day, maxFiles });

@@ -17,6 +17,9 @@ import { SIEVE_PAGE_CITIES } from './sievePageCities.js';
 
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
+  { key: 'levallois', insee: '92044', postcode: '92300', label: 'Ville de Levallois-Perret — dépôts et décisions d’urbanisme',
+    page: 'https://www.ville-levallois.fr/webdelibplus/jsp/legal.jsp?role=usager',
+    source: { base: 'https://www.ville-levallois.fr/webdelibplus', tab: 'legal', publicCookieRedirect: true, ocr: true } },
   { key: 'bry-sur-marne', insee: '94015', postcode: '94360', label: 'Ville de Bry-sur-Marne — dépôts et décisions d’urbanisme',
     page: 'https://www.brysurmarne.fr/mon-cadre-de-vie/urbanisme/information-de-la-population/les-avis-daffichage/',
     userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)', source: { ocr: true } },
