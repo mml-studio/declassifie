@@ -16,6 +16,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   Neuilly-en-Thelle, Saint-Hilaire-de-Chaléons and Les Alluets-le-Roi — post
   their urbanism acts on its « Documents administratifs » page, which a
   second protocol now reads from the JSON the page carries.
+- **Joué-lès-Tours and Bousbecque now show the permits they post on their
+  Docs2Web kiosk**, 43,400 inhabitants.
+  Screensoft's legal-display kiosk loads every folder and document of a
+  town's board as one XML tree; one protocol now reads the urbanism papers
+  whose names carry a dossier number, taking the number, the board, a
+  numbered street and the verdict from the name, then the act itself (by OCR
+  for scans) for the dates, the site and the parcels. Pantin and
+  L'Haÿ-les-Roses keep their own readers.
 - **Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres now show their
   published planning permits**, adding 70,197 residents to current
   municipal-source coverage (30.44% to 30.54%). Weekly and rolling PDF

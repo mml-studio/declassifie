@@ -5539,6 +5539,30 @@ posting day and its PDF, read by OCR in the sweep. Of the 159 IntraMuros
 sites among the uncovered communes above 500 inhabitants, 27 posted urbanism
 acts since July and these five give placeable rows. 82 200 inhabitants more.
 
+**Two communes on a Docs2Web kiosk (2026-10-03).** Screensoft's
+legal-display kiosk renders its cards from `params.js`, the tree of every
+folder (`theme`, `subtheme`) and document (`paper`) of a town's board as XML
+in a script. `src/data/permitBoardsDocs2web.js` reads it for the communes
+`docs2webCities.js` lists, with one protocol, `docs2web`: a paper is read
+when a folder above it is urbanism and its name names one of the commune's
+dossiers (`PC0723502600018 - ACCORD AVEC PRESCRIPTIONS - …`, `Arrêté DP 26 0
+0039 - 23 rue de Turenne`, whose counter Bousbecque types apart); its day is
+`real_date_debut`, else `date_debut`, else the upload day (`dateFileInAdmin`),
+and a paper scheduled after the reading's day waits; its board is what its
+name says, failing that its folders (Joué-lès-Tours's `AVIS DE DEPÔT > PC`,
+`ARRETES MUNICIPAUX > DP`), failing that a decision; certificates, signs,
+letters and inquiries are left out, and a paper listed twice is read once.
+The PDF is read by `dematdoc-notice`, by OCR in the sweep for scans. The
+Wayback Machine lists twelve tenants under `screensoft.eu/Docs2Web/`; with
+the kiosks Joué-lès-Tours and Quesnoy-sur-Deûle host themselves, two name a
+dossier in their papers, serve their PDFs and have no other source:
+Joué-lès-Tours and Bousbecque. Teloché's `content/` redirects to Screensoft's
+login, Bassens is read by Bordeaux Métropole's portal, and Quesnoy-sur-Deûle's
+kiosk answers over plain HTTP only. La Valette-du-Var names its papers
+by applicant, Saint-Amand-les-Eaux posts weekly lists, Varennes-Jarcy and
+Font-Romeu posted no urbanism since August; Pantin and L'Haÿ-les-Roses keep
+their own readers. 43 401 inhabitants more.
+
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
 members of Lorient Agglomération and Bondy, Blois, Aubagne, Thionville and
