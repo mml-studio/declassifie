@@ -31,6 +31,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   tenants list their communes but have posted nothing in three months; each
   scan asks them again. Aubière's DematDOC shelf, which the 2 October sweep
   missed while the network was down, joins the 55 DematDOC communes.
+- **Haguenau, Saverne, Barr, Benfeld, Offendorf and Lauterbourg now show the
+  permits they post as lists on their own sites**, 65,689 inhabitants. The
+  Bas-Rhin's instruction agency, ATIP 67, prints each commune's « Liste des
+  avis de dépôt » and « Liste des décisions » from Cart@DS while its own board
+  stays empty; one protocol now reads such lists from any commune's page,
+  newest edition first, with the number, site, parcels, works and verdict
+  each row prints.
 - **Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce now show their
   published planning decisions**, adding 61,425 residents to current
   municipal-source coverage (29.81% to 29.90%). Eaubonne's planning-theme

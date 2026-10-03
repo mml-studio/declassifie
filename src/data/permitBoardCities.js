@@ -9,6 +9,8 @@
  * how its board is read (`permitBoards.js`).
  */
 
+import { POSTED_LIST_CITIES } from './postedListCities.js';
+
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
   { key: 'bry-sur-marne', insee: '94015', postcode: '94360', label: 'Ville de Bry-sur-Marne — dépôts et décisions d’urbanisme',
@@ -195,6 +197,8 @@ for (const [insee, postcode, name] of XDEMAT_COMMUNES) {
  * robots.txt's included) sit in its entry; `source` extras (`ocr: true` for a board
  * whose scans the daily sweep reads by OCR) merge into its source.
  */
+CITIES.push(...POSTED_LIST_CITIES);
+
 export const BOARD_PERMIT_SOURCES = Object.freeze(CITIES.map((city) => Object.freeze({
   ...city,
   source: Object.freeze({ kind: 'board', protocol: city.key, ...(city.source ?? {}) }),

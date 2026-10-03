@@ -5464,6 +5464,29 @@ Gartempe's 55, the Gironde's SDEEG, which stopped in February); all join
 `SIRAP_SCAN_HOSTS`. Measured against geo.api.gouv.fr's populations: 372 763
 inhabitants more, 30.44 % of the population seen within days, from 29.90 %;
 300 of the 1 000 most populous communes, from 288.
+**Six communes that post their instruction lists (2026-10-03).**
+`src/data/permitBoardsPostedLists.js` reads the lists an instruction service
+prints from Cart@DS — « Liste des avis de dépôt », « Liste des décisions »,
+the reports Valence and Décines-Charpieu post too — wherever a commune links
+them from a page of its own site: one protocol, `posted-lists`, for the
+communes `postedListCities.js` lists. A link is a list when its file name or
+words say which (a town may name its own patterns: Haguenau's
+`… VILLE DE HAGUENAU DEPOTS.pdf` / `… AUTORISATIONS.pdf`, Lauterbourg's
+« Dépôts du 24 septembre 2026 »), a PDF or a document link; its day comes from
+the name or words in any of the orders towns write it (`28_09_2026`,
+`26-10-01`, `au 22 septembre 2026`), failing that the upload month, failing
+that the list is the board refreshed in place and asked again with its
+validators. A town whose links open a page of their own (Benfeld's IntraMuros
+site, which links the current PDF on its app's file host) follows them. The
+files are read by `cartds-report-filings` and `cartds-report-decisions`; a row
+whose number is another commune's is dropped. The Bas-Rhin's ATIP 67
+instructs for some 400 communes and prints these lists, while its own Cart@DS
+board (`appli.atip67.fr`) has an empty menu: its communes' pages are the only
+public copy. Haguenau (CA de Haguenau's service), Saverne, Barr, Benfeld,
+Offendorf and Lauterbourg posted within the month; read on 2026-10-03, they
+gave 230 filings and 322 decisions, every row with its site. Mutzig,
+Wittisheim and Huttenheim, said to post the same lists, link none from the
+pages found. 65 689 inhabitants more.
 
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
