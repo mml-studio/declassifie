@@ -5578,6 +5578,26 @@ sweep's OCR: Montbéliard 19 orders, Villeneuve-sur-Lot 40, Wasquehal 12
 orders and 3 filings, sites, parcels and verdicts from the acts. 127 771
 inhabitants more.
 
+**Rochefort and Chemillé-en-Anjou (2026-10-03).** Rochefort's legal board is
+its own app, whose Drupal back end answers plain GETs in JSON:
+`src/data/permitBoardsRochefort.js` reads the Urbanisme section's list
+(`listPublication`), keeps the orders — typed « Déclaration préalable de
+travaux », « Permis de construire », « Permis de démolir » or « Décision »,
+certificates and the weekly avis lists left out — and asks `getDocument64` for
+the PDF path of the 30 newest in the window, the archive keeping what earlier
+readings read. A title is the number, the applicant, the site and the works:
+the number and a numbered street up to the first works word are taken. The
+orders are scans, read by `dematdoc-notice` by OCR in the sweep: 30 read
+live, 27 with their site. Chemillé-en-Anjou posts on an A2Display kiosk;
+`src/data/permitBoardsA2display.js` reads the categories a commune names
+(`source.categories`, 760 « Permis et autorisations ») from
+`api.a2display.fr/category/<id>`, which lists every object since 2020 (9.7 MB):
+an order posted in the window gives its number (`PC2600100`, spelled out with
+the commune's code) and a site from its house number on, the delegated
+commune's two letters dropped; the typed PDF gives the rest. 54 orders read
+live, 45 with their site. Cergy's A2Display board keeps its own reader.
+45 459 inhabitants more.
+
 **Fourteen communes that post one act at a time (2026-10-03).** Many small
 towns link each receipt and order, one PDF each, from a page of their own
 site. The `posted-acts` protocol (`src/data/permitBoardsPostedLists.js`, next

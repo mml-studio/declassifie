@@ -35,6 +35,12 @@ const CITIES = [
     page: 'https://delibs.com/pavillonssousbois/', robots: 'overridden', source: { protocol: 'delibs', tenant: 'pavillonssousbois' } },
   { key: 'sainte-luce', insee: '97227', postcode: '97228', label: 'Ville de Sainte-Luce — décisions d’urbanisme',
     page: 'https://delibs.com/sainteluce/', robots: 'overridden', source: { protocol: 'delibs', tenant: 'sainteluce', dossierCode: '972227' } },
+  // Rochefort's own legal-display app; its back end serves the page's JSON.
+  { key: 'rochefort', insee: '17299', postcode: '17300', label: 'Ville de Rochefort — affichage légal d’urbanisme',
+    page: 'https://www.ville-rochefort.fr/affichage-legal', source: { ocr: true } },
+  // Chemillé-en-Anjou's A2Display kiosk: category 760, « Permis et autorisations ».
+  { key: 'chemille-en-anjou', insee: '49092', postcode: '49120', label: 'Ville de Chemillé-en-Anjou — permis et autorisations d’urbanisme',
+    page: 'https://www.chemille-en-anjou.fr/consultez-les-actes-administratifs/', source: { protocol: 'a2display-kiosk', categories: [760], ocr: true } },
   // Public boards confirmed during the outer Paris suburbs survey on 2026-10-02.
   { key: 'pontault-combault', insee: '77373', postcode: '77340', label: 'Ville de Pontault-Combault — dépôts et autorisations d’urbanisme',
     page: 'https://actes.pontault-combault.fr/docs/', source: { protocol: 'outer-pontault' } },
