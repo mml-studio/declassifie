@@ -81,6 +81,22 @@ test('a decision gives its site, parcels and verdict, never its applicant nor th
   assert.equal(normalisePermitListRow(MONTELIMAR, 'decisions', scrubPermitListRow(row)).state, 'refuse');
 });
 
+test('the operative article’s first sentence gives the verdict, before the withdrawal a later one names', () => {
+  const document = page(
+    [250, 760, 'ARRETE'],
+    [200, 748, 'De non opposition à une déclaration préalable'],
+    [310, 740, 'Déposée le : 17/09/2026'],
+    [310, 728, 'n° DP 26198 26 00512'],
+    [60, 660, 'Sur un terrain sis : 26 Allée Exemple,'],
+    [250, 560, 'ARRETE'],
+    [60, 540, 'Article 1'],
+    [60, 528, 'Il n’est pas fait opposition à la déclaration préalable. Elle peut faire l’objet d’un retrait dans les trois mois.'],
+    [300, 400, 'Fait à Montélimar, le 28/09/2026'],
+  );
+  const [row] = readDematdocNotice(document, { city: MONTELIMAR, file: { board: 'decisions', title: '' } });
+  assert.equal(row.verdict, 'Non-opposition');
+});
+
 test('a receipt reads the site under its label, in the label’s column, as a filing', () => {
   const document = page(
     [40, 790, 'MAIRIE DE BEAUZELLE'], [330, 790, 'Récépissé de dépôt'],

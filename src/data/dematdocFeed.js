@@ -396,7 +396,10 @@ export function readDematdocNotice(document, { city, file }) {
       .split(/\n\s*ARTICLE\s*\d/i)[0] : null;
     // The heading's verdict line by line, so that « OPPOSITION À DÉCLARATION » starts one.
     const titled = top.slice(0, 8).map((line) => municipalVerdict(line)).find(Boolean);
-    row.verdict = municipalVerdict(article) ?? titled ?? municipalVerdict(file.title) ?? verdicts.signed.fr;
+    // The article's first sentence says the verdict; a later one may name the
+    // withdrawal the law allows (Coulogne: « … pas fait opposition … » then « retrait »).
+    const said = article?.split(/(?<=[.;])\s/)[0];
+    row.verdict = municipalVerdict(said) ?? municipalVerdict(article) ?? titled ?? municipalVerdict(file.title) ?? verdicts.signed.fr;
     const signed = municipalDate(SIGNED.exec(body)?.[1]);
     row.decidedOn = file.decidedOn ?? (signed && (!filedOn || signed >= filedOn) ? signed : null);
   }

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSTED_LIST_PROTOCOLS, postedListDay, postedListFiles } from './permitBoardsPostedLists.js';
+import { POSTED_LIST_PROTOCOLS, postedActFiles, postedListDay, postedListFiles } from './permitBoardsPostedLists.js';
 import { BOARD_PERMIT_SOURCES, BOARD_PROTOCOLS, BOARD_READERS } from './permitBoards.js';
-import { permitListFor } from './permitListsFeed.js';
+import { PERMIT_LIST_READERS, permitListFor } from './permitListsFeed.js';
 
 const city = (key) => BOARD_PERMIT_SOURCES.find((source) => source.key === key);
 const KEYS = ['haguenau', 'saverne', 'barr', 'benfeld', 'offendorf', 'lauterbourg'];
@@ -75,4 +75,63 @@ test('a town that follows its links asks each one’s page for the PDF it links'
   assert.deepEqual(second.files, [{ url: 'https://files.appli-intramuros.com/legal_documents/7937/8846b5.pdf', board: 'filings',
     layout: 'cartds-report-filings', rolling: true }]);
   assert.equal(protocol.index(benfeld, '<p>nothing</p>', first.next[0], {}), null);
+});
+
+// --- One PDF per act -----------------------------------------------------------
+
+const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor'];
+
+test('the communes that post one PDF per act are read by `posted-acts` and the DematDOC act reader', () => {
+  for (const key of ACT_KEYS) {
+    assert.equal(permitListFor(city(key).insee), city(key), key);
+    assert.equal(city(key).source.protocol, 'posted-acts', key);
+  }
+  assert.equal(BOARD_PROTOCOLS['posted-acts'], POSTED_LIST_PROTOCOLS['posted-acts']);
+  assert.equal(typeof PERMIT_LIST_READERS['dematdoc-notice'], 'function');
+});
+
+test('an act is a link that names one of the commune’s dossiers, its board said by its words', () => {
+  const html = [
+    link('/wp-content/uploads/2026/10/DP-062758-26-00149-Recepisse-de-Depot.pdf'),
+    link('/wp-content/uploads/2026/09/arrete.pdf', 'ARRETE DP 26-85'),
+    link('/wp-content/uploads/2026/09/arrete-2.pdf', 'Arrêté DP 059 386 26 00095'),
+    link('/wp-content/uploads/2026/09/reglement-plu.pdf', 'Règlement du PLU'),
+  ].join('');
+  const files = postedActFiles(city('saint-martin-boulogne'), html, 'https://saintmartinboulogne.fr/affichage-legal/', '2026-08-01');
+  assert.ok(files, 'the page names acts');
+  assert.deepEqual(files.map((file) => [file.row.dossier, file.board, file.published]), [
+    ['DP 062758 26 00149', 'filings', '2026-10-01'],
+    ['DP 062758 26 00085', 'decisions', '2026-09-01'],
+  ], 'another commune’s full number never becomes a short one');
+  assert.ok(files.every((file) => file.layout === 'dematdoc-notice' && file.ocr));
+});
+
+test('a download button names its act in its title', () => {
+  const html = '<a class="document__link" href="/download/file/17347?key=x" title="Télécharger : dp_26_00058_arrete-tampon_1.pdf - extension pdf - poids 196.63 Ko">Téléchargement</a>'
+    + '<a href="/download/file/17348?key=y" title="Télécharger : dp_26_00058_-_demande-tampon.pdf - extension pdf">Téléchargement</a>';
+  const files = postedActFiles(city('rouvroy'), html, 'https://ville-rouvroy62.fr/affichage-legal', '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.row.dossier, file.board]), [
+    ['DP 062724 26 00058', 'decisions'],
+    ['DP 062724 26 00058', 'filings'],
+  ]);
+});
+
+test('the site a link prints stops before the works, the file’s weight and the number', () => {
+  const html = [
+    link('/medias/a.pdf', 'Arrêté Municipal n° 2026 / 428 : DP 062 274 26 00095 - [name] - 22 rue Erik Satie - Réalisation d\'une extension (163Ko)'),
+    link('/medias/b.pdf', 'Arrêté Favorable - [name] - 193, rue Victor Hugo DP 26 65'),
+  ].join('');
+  const sites = postedActFiles(city('dourges'), html, 'https://www.dourges.fr/arretes-municipaux', '2026-08-01').map((file) => file.row.address);
+  assert.deepEqual(sites, ['22 rue Erik Satie', '193, rue Victor Hugo']);
+  const roost = postedActFiles(city('roost-warendin'), link('/medias/2026/09/c.pdf', 'ADM – 2026-224 Non opposition à déclaration préalable - [name] - 193, rue Victor Hugo - DP 26-65'), 'https://www.ville-roostwarendin.fr/', '2026-08-01');
+  assert.equal(roost[0].row.address, '193, rue Victor Hugo');
+});
+
+test('an undated act counts when its number is of this year or the last, forty at most', () => {
+  const html = Array.from({ length: 60 }, (_, i) => link(`/medias/act-${i}.pdf`, `Arrêté DP 062 274 26 ${String(100 - i).padStart(5, '0')}`)).join('')
+    + link('/medias/old.pdf', 'REFUS PC 062 274 23 00007');
+  const files = postedActFiles(city('dourges'), html, 'https://www.dourges.fr/arretes-municipaux', '2026-08-01');
+  assert.equal(files.length, 40);
+  assert.ok(files.every((file) => / 26 /.test(file.row.dossier)));
+  assert.equal(postedActFiles(city('dourges'), link('/medias/old.pdf', 'REFUS PC 062 274 23 00007'), 'https://www.dourges.fr/', '2026-08-01'), null);
 });

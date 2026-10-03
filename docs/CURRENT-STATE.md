@@ -5512,6 +5512,33 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Fourteen communes that post one act at a time (2026-10-03).** Many small
+towns link each receipt and order, one PDF each, from a page of their own
+site. The `posted-acts` protocol (`src/data/permitBoardsPostedLists.js`, next
+to `posted-lists`) reads such a page for the communes `postedListCities.js`
+lists with it: a link is an act when its words, its title (Rouvroy's
+« Téléchargement » buttons name their file there) or its file name name one of
+the commune's dossiers; its board is what its words say (a receipt or an avis
+de dépôt is a filing, an order a decision); a numbered street is taken from
+the house number on and stops before the works, the file's weight or the
+number again; its day is the name's or the words', failing that the upload
+month. An undated act counts when its number is of this year or the last,
+forty at most (Dourges keeps every year's decrees on one page). The PDF is
+read by `dematdoc-notice`, by OCR in the daily sweep for scans: Rouvroy's
+eight newest gave filing days, verdicts and parcels. The reader takes a
+decision's verdict from the operative article's first sentence, then from
+the whole article: Coulogne's « Il n'est pas fait opposition », followed by
+the notice that the act may be withdrawn, read « Retrait » before. Saint-Martin-Boulogne,
+Marquette-lez-Lille, Bauvin, Rouvroy, Coulogne, Crespin, Dourges,
+Roost-Warendin and Anor are read; Denain answers HTTP 418 to the layer's
+user agent and is left out. `src/data/permitBoardsIntramuros.js` reads the
+five communes `intramurosCities.js` lists, whose IntraMuros site renders its
+legal board as JSON in `__NEXT_DATA__` (`legalDisplayDocuments`): an urbanism
+document whose title names a dossier gives its number, a numbered street, its
+posting day and its PDF, read by OCR in the sweep. Of the 159 IntraMuros
+sites among the uncovered communes above 500 inhabitants, 27 posted urbanism
+acts since July and these five give placeable rows. 82 200 inhabitants more.
+
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
 members of Lorient Agglomération and Bondy, Blois, Aubagne, Thionville and

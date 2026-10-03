@@ -18,6 +18,8 @@
  * names. Applicants: the readers keep an organisation at most.
  */
 
+import { municipalDossier, municipalSite } from './municipalPermitsFeed.js';
+
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const fold = (value) => clean(value).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’‘]/g, "'").replace(/[_-]+/g, ' ').toUpperCase();
 const ENTITIES = { amp: '&', quot: '"', apos: "'", nbsp: ' ', rsquo: '’', eacute: 'é', egrave: 'è', agrave: 'à', ocirc: 'ô' }; // i18n-ignore-line — HTML entity names
@@ -44,7 +46,8 @@ function pageLinks(html, base) {
     if (!/^https?:$/.test(url.protocol)) continue;
     let name = url.pathname;
     try { name = decodeURIComponent(url.pathname); } catch { /* a stray % keeps the raw path */ }
-    out.push({ url: url.href, name, words: clean(decode(match[2].replace(/<[^>]*>/g, ' '))) });
+    const title = /\btitle\s*=\s*["']([^"']*)["']/i.exec(match[0].slice(0, match[0].indexOf('>') + 1))?.[1];
+    out.push({ url: url.href, name, words: clean(decode(match[2].replace(/<[^>]*>/g, ' '))), title: clean(decode(title ?? '')) });
   }
   return out;
 }
@@ -131,6 +134,76 @@ const postedListsProtocol = {
   },
 };
 
-export const POSTED_LIST_PROTOCOLS = Object.freeze({ 'posted-lists': Object.freeze(postedListsProtocol) });
+// --- One PDF per act ---------------------------------------------------------
+
+// i18n-ignore-start — the boards' own words, matched on
+const ACT_FILING = /\b(?:RECEPISSE|AVIS DE DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
+const ACT_DECISION = /\b(?:ARRETE|DECISION|ACCORD|REFUS|OPPOSITION|NON OPPOSITION|FAVORABLE|DEFAVORABLE|RETRAIT)\b/;
+const STREET = 'rue|avenue|av\\.?|boulevard|bd|place|chemin|all[ée]es?|impasse|route|rte|quai|cours|faubourg|square|sentier|ruelle|passage|r[ée]sidence|lotissement|voie|cit[ée]|clos|hameau|lieu-dit|dr[èe]ve|zac';
+const NUMBERED_STREET = new RegExp(`(?:^|\\s)(\\d{1,4}(?:\\s?(?:bis|ter|[a-d]))?\\s*,?\\s+(?:${STREET})\\b.*)$`, 'i');
+const AFTER_STREET = /\s+(?:arr[êe]t[ée]|r[ée]c[ée]piss[ée]|d[ée]cision|accord|refus|favorable|d[ée]favorable|opposition|avis|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?=\s|$).*$/i;
+// What a link prints after the site: the works (« - Réalisation d'une extension »), the
+// file's weight, the number again, a lot, the commune.
+const AFTER_SITE = /\s+[-–—]\s.*$|\s*\(.*$|\s+(?:PC|DP|PA|PD|CU)\s*\d.*$|\s+lot\b.*$|\s+[àa]\s+[A-Z][A-Z' -]+$/;
+// i18n-ignore-end
+
+/** A link's numbered street, from its house number on — never the words before it. */
+function actStreet(text) {
+  const match = NUMBERED_STREET.exec(clean(text));
+  if (!match) return null;
+  const street = clean(match[1].replace(AFTER_SITE, '').replace(AFTER_STREET, '').replace(/[\s,;-]+$/, ''));
+  return street.length >= 6 ? street : null;
+}
+
+/**
+ * The acts a page links, one PDF each: a link is an act when its words or its
+ * file name name one of the commune's dossiers (`DP-062758-26-00149-Recepisse-de-Depot.pdf`,
+ * « arrete DP 0593862600095 », « DP 059.052.26.00024 »). The act is read by
+ * `dematdoc-notice`, which takes the number, the site and the board from the
+ * act's own heading; meanwhile the link gives the number, a numbered street
+ * when it names one, and the board its words say (`source.board`, else a
+ * decision, when they say none). The day comes from the name or the words,
+ * failing that the upload month; an undated act counts when its number is
+ * of this year or the last, forty at most.
+ */
+export function postedActFiles(city, html, pageUrl, since = null) {
+  const files = [];
+  for (const link of pageLinks(html, pageUrl)) {
+    if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
+    // A « Téléchargement » button names its file in its title (Rouvroy).
+    const words = clean(`${link.words} ${(link.title ?? '').replace(/_+/g, ' ')}`);
+    const base = link.name.replace(/^.*\//, '').replace(/\.pdf$/i, '').replace(/[_.]+/g, ' ');
+    const text = clean(`${words} ${base.replace(/-/g, ' ')}`);
+    const dossier = municipalDossier(words, city) ?? municipalDossier(base.replace(/-/g, ' '), city) ?? municipalDossier(text, city);
+    if (!dossier || files.some((file) => file.url === link.url)) continue;
+    const folded = fold(text);
+    const board = ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions';
+    const street = actStreet(link.words) ?? actStreet(base.replace(/-/g, ' '));
+    const published = postedListDay(link.name, words);
+    files.push({ url: link.url, board, layout: 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
+      row: { board, dossier, applicant: null, ...(street ? municipalSite(street, city) : { address: null, postcode: city.postcode }), postedOn: published ?? null } });
+  }
+  // An undated act counts when its number is of this year or the last: a page
+  // that keeps every year's decrees (Dourges) gives its forty newest.
+  const year = since ? Number(since.slice(2, 4)) - 1 : 0;
+  const undated = files.filter((file) => !file.published && Number(file.row.dossier.split(' ')[2]) >= year).slice(0, 40);
+  const kept = [...files.filter((file) => file.published), ...undated];
+  return kept.length ? kept : null;
+}
+
+const postedActsProtocol = {
+  start(city) {
+    return [city.page, ...(city.source?.pages ?? [])].map((url) => ({ url, as: 'html' }));
+  },
+  index(city, html, request, options = {}) {
+    const files = postedActFiles(city, html, request.url, options.since);
+    return files ? { files } : null;
+  },
+};
+
+export const POSTED_LIST_PROTOCOLS = Object.freeze({
+  'posted-lists': Object.freeze(postedListsProtocol),
+  'posted-acts': Object.freeze(postedActsProtocol),
+});
 export const POSTED_LIST_READERS = Object.freeze({});
 export const POSTED_LIST_TEXT = Object.freeze({});
