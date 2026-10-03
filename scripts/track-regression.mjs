@@ -93,7 +93,7 @@
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 import { newQaPage } from './lib/qa-first-run.mjs';
-import { classifyAircraft, CLASS_SCALE_3D, CLASS_MODEL_REAL } from '../src/data/aircraftClass.js';
+import { classifyAircraft, CLASS_SCALE_2D, CLASS_SCALE_3D, CLASS_MODEL_REAL } from '../src/data/aircraftClass.js';
 import { ensureGeoidReady, geoidHeight } from '../src/data/geoid.js';
 
 // ---------------------------------------------------------------------------
@@ -258,6 +258,13 @@ async function main() {
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       const url = new URL(request.url());
+      // Traffic is enabled by the default view and restored share links.
+      // Its roads are outside the tracking invariants: an Overpass outage
+      // must not become a console-error failure in this synthetic run.
+      if (url.origin === APP_ORIGIN && url.pathname === '/api/overpass') {
+        request.respond({ status: 200, contentType: 'application/json', body: '{"elements":[]}' });
+        return;
+      }
       if (url.origin === APP_ORIGIN && url.pathname === '/api/openai/hud-summary') {
         request.respond({
           status: 200,
@@ -1991,20 +1998,23 @@ async function main() {
     // Ground style (validated behavior 2026-07-03): FULL-ALPHA airborne tint —
     // white in the flights layer, amber (#FFB800) in the military layer —
     // never the 45%-alpha stale fade, never the retired gray mute. The
-    // ground cue is the ×0.8 scale (klass default ⇒ base 1.0).
+    // ground cue is ×0.8 of the contact's class scale. These untyped
+    // commercial fixtures use the published unknown-class scale, not 1.0.
+    const flightSpriteScale = CLASS_SCALE_2D.unknown;
+    const groundedSpriteScale = flightSpriteScale * 0.8;
     const isFullWhite = (s) => !!s && s.show && s.alpha === 1 && s.red === 1 && s.green === 1 && s.blue === 1;
     const isFullAmber = (s) => !!s && s.show && s.alpha === 1 && s.red === 1 && s.blue === 0 && Math.abs(s.green - 0xB8 / 255) < 0.02;
     record('ground: on-ground plane renders full-alpha white at ground scale + detectable (flights)',
-      isFullWhite(ground.groundSnap) && Math.abs(ground.groundSnap.scale - 0.8) < 1e-6 && ground.detectable,
+      isFullWhite(ground.groundSnap) && Math.abs(ground.groundSnap.scale - groundedSpriteScale) < 1e-6 && ground.detectable,
       `${fmtSnap(ground.groundSnap)} detectable=${ground.detectable}`);
     record('ground: military mirror — alt_baro "ground" renders full-alpha amber',
       isFullAmber(ground.milGroundSnap),
       fmtSnap(ground.milGroundSnap));
     record('ground: takeoff flip restyles in place (white, full alpha, full scale)',
-      isFullWhite(ground.airSnap) && Math.abs(ground.airSnap.scale - 1) < 1e-6,
+      isFullWhite(ground.airSnap) && Math.abs(ground.airSnap.scale - flightSpriteScale) < 1e-6,
       fmtSnap(ground.airSnap));
     record('ground: landing flip returns to ground scale in place (no removal, still full alpha)',
-      isFullWhite(ground.groundAgainSnap) && Math.abs(ground.groundAgainSnap.scale - 0.8) < 1e-6,
+      isFullWhite(ground.groundAgainSnap) && Math.abs(ground.groundAgainSnap.scale - groundedSpriteScale) < 1e-6,
       fmtSnap(ground.groundAgainSnap));
     record('ground: landing ghost fast-culls after ONE missed poll; born-parked contact survives the flap (round 7)',
       ground.droppedGone && !ground.milDroppedGone,
@@ -2380,8 +2390,8 @@ async function main() {
         // sampler would add ~60+ over the frame loop; a mid-window poll
         // legitimately adds a few cells for moving contacts.
         record('ground-3d: ground snap + mesh-floor probes are one-shot/per-poll bounded (no per-frame sampling)',
-          callsBefore >= 4 && (callsAfter - callsBefore) <= 8,
-          `sampleHeight calls: after models up=${callsBefore} (≥4: snap + mesh cell per grounded plane), growth over ~60 frames=${callsAfter - callsBefore} (per-frame would be ~60+)`);
+          callsBefore >= 3 && (callsAfter - callsBefore) <= 8,
+          `sampleHeight calls: after models up=${callsBefore} (≥3: two snaps + a shared mesh cell), growth over ~60 frames=${callsAfter - callsBefore} (per-frame would be ~60+)`);
 
         // (d) TRACKED grounded plane → the standalone tracked model (the owner's
         // "tracked SWA143 at 0 kts stayed a 2D cyan billboard" case).
