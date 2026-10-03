@@ -1,0 +1,86 @@
+{
+  "surveyDate": "2026-10-02",
+  "collectionWindow": {
+    "since": "2026-09-01",
+    "through": "2026-10-02"
+  },
+  "coverage": {
+    "populationDenominator": 68350798,
+    "before": {
+      "municipalities": 3958,
+      "population": 20372193,
+      "percentage": 29.8053,
+      "top1000": 286
+    },
+    "after": {
+      "municipalities": 3961,
+      "population": 20433618,
+      "percentage": 29.8952,
+      "top1000": 288
+    },
+    "additionalPopulation": 61425,
+    "percentagePointGain": 0.0899
+  },
+  "municipalities": [
+    {
+      "insee": "95203",
+      "name": "Eaubonne",
+      "population": 26211,
+      "key": "eaubonne",
+      "sourcePage": "https://www.eaubonne.fr/vie-municipale-et-citoyennete/actes-administratifs/",
+      "protocol": "eaubonne",
+      "latestPublication": "2026-09-21",
+      "selectedPdfs": 5,
+      "retainedRows": 5,
+      "distinctDossiers": 5,
+      "rowsWithProjectAddress": 5
+    },
+    {
+      "insee": "93057",
+      "name": "Les Pavillons-sous-Bois",
+      "population": 25804,
+      "key": "les-pavillons-sous-bois",
+      "sourcePage": "https://delibs.com/pavillonssousbois/",
+      "protocol": "delibs",
+      "tenant": "pavillonssousbois",
+      "robots": "overridden",
+      "latestPublication": "2026-09-29",
+      "selectedPdfs": 12,
+      "retainedRows": 12,
+      "distinctDossiers": 11,
+      "rowsWithProjectAddress": 12
+    },
+    {
+      "insee": "97227",
+      "name": "Sainte-Luce",
+      "population": 9410,
+      "key": "sainte-luce",
+      "sourcePage": "https://delibs.com/sainteluce/",
+      "protocol": "delibs",
+      "tenant": "sainteluce",
+      "dossierCode": "972227",
+      "robots": "overridden",
+      "latestPublication": "2026-09-29",
+      "selectedPdfs": 8,
+      "retainedRows": 6,
+      "distinctDossiers": 6,
+      "rowsWithProjectAddress": 6,
+      "unacceptedPdfs": 2,
+      "unacceptedReason": "OCR-read dossier identities conflict with the index; one also has no usable project site."
+    }
+  ],
+  "totals": {
+    "selectedPdfs": 25,
+    "retainedRows": 23,
+    "distinctDossiers": 22,
+    "rowsWithProjectAddress": 23,
+    "failedDownloads": 0,
+    "skippedFiles": 0,
+    "pendingOcr": 0
+  },
+  "limits": [
+    "Extracted project addresses are not all confirmed geocodes.",
+    "Coverage is a registered current source, not completeness of every permit family.",
+    "The broader ten-point population-coverage objective remains in progress."
+  ]
+}

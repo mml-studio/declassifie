@@ -59,7 +59,11 @@ export function municipalDate(value) {
 /** Full or municipal abbreviated dossier, retaining modifications and transfers. */
 export function municipalDossier(value, city) {
   const words = fold(value);
-  const code = `0?\\s*${city.insee.slice(0, 2)}\\s*${city.insee.slice(2)}`;
+  // Some overseas publishers use a six-digit local authority code in the
+  // dossier (Sainte-Luce: 972 227), while coverage keeps the INSEE 97227.
+  const localCode = /^\d{6}$/.test(city.source?.dossierCode ?? '') ? city.source.dossierCode : null;
+  const code = localCode ? `${localCode.slice(0, 3)}\\s*${localCode.slice(3)}`
+    : `0?\\s*${city.insee.slice(0, 2)}\\s*${city.insee.slice(2)}`;
   const full = new RegExp(`\\b(PC|DP|PA|PD|CU)\\s*${code}\\s*(\\d{2})\\s*([A-Z]?\\d{4,5})(?:\\s*([MT]\\s*\\d{1,2}))?(?![\\dA-Z])`).exec(words);
   let match = full;
   if (!match) {
@@ -70,7 +74,7 @@ export function municipalDossier(value, city) {
     match = [short[0], short[1], short[2], short[3], short[4] ? `${short[4]}${short[5]}` : ''];
   }
   const counter = /^\d+$/.test(match[3]) ? match[3].padStart(5, '0') : match[3];
-  return `${match[1]} ${city.insee.padStart(6, '0')} ${match[2]} ${counter}${match[4] ? ` ${match[4].replace(/\s/g, '')}` : ''}`;
+  return `${match[1]} ${localCode ?? city.insee.padStart(6, '0')} ${match[2]} ${counter}${match[4] ? ` ${match[4].replace(/\s/g, '')}` : ''}`;
 }
 
 /** A site's address and cadastral references, excluding its postcode suffix. */

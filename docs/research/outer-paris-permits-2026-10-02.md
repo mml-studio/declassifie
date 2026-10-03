@@ -90,6 +90,8 @@ omit the PC/DP prefix, which is supplied by the section heading. They are
 not counted as imported filings in this batch. One Villepreux PDF yields
 no readable planning record; it is not replaced with an invented address.
 
+Eaubonne was subsequently integrated in the [three-municipality follow-up](published-permits-2026-10-02.md), which also records new checks of the remaining leads.
+
 ## Next research pass
 
 The [machine-readable survey](outer-paris-permits-2026-10-02.json) records all

@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce now show their
+  published planning decisions**, adding 61,425 residents to current
+  municipal-source coverage (29.81% to 29.90%). Eaubonne's planning-theme
+  index and the two Delibs legal boards join the daily permit archive;
+  scanned orders use the sweep's OCR. Only project fields are collected,
+  with applicant attachments excluded.
 - **Eight outer Paris municipalities now show their published planning
   permits:** Pontault-Combault, Rambouillet, Le Mée-sur-Seine,
   La Celle-Saint-Cloud, Vauréal, Villepreux, Igny and Crosne, representing

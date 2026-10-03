@@ -5165,6 +5165,38 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce (2026-10-02).**
+`src/data/publishedPermitBoards.js` adds Eaubonne's planning-theme HTML
+index and the public Delibs legal boards of Les Pavillons-sous-Bois and
+Sainte-Luce. Delibs is paged with `parPage=20`: larger values change its
+reported page count while still returning twenty acts, losing records.
+Other municipal acts fill the first pages; paging continues even when a
+page has no planning order. Only each order PDF is read, never its CERFA
+or applicant annexes, and raw act titles are not retained. Delibs disallows
+`/api/` in robots.txt; the two registered municipalities explicitly use the
+same project override policy as DematDOC's legal postings.
+
+Scans use the existing daily-sweep OCR, not a visitor's request. Eaubonne
+uses the `urbanisme` theme rather than the empty `urbanisme-arretes` act
+type; its month filters and pagination preserve the collection window.
+Sainte-Luce's explicit `source.dossierCode: '972227'` reads the prefix the
+publisher prints as `972 227`, while coverage and placement keep INSEE
+`97227`. Other readers retain their existing dossier format. Project
+addresses, cadastral references and works are separated from applicant
+fields and appended planning zones. Ambiguous OCR parcel text is not
+repaired into a guessed reference; unknown verdicts stay signed decisions.
+
+The September–October live collection read 25 order PDFs and retained
+23 posting rows with project addresses, representing 22 distinct dossiers:
+five rows in Eaubonne, twelve in Les Pavillons-sous-Bois (one order posted
+twice), and six in Sainte-Luce. Two Sainte-Luce PDFs did not yield an
+accepted dossier. No downloads failed; no files remained skipped or
+pending OCR. Registry coverage gains 61,425 residents, from 20,372,193 to
+20,433,618 (29.8053% to 29.8952% of the same Geo API snapshot); registered
+municipalities rise from 3,958 to 3,961, and coverage of the top 1,000 from
+286 to 288. The [follow-up report](research/published-permits-2026-10-02.md)
+records the verified sources and remaining leads.
+
 **Eight outer Paris municipalities posting their own boards (2026-10-02).**
 `src/data/outerParisPermits.js` adds Pontault-Combault's weekly WordPress
 lists, Rambouillet's Digilor GDS filing table and scanned orders, Vauréal's
