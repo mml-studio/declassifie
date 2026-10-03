@@ -143,8 +143,8 @@ const postedListsProtocol = {
 
 // i18n-ignore-start — the boards' own words, matched on
 // What names an act when its link names no number: its kind, or a family first in its name or words.
-const UNNUMBERED_ACT = /\b(?:AVIS (?:DE )?DEPOT|RECEPISSE|ARRETE)\b/;
-const ACT_FILING = /\b(?:RECEPISSE|AVIS (?:DE )?DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
+const UNNUMBERED_ACT = /\b(?:AVIS ?(?:DE ?)?DEPOT|RECEPISSE|ARRETE)\b/;
+const ACT_FILING = /\b(?:RECEPISSE|AVIS ?(?:DE ?)?DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
 const ACT_DECISION = /\b(?:ARRETE|DECISION|ACCORD|REFUS|OPPOSITION|NON OPPOSITION|FAVORABLE|DEFAVORABLE|RETRAIT)\b/;
 const STREET = 'rue|avenue|av\\.?|boulevard|bd|place|chemin|all[ée]es?|impasse|route|rte|quai|cours|faubourg|square|sentier|ruelle|passage|r[ée]sidence|lotissement|voie|cit[ée]|clos|hameau|lieu-dit|dr[èe]ve|zac';
 const NUMBERED_STREET = new RegExp(`(?:^|\\s)(\\d{1,4}(?:\\s?(?:bis|ter|[a-d]))?\\s*,?\\s+(?:${STREET})\\b.*)$`, 'i');

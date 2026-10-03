@@ -94,6 +94,17 @@ const LISTED = [
   // Saint-Rémy numbers its weekly lists (`Affichage-dossiers-déposés-56.pdf`): the day is the upload's.
   ['71475', '71100', 'Saint-Rémy', 'https://www.saint-remy71.fr/', { acts: false, layouts: FILED_BEFORE,
     lists: { filings: '\\bAFFICHAGE DOSSIERS DEPOSES\\b', decisions: '\\bAFFICHAGE DOSSIERS DECIDES\\b' } }],
+  // One spreadsheet of every pending filing, renamed each week: « Avis de dépôt au 2 octobre 2026 ».
+  ['17028', '17440', 'Aytré', 'https://www.aytre.fr/', { acts: false, layouts: { filings: 'town-aytre-filings' } }],
+  ['60382', '60280', 'Margny-lès-Compiègne', 'https://www.mairie-margnylescompiegne.fr/', { acts: false,
+    lists: { filings: '\\bLISTE DEPOTS\\b' }, layouts: { filings: 'town-margny-filings', decisions: 'town-margny-decisions' } }],
+  // Two tables replaced every week or so, uploaded anew: `Depot-2026-panneau-2.pdf`, `Arrete-2026-panneau-2.pdf`.
+  ['63307', '63540', 'Romagnat', 'https://www.ville-romagnat.fr/', { acts: false,
+    lists: { filings: '^DEPOT 20\\d\\d PANNEAU\\b', decisions: '^ARRETE 20\\d\\d PANNEAU\\b' },
+    layouts: { filings: 'town-romagnat-filings', decisions: 'town-romagnat-decisions' } }],
+  // One card per dossier, the file renamed at each update: `Arretes_urbanisme_MAJ_18.09.2026-1.pdf`.
+  ['31526', '31880', 'La Salvetat-Saint-Gilles', 'https://www.lasalvetat31.fr/', { acts: false,
+    lists: { decisions: '^ARRETES URBANISME MAJ\\b' }, layouts: { decisions: 'town-labelled-cards' } }],
   // Acts named by their site alone: `DP-15-FAUBOURG-DE-GIRONDE.pdf`, `Avis-de-depot.pdf`.
   ['77393', '77540', 'Rozay-en-Brie', 'https://www.rozay-en-brie.fr/', { unnumbered: true }],
   ['80235', '80570', 'Dargnies', 'https://www.dargnies.fr/', { unnumbered: true }],

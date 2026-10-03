@@ -6,11 +6,19 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Cesson-Sévigné, Mauges-sur-Loire, Aytré, Margny-lès-Compiègne, La
+  Salvetat-Saint-Gilles, Romagnat, Coursan and Cordemais now show their fresh
+  permits**, 82,033 inhabitants. Five new readers take the lists these towns
+  print in layouts of their own — Cesson's monthly export, Aytré's
+  spreadsheet, Margny's tightly set lists, Romagnat's headerless tables, La
+  Salvetat's labelled cards — and never read an applicant's cell; Mauges,
+  Coursan and Cordemais link one PDF per act.
 - **Mantes-la-Ville and Saint-Cyr-l'École now show their fresh permits**,
   43,600 inhabitants. Saint-Cyr-l'École posts the same Word tables as
-  Limeil-Brévannes, read by its readers through the posted-list protocol; Mantes-la-Ville links one PDF per decision, some
-  numbered without the commune's code (« DP 2600099 »), which the posted-acts
-  protocol now spells out.
+  Limeil-Brévannes, read by its readers through the posted-list protocol;
+  Mantes-la-Ville links one PDF per decision, some numbered without the
+  commune's code (« DP 2600099 »), which the posted-acts protocol now spells
+  out.
 - **Moëlan-sur-Mer, Saint-Jean-d'Angély, Vif, Saint-Rémy, Bouillargues,
   Trèbes, Courseulles-sur-Mer, Champhol, Rozay-en-Brie and Dargnies now show
   their fresh permits**, 51,849 inhabitants. Moëlan, Saint-Rémy, Champhol and

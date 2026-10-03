@@ -5587,6 +5587,33 @@ since the 1st (Metz Métropole's still empty) and a commune more on Porte de
 DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
 1st with those boards' and Matoury's readings. 111 041 inhabitants more.
 
+**Eight more towns, five more list layouts (2026-10-03).** The lists the
+last WordPress communes print each have a layout of their own, read by
+`permitBoardsTownLists.js`: Cesson-Sévigné's « Permis de construire accordés
+<mois> », a monthly « Extraction CIM » with raw field names and no applicant
+column (`town-cim-decisions`, posted-lists on its page, its media API being
+closed); Aytré's weekly spreadsheet of every pending filing, the number in
+four cells and a modification glued to the applicant (`177M1…`), its site
+the line's cell that reads as a street (`town-aytre-filings`); Margny-lès-
+Compiègne's lists, rows eight points apart and cells up to eight off their
+number's line, read line by line (`town-margny-*`); Romagnat's two
+headerless tables refreshed every week or so, a site wrapped on two lines
+read above and below its number in the column the other sites give
+(`town-romagnat-*`); La Salvetat-Saint-Gilles's cards, read by their labels,
+a card a decision when it says one (`town-labelled-cards`). Mauges-sur-Loire
+links its avis de dépôt from its document library, Coursan from a page a
+family and Cordemais from its urbanism page, read by `posted-acts`. Read live on 2026-10-03: Romagnat 78 filings and
+40 orders on its newest editions, Aytré 57 filings, La Salvetat 63
+decisions, Mauges-sur-Loire 11 and 9, Margny 9
+and 14, Coursan 9 and 9, Cordemais 16 decisions, Cesson-Sévigné 12 permits
+granted in September,
+nearly every row with its site. Left among the 128: Varennes-Vauzelles (no
+list since July), Grabels (undated links), Pézilla-la-Rivière (files outside
+the media library), and five small towns whose lists still need a reader
+(Lissieu, Caissargues, Les Houches, La Flotte, Lion-sur-Mer). Saint-Cyr-l'École,
+found by the same survey, is read from its page (below). 82 033
+inhabitants more.
+
 **Ten more communes: their own lists, their pages, acts named by their site
 (2026-10-03).** Moëlan-sur-Mer, Saint-Rémy and Champhol post the two lists one
 instruction software prints — « Dossiers déposés avant le … » (Date de dépôt |
