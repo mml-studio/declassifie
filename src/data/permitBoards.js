@@ -43,6 +43,9 @@ import { PUBLISHED_PERMIT_PROTOCOLS, PUBLISHED_PERMIT_READERS } from './publishe
 import { XDEMAT_BOARD_PROTOCOLS, XDEMAT_BOARD_READERS, XDEMAT_BOARD_TEXT } from './permitBoardsXdemat.js';
 import { MUNICIPAL_REGISTER_PROTOCOLS, MUNICIPAL_REGISTER_READERS, MUNICIPAL_REGISTER_TEXT } from './municipalRegisterBoards.js';
 import { POSTED_LIST_PROTOCOLS, POSTED_LIST_READERS, POSTED_LIST_TEXT } from './permitBoardsPostedLists.js';
+import { DIGILOR_A_BOARD_READERS, DIGILOR_A_BOARD_TEXT } from './permitBoardsDigilorA.js';
+import { DIGILOR_B_BOARD_READERS, DIGILOR_B_BOARD_TEXT } from './permitBoardsDigilorB.js';
+import { DIGILOR_C_BOARD_READERS, DIGILOR_C_BOARD_TEXT } from './permitBoardsDigilorC.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -62,6 +65,7 @@ export const BOARD_READERS = Object.freeze({
   ...OUTER_PARIS_READERS,
   ...PUBLISHED_PERMIT_READERS, ...XDEMAT_BOARD_READERS,
   ...MUNICIPAL_REGISTER_READERS, ...POSTED_LIST_READERS,
+  ...DIGILOR_A_BOARD_READERS, ...DIGILOR_B_BOARD_READERS, ...DIGILOR_C_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
@@ -69,6 +73,7 @@ export const BOARD_TEXT = Object.freeze({
   ...LIST_BOARD_TEXT, ...NOTICE_BOARD_TEXT, ...PAGE_BOARD_TEXT,
   ...REPORT_BOARD_TEXT, ...ACT_BOARD_TEXT, ...XDEMAT_BOARD_TEXT,
   ...MUNICIPAL_REGISTER_TEXT, ...POSTED_LIST_TEXT,
+  ...DIGILOR_A_BOARD_TEXT, ...DIGILOR_B_BOARD_TEXT, ...DIGILOR_C_BOARD_TEXT,
 });
 
 /** The protocol of a board city, or null. */

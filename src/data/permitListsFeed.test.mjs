@@ -717,6 +717,26 @@ test('a Datahall index gives the permit files by their shelves, never by their t
   assert.equal(digilorDocuments(argenteuil, { error: 'x' }, '2026-08-01'), null);
 });
 
+test('a town that lists its shelves is read by shelf, title and the words of its titles', () => {
+  const town = { key: 'shelves', source: { kind: 'digilor', base: 'https://datahall.mydigilor.fr', app: 23, shelves: [
+    { category: 217, sub: 328, title: 'DEPOT', board: 'filings', layout: 'grid' },
+    { category: 217, sub: 328, title: 'DECISION', board: 'decisions', layout: 'register' },
+    { category: 900, board: 'auto' },
+  ] } };
+  const doc = (id, cat, sub, title, day = '2026-09-18') => ({
+    id, id_cat: cat, id_sscat: sub, nom_affichage: title, aff_deb: day, url_uiid: `./upload/23/${id}.pdf`,
+  });
+  const files = digilorDocuments(town, [
+    doc(1, 217, 328, 'Affichage_Mairie_Depot_-2026-09-18'), doc(2, 217, 328, 'Affichage Marie Décision - PC-2026-09-18'),
+    doc(3, 217, 895, 'Arrêté 2026-VCEP-055 - voirie'), doc(4, 900, 0, 'Avis de dépôt PC 050025260030'),
+    doc(5, 900, 12, 'Arrêté DP 500252600102'), doc(6, 900, 0, 'Fermeture de la piscine'),
+    doc(7, 217, 328, 'Affichage_Mairie_Depot_-2026-07-03', '2026-07-03'),
+  ], '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.url.replace(/^.*%2F/, ''), file.board, file.layout]).sort(), [
+    ['1.pdf', 'filings', 'grid'], ['2.pdf', 'decisions', 'register'], ['4.pdf', 'filings', 'grid'], ['5.pdf', 'decisions', 'grid'],
+  ]);
+});
+
 test('Argenteuil\'s words are read on the ladder', () => {
   assert.equal(permitListVerdictState('Tacite'), 'accorde');
   assert.equal(permitListVerdictState('Rapporté'), 'annule');

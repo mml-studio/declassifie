@@ -137,6 +137,7 @@ import {
 import { EXTENDED_PERMIT_SOURCES, readBloisFilings, readExtendedNotice } from './municipalPermitExtensions.js';
 import { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 import { DEMATDOC_PERMIT_SOURCES, readDematdocNotice } from './dematdocFeed.js';
+import { DIGILOR_TOWNS } from './digilorTowns.js';
 import {
   CARTDS_LICENCE, cartdsDate, cartdsKind, cartdsParcelIdus, cartdsProject, cartdsVerdictState, parseCartdsPlace,
 } from './cartdsFeed.js';
@@ -424,6 +425,7 @@ export const PERMIT_LISTS = Object.freeze([
   ...EXTENDED_PERMIT_SOURCES,
   ...BOARD_PERMIT_SOURCES,
   ...DEMATDOC_PERMIT_SOURCES,
+  ...DIGILOR_TOWNS,
 ]);
 
 /**
@@ -1588,6 +1590,16 @@ export function digilorIndexUrl(city) {
  * the titles, which are typed by hand (`Décison`, `Déppot`) and name the
  * applicant. Since May 2023 one file holds one dossier.
  *
+ * A town whose shelves are not one per board lists them in `source.shelves`
+ * instead, the first that matches deciding: `{category, sub?, title?, board,
+ * layout?}` — `sub` a sub-category id (0 for none), `title` a pattern the
+ * folded title must match (Le Mans posts its filings and decisions lists on
+ * one sub-category, named by title), `board` `filings`, `decisions` or
+ * `auto` (a receipt or an avis de dépôt is a filing, an order a decision, any
+ * other title `fallback`, or nothing), `layout` the file's reader when not
+ * `formats[board]`. A reader that names the board itself (`dematdoc-notice`
+ * reads it from the act's heading) has the last word.
+ *
  * @param {object} city
  * @param {*} index The parsed answer.
  * @param {string} since `YYYY-MM-DD`.
@@ -1596,9 +1608,14 @@ export function digilorIndexUrl(city) {
  */
 export function digilorDocuments(city, index, since) {
   if (!Array.isArray(index)) return null;
-  const { category, filings, decisions, mixedShelf, formats } = city.source;
+  const { category, filings, decisions, mixedShelf, formats, shelves } = city.source;
   const out = [];
   for (const doc of index) {
+    if (shelves) {
+      const file = digilorShelfFile(city, doc, since);
+      if (file) out.push(file);
+      continue;
+    }
     if (Number(doc?.id_cat) !== category) continue;
     const sub = Number(doc.id_sscat);
     const title = text(doc.nom_affichage) ?? '';
@@ -1613,6 +1630,28 @@ export function digilorDocuments(city, index, since) {
       ...(formats ? { layout: formats[board], title } : {}) });
   }
   return out.sort((a, b) => b.published.localeCompare(a.published));
+}
+
+// i18n-ignore-start — the words of the towns' own titles, matched on
+const DIGILOR_FILING_TITLE = /\b(?:AVIS DE DEPO?T|RECEPISSE|DEPOT DE (?:LA )?DEMANDE|DOSSIERS? DEPOSES?|DEPOTS?)\b/;
+const DIGILOR_DECISION_TITLE = /\b(?:ARRETES?|DECISIONS?|ACCORDS?|REFUS|NON[- ]?OPPOSITION|AUTORISATIONS? DELIVREES?)\b/;
+// i18n-ignore-end
+
+/** One document of a town that lists its shelves, or null (see {@link digilorDocuments}). */
+function digilorShelfFile(city, doc, since) {
+  const title = text(doc?.nom_affichage) ?? '';
+  const folded = fold(title).replace(/_/g, ' ');
+  const shelf = city.source.shelves.find((item) => Number(doc?.id_cat) === item.category
+    && (item.sub === undefined || Number(doc.id_sscat) === item.sub)
+    && (!item.title || new RegExp(item.title).test(folded)));
+  if (!shelf) return null;
+  const board = shelf.board !== 'auto' ? shelf.board
+    : DIGILOR_FILING_TITLE.test(folded) ? 'filings' : DIGILOR_DECISION_TITLE.test(folded) ? 'decisions' : shelf.fallback ?? null;
+  const published = isoDay(doc.aff_deb);
+  const file = String(doc.url_uiid ?? '').replace(/^(?:\.\.\/bo\/|bo\/|\.\/)/, '');
+  if (!board || !file || !published || published < since) return null;
+  return { board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published,
+    layout: shelf.layout ?? city.source.formats?.[board] ?? 'grid', title };
 }
 
 // --- Tables whose cells are centred on their row ----------------------------
