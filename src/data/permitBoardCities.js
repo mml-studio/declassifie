@@ -11,6 +11,15 @@
 
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
+  { key: 'eaubonne', insee: '95203', postcode: '95600', label: 'Ville d’Eaubonne — décisions d’urbanisme',
+    page: 'https://www.eaubonne.fr/vie-municipale-et-citoyennete/actes-administratifs/' },
+  // Delibs permits its public pages but disallows /api/ in robots.txt.
+  // Read these legal postings under the same project policy as DematDOC;
+  // only the order is collected, never its CERFA or applicant annexes.
+  { key: 'les-pavillons-sous-bois', insee: '93057', postcode: '93320', label: 'Ville des Pavillons-sous-Bois — décisions d’urbanisme',
+    page: 'https://delibs.com/pavillonssousbois/', robots: 'overridden', source: { protocol: 'delibs', tenant: 'pavillonssousbois' } },
+  { key: 'sainte-luce', insee: '97227', postcode: '97228', label: 'Ville de Sainte-Luce — décisions d’urbanisme',
+    page: 'https://delibs.com/sainteluce/', robots: 'overridden', source: { protocol: 'delibs', tenant: 'sainteluce', dossierCode: '972227' } },
   // Public boards confirmed during the outer Paris suburbs survey on 2026-10-02.
   { key: 'pontault-combault', insee: '77373', postcode: '77340', label: 'Ville de Pontault-Combault — dépôts et autorisations d’urbanisme',
     page: 'https://actes.pontault-combault.fr/docs/', source: { protocol: 'outer-pontault' } },
