@@ -144,10 +144,12 @@ const postedListsProtocol = {
 // i18n-ignore-start — the boards' own words, matched on
 // What names an act when its link names no number: its kind, or a family first in its name or words.
 const UNNUMBERED_ACT = /\b(?:AVIS (?:DE )?DEPOT|RECEPISSE|ARRETE)\b/;
-const ACT_FILING = /\b(?:RECEPISSE|AVIS DE DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
+const ACT_FILING = /\b(?:RECEPISSE|AVIS (?:DE )?DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
 const ACT_DECISION = /\b(?:ARRETE|DECISION|ACCORD|REFUS|OPPOSITION|NON OPPOSITION|FAVORABLE|DEFAVORABLE|RETRAIT)\b/;
 const STREET = 'rue|avenue|av\\.?|boulevard|bd|place|chemin|all[ée]es?|impasse|route|rte|quai|cours|faubourg|square|sentier|ruelle|passage|r[ée]sidence|lotissement|voie|cit[ée]|clos|hameau|lieu-dit|dr[èe]ve|zac';
 const NUMBERED_STREET = new RegExp(`(?:^|\\s)(\\d{1,4}(?:\\s?(?:bis|ter|[a-d]))?\\s*,?\\s+(?:${STREET})\\b.*)$`, 'i');
+// Saint-Jean-d'Angély names the street first: `rue-des-Marechaux-au-n°-4`.
+const STREET_AT_NUMBER = new RegExp(`(?:^|\\s)((?:${STREET})\\s.*?)\\s+au\\s+n\\s*°?\\s*(\\d{1,4}(?:\\s?(?:bis|ter|[a-d]))?)(?![\\d\\p{L}])`, 'iu');
 const AFTER_STREET = /\s+(?:arr[êe]t[ée]|r[ée]c[ée]piss[ée]|d[ée]cision|accord|refus|favorable|d[ée]favorable|opposition|avis|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?=\s|$).*$/i;
 // What a link prints after the site: the works (« - Réalisation d'une extension »), the
 // file's weight, the number again, a lot, the commune.
@@ -156,7 +158,8 @@ const AFTER_SITE = /\s+[-–—]\s.*$|\s*\(.*$|\s+(?:PC|DP|PA|PD|CU)\s*\d.*$|\s+
 
 /** A link's numbered street, from its house number on — never the words before it. */
 function actStreet(text) {
-  const match = NUMBERED_STREET.exec(clean(text));
+  const at = STREET_AT_NUMBER.exec(clean(text));
+  const match = NUMBERED_STREET.exec(clean(text)) ?? (at ? [null, `${at[2]} ${at[1]}`] : null);
   if (!match) return null;
   const street = clean(match[1].replace(AFTER_SITE, '').replace(AFTER_STREET, '').replace(/[\s,;-]+$/, ''));
   return street.length >= 6 ? street : null;
@@ -200,6 +203,8 @@ function bareDossier(city, words, published) {
  * site but not the number (Rozay-en-Brie's `DP-15-FAUBOURG-DE-GIRONDE.pdf`,
  * Dargnies's `Avis-de-depot.pdf`) sets `source.unnumbered`: a dated link
  * that names an act's kind is read for the number its heading prints.
+ * `source.actLayouts` names another reader for a board's acts
+ * (Saint-Jean-d'Angély prints each avis de dépôt as a one-row list).
  */
 export function postedActFiles(city, html, pageUrl, since = null) {
   return actFiles(city, pageLinks(html, pageUrl), since);
@@ -222,13 +227,14 @@ function actFiles(city, links, since = null) {
     if (!dossier) {
       const named = UNNUMBERED_ACT.test(folded) || [base, link.words].some((value) => /^(?:PC|DP|PA|PD)\b/.test(fold(value)));
       if (city.source?.unnumbered && published && named) {
-        files.push({ url: link.url, board: ACT_FILING.test(folded) ? 'filings' : 'decisions', layout: 'dematdoc-notice', ocr: true, published });
+        const board = ACT_FILING.test(folded) ? 'filings' : 'decisions';
+        files.push({ url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true, published });
       }
       continue;
     }
     const board = ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions';
     const street = actStreet(link.words) ?? actStreet(base.replace(/-/g, ' '));
-    files.push({ url: link.url, board, layout: 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
+    files.push({ url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
       row: { board, dossier, applicant: null, ...(street ? municipalSite(street, city) : { address: null, postcode: city.postcode }), postedOn: published ?? null } });
   }
   // An undated act counts when its number is of this year or the last: a page

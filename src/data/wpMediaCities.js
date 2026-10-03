@@ -79,9 +79,30 @@ const COMMUNES = [
 ];
 // i18n-ignore-end
 
-export const WP_MEDIA_CITIES = COMMUNES.map(([insee, postcode, name, page]) => ({
+// i18n-ignore-start — the lists' own file names, matched on
+/** The software that prints « Dossiers déposés avant le … » and « Dossiers décidés jusqu'au … ». */
+const FILED_BEFORE = { filings: 'town-filed-before', decisions: 'town-decided-until' };
+/**
+ * Communes whose lists carry names of their own, read by `permitBoardsTownLists.js`:
+ * [INSEE, postcode, name, the site, source extras]. Added on 2026-10-03.
+ */
+const LISTED = [
+  ['29150', '29350', 'Moëlan-sur-Mer', 'https://www.moelan-sur-mer.bzh/', { acts: false, layouts: FILED_BEFORE,
+    lists: { filings: '\\bDOSSIERS DEPOSES AVANT\\b', decisions: '\\bDOSSIERS DECIDES JUSQU|\\bAUTORISATIONS DELIVREES JUSQU' } }],
+  ['28070', '28300', 'Champhol', 'https://villedechamphol.fr/', { acts: false, layouts: FILED_BEFORE,
+    lists: { filings: '^AFFICHAGE DES (?:DP|PC|PA|PD|CU|DPENSEIGNES) DEPOSEE?S\\b', decisions: '^AFFICHAGE DES (?:DP|PC|PA|PD|CU) DECIDEE?S\\b' } }],
+  // Saint-Rémy numbers its weekly lists (`Affichage-dossiers-déposés-56.pdf`): the day is the upload's.
+  ['71475', '71100', 'Saint-Rémy', 'https://www.saint-remy71.fr/', { acts: false, layouts: FILED_BEFORE,
+    lists: { filings: '\\bAFFICHAGE DOSSIERS DEPOSES\\b', decisions: '\\bAFFICHAGE DOSSIERS DECIDES\\b' } }],
+  // Acts named by their site alone: `DP-15-FAUBOURG-DE-GIRONDE.pdf`, `Avis-de-depot.pdf`.
+  ['77393', '77540', 'Rozay-en-Brie', 'https://www.rozay-en-brie.fr/', { unnumbered: true }],
+  ['80235', '80570', 'Dargnies', 'https://www.dargnies.fr/', { unnumbered: true }],
+];
+// i18n-ignore-end
+
+export const WP_MEDIA_CITIES = [...COMMUNES, ...LISTED].map(([insee, postcode, name, page, extras = {}]) => ({
   key: `wp-media-${insee}`, insee, postcode,
   label: `${name} — affichage légal d’urbanisme`, // i18n-ignore-line — the commune's name and its board's title
   page,
-  source: { protocol: 'wp-media', ocr: true },
+  source: { protocol: 'wp-media', ocr: true, ...extras },
 }));

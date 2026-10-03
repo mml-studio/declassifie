@@ -5587,6 +5587,29 @@ since the 1st (Metz Métropole's still empty) and a commune more on Porte de
 DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
 1st with those boards' and Matoury's readings. 111 041 inhabitants more.
 
+**Ten more communes: their own lists, their pages, acts named by their site
+(2026-10-03).** Moëlan-sur-Mer, Saint-Rémy and Champhol post the two lists one
+instruction software prints — « Dossiers déposés avant le … » (Date de dépôt |
+Numéro de dossier | Pétitionnaire | Adresse du projet | Description du
+projet) and « Dossiers décidés jusqu'au … » (Le Pont-de-Claix's columns) —
+under names of their own, which their `wp-media` entry matches with `lists`
+patterns. The new `town-filed-before` reader (`permitBoardsTownLists.js`)
+takes each column where the rows' cells start, the median over the rows that
+print all five: Moëlan sets each cell 30 to 70 points right of its header, and
+a header-based rule put the applicant's name in the site. `town-decided-until`
+drops a site that is only the postcode and town. Saint-Jean-d'Angély prints
+each avis de dépôt as a one-row edition of the same list and names its files
+by their site, street first (`DP173472600138-rue-des-Marechaux-au-n°-4.pdf`):
+`posted-acts` now reads that street, takes « Avis depot » for a filing, and
+`source.actLayouts` hands its filings to `town-filed-before`. Bouillargues,
+Courseulles-sur-Mer, Vif and Trèbes close their media API to visitors and are
+read from their page (`postedListCities.js`); Rozay-en-Brie and Dargnies name
+their acts by site alone and are read with `unnumbered`. Read live on
+2026-10-03: Saint-Rémy 70 filings and 122 decisions, Moëlan 28 and 65,
+Saint-Jean-d'Angély 17 and 14, Bouillargues 16 and 24, Champhol 14 and 16;
+with the sweep's OCR Courseulles 14 orders, Vif 10, Rozay-en-Brie 9. 51 849
+inhabitants more.
+
 **Sixty communes read through their WordPress media (2026-10-03).** Half the
 communes' sites are WordPress, and its media API lists every file a site
 uploaded with its day and title, open to anyone unless the site closes it.
