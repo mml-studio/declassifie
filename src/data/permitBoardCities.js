@@ -11,6 +11,7 @@
 
 import { POSTED_LIST_CITIES } from './postedListCities.js';
 import { INTRAMUROS_CITIES } from './intramurosCities.js';
+import { DOCS2WEB_CITIES } from './docs2webCities.js';
 
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
@@ -200,6 +201,7 @@ for (const [insee, postcode, name] of XDEMAT_COMMUNES) {
  */
 CITIES.push(...POSTED_LIST_CITIES);
 CITIES.push(...INTRAMUROS_CITIES);
+CITIES.push(...DOCS2WEB_CITIES);
 
 export const BOARD_PERMIT_SOURCES = Object.freeze(CITIES.map((city) => Object.freeze({
   ...city,

@@ -43,6 +43,7 @@ import { PUBLISHED_PERMIT_PROTOCOLS, PUBLISHED_PERMIT_READERS } from './publishe
 import { XDEMAT_BOARD_PROTOCOLS, XDEMAT_BOARD_READERS, XDEMAT_BOARD_TEXT } from './permitBoardsXdemat.js';
 import { MUNICIPAL_REGISTER_PROTOCOLS, MUNICIPAL_REGISTER_READERS, MUNICIPAL_REGISTER_TEXT } from './municipalRegisterBoards.js';
 import { POSTED_LIST_PROTOCOLS, POSTED_LIST_READERS, POSTED_LIST_TEXT } from './permitBoardsPostedLists.js';
+import { DOCS2WEB_BOARD_PROTOCOLS } from './permitBoardsDocs2web.js';
 import { DIGILOR_A_BOARD_READERS, DIGILOR_A_BOARD_TEXT } from './permitBoardsDigilorA.js';
 import { DIGILOR_B_BOARD_READERS, DIGILOR_B_BOARD_TEXT } from './permitBoardsDigilorB.js';
 import { DIGILOR_C_BOARD_READERS, DIGILOR_C_BOARD_TEXT } from './permitBoardsDigilorC.js';
@@ -57,6 +58,7 @@ export const BOARD_PROTOCOLS = Object.freeze({
   ...OUTER_PARIS_PROTOCOLS,
   ...PUBLISHED_PERMIT_PROTOCOLS, ...XDEMAT_BOARD_PROTOCOLS,
   ...MUNICIPAL_REGISTER_PROTOCOLS, ...POSTED_LIST_PROTOCOLS, ...INTRAMUROS_BOARD_PROTOCOLS,
+  ...DOCS2WEB_BOARD_PROTOCOLS,
 });
 
 /** The PDF readers the boards' files name, by `layout`. */
