@@ -6,6 +6,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Saint-Martin-Boulogne, Marquette-lez-Lille, Rouvroy, Dourges and ten more
+  small towns now show the permits they post one PDF at a time**, 82,200
+  inhabitants. Nine towns of the Nord and the Pas-de-Calais link each receipt
+  and order from a page of their own site; one protocol reads such pages,
+  taking the number, the board and a numbered street from the link, then the
+  act itself (by OCR for scans) for the dates, the verdict and the parcels.
+  Five communes whose site IntraMuros builds — Bruguières, Wormhout,
+  Neuilly-en-Thelle, Saint-Hilaire-de-Chaléons and Les Alluets-le-Roi — post
+  their urbanism acts on its « Documents administratifs » page, which a
+  second protocol now reads from the JSON the page carries.
 - **Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres now show their
   published planning permits**, adding 70,197 residents to current
   municipal-source coverage (30.44% to 30.54%). Weekly and rolling PDF
@@ -734,6 +744,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **An order whose operative article grants or does not oppose, then names
+  the withdrawal the law allows, no longer reads as withdrawn.** The act
+  reader DematDOC communes and posted acts share now takes the verdict from
+  the article's first sentence (Coulogne's « Il n'est pas fait opposition »
+  was read « Retrait »).
 - **Viviers's permits were drawn twice** once two pull requests each began
   reading it the same day: its Cart@DS board and its DematDOC acts. It is
   read from Cart@DS alone, which prints the parcels.
