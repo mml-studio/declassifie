@@ -13,6 +13,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   décidés jusqu'au … » lists, now read with their columns taken from the rows
   themselves; five sites whose WordPress media API asks for a login are read
   from their page; acts named by their site alone are read for their number.
+- **Chambray-lès-Tours, Barentin, Panazol, Villeneuve-Tolosane and fifteen
+  smaller towns now show their fresh permits**, 138,019 inhabitants. Their own
+  sites post them, one PDF per act or a table a week: some read as the
+  posted-acts and posted-lists towns already are; `sieve-acts` spells out the
+  numbers and days their links write their own way (`DP-076.057.26.00090`,
+  `PC 095 257 26 0 0009`, `ARR_20261002_…`) and puts the newest first; new
+  readers take the Word and Excel tables of Noisy-le-Roi and Auchel,
+  Chambray-lès-Tours, Villeneuve-Tolosane and L'Huisserie, and the typed
+  notices of Charnay-lès-Mâcon and Rives. Never the applicant's own address,
+  which two of these tables print.
 - **Sixty communes that post their permits on a WordPress site now show their
   fresh permits**, 290,504 inhabitants — Francheville, Lourdes, Beausoleil,
   Nœux-les-Mines, La Roche-sur-Foron, Villeneuve-lès-Maguelone, Seysses,

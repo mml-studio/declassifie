@@ -5638,6 +5638,50 @@ Mauges-sur-Loire, Cesson-Sévigné, Vif, Saint-Jean-d'Angély, Bouillargues and
 Trèbes, whose media API asks for a login; and some twenty communes whose
 lists no reader takes yet. 290 504 inhabitants more.
 
+**Nineteen towns found by the sieve of communes' own sites (2026-10-03).**
+Forty communes whose site the sieve had seen posting fresh numbers, none of
+them on WordPress's media API, were read one by one; nineteen are kept, in
+`src/data/sievePageCities.js`. Six read with the existing protocols as they
+are: `posted-acts` for Courcelles-lès-Lens, Puilboreau, Montigny-en-Ostrevent,
+La Chaussée-Saint-Victor and Les Martres-de-Veyre, `posted-lists` for
+Neuville-sur-Saône's Cart@DS lists. `sieve-acts`
+(`src/data/permitBoardsSievePages.js`) hands a page to `posted-acts` once its
+links are rewritten: the number spelled out (Barentin's dotted
+`DP-076.057.26.00090`, La Frette-sur-Seine's split `PC 095 257 26 0 0009`), an
+eight-digit day apart (Beaussais-sur-Mer's `ARR_20261002_…`), `source.skip`
+links dropped (Panazol's certificates, Rives's `/index.php/` duplicates,
+Saint-Hilaire-du-Harcouët's download plugin robots.txt refuses), newest number
+first so that the forty undated acts kept are the newest (Forges-les-Eaux and
+Beaussais keep every year's orders on one page, oldest first). A receipts
+folder (`source.filings`) goes on the filings board; Charnay-lès-Mâcon's
+names swap day and month, so its links' « Mise en ligne le … » gives the day
+(`source.dayFromWords`). Two typed notices the act reader does not take are
+read by their labels (`labelled-notice`): Charnay's « Avis de dépôt »
+(« Numéro Dossier », « Terrain », « Travaux ») and the notices Rives's online
+filing service prints (« Enregistrée sous le numéro », « Concernant les travaux
+sis »; a « Décision tacite » is a tacit decision). Five tables get a
+`readReportTable` spec: the Word tables « Dossiers déposés avant le … /
+décidés jusqu'au … » that Noisy-le-Roi and Auchel both type (`word-list-*`,
+a run going to the header starting nearest it), Chambray-lès-Tours's Excel
+table of dossiers under review, Villeneuve-Tolosane's year registers and
+L'Huisserie's two tables, these last two every dossier of the year, a row a
+decision once it has a verdict. Chambray's applicant cell and Villeneuve-
+Tolosane's `ADRESSE` column print the applicant's own address: never read
+as the site. Read live on 2026-10-03, with the sweep's OCR for the scans:
+Villeneuve-Tolosane 153 decisions and 23 filings, L'Huisserie 57 and 18,
+Chambray-lès-Tours 55 filings, Auchel 42 and 10, Noisy-le-Roi 23 and 24,
+Panazol 14 and 26, Barentin 40 orders (35 with their site), Forges-les-Eaux 40
+(35), Les Martres-de-Veyre 21 and 19, Charnay-lès-Mâcon 13 and 13, Rives 7
+and 7, Beaussais-sur-Mer 13, the others 4 to 9. Left out: Dompierre-sur-Mer
+(robots.txt refuses `/*.pdf`), Sarralbe (the same), Derval, Houdain,
+Cires-lès-Mello and Cerny (their neopse sites serve every file through
+`api.neopse.com`, which answers « Not authenticated »), Wolfisheim (its
+receipts' OCR gives no street, no decision since June), Plouha and Maurecourt
+(nothing recent), Vizille (its lists are no longer linked), Pomponne and
+Neuville-de-Poitou (tables no reader takes yet), Grabels, Coursan and
+Pézilla-la-Rivière (left for `posted-acts`'s new abbreviated and unnumbered
+links). 138 019 inhabitants more.
+
 **Saumur, Voiron, Montbéliard, Villeneuve-sur-Lot and Wasquehal
 (2026-10-03).** A host holds one Cart@DS board per instruction service, and
 the scan reads one per host, the first path that answers: Saumur Val de
