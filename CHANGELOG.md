@@ -12,6 +12,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   `/guichet-saumur` on a host whose other board the scan already read; Voiron
   has its own board; Montbéliard, Villeneuve-sur-Lot and Wasquehal link one
   PDF per act, read by the posted-acts protocol.
+- **Rochefort and Chemillé-en-Anjou now show their fresh planning orders**,
+  45,459 inhabitants. Rochefort's own legal-display app answers in JSON, and
+  Chemillé-en-Anjou posts on an A2Display kiosk whose categories do too; two
+  protocols read their orders, the number and a numbered street from each
+  title, then the act itself (by OCR for Rochefort's scans).
 - **Saint-Joseph (La Réunion), Matoury (Guyane) and Schiltigheim now show
   their fresh permits**, 111,041 inhabitants. Saint-Joseph posts the same
   register of pending dossiers and decisions as Marseille and Nîmes;
