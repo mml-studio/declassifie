@@ -79,7 +79,7 @@ test('a town that follows its links asks each one’s page for the PDF it links'
 
 // --- One PDF per act -----------------------------------------------------------
 
-const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor'];
+const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor', 'montbeliard', 'villeneuve-sur-lot', 'wasquehal'];
 
 test('the communes that post one PDF per act are read by `posted-acts` and the DematDOC act reader', () => {
   for (const key of ACT_KEYS) {
@@ -134,4 +134,23 @@ test('an undated act counts when its number is of this year or the last, forty a
   assert.equal(files.length, 40);
   assert.ok(files.every((file) => / 26 /.test(file.row.dossier)));
   assert.equal(postedActFiles(city('dourges'), link('/medias/old.pdf', 'REFUS PC 062 274 23 00007'), 'https://www.dourges.fr/', '2026-08-01'), null);
+});
+
+test('a number without its year takes the upload’s, for a town that writes them so', () => {
+  const html = [
+    link('https://www.montbeliard.fr/content/uploads/2026/09/DP-176-CHOPARD.pdf', 'DP 176 CHOPARD'),
+    link('https://www.montbeliard.fr/content/uploads/2026/09/PC-26-00021-Ville.pdf', 'PC 26 00021 Ville de Montbéliard'),
+  ].join('');
+  const files = postedActFiles(city('montbeliard'), html, city('montbeliard').page, '2026-08-01');
+  assert.deepEqual(files.map((file) => file.row.dossier), ['DP 025388 26 00176', 'PC 025388 26 00021']);
+  assert.equal(postedActFiles({ ...city('montbeliard'), source: { protocol: 'posted-acts' } }, html, city('montbeliard').page, '2026-08-01').length, 1,
+    'without `bareCounter`, a counter alone names no dossier');
+});
+
+test('a page drawn inside another names its files from that page', async () => {
+  const villeneuve = city('villeneuve-sur-lot');
+  const html = '<a href="pdf/affichage/6abfada909c3b.pdf" class="file-link"><span>DP 047 323 26 00255</span></a>';
+  const { files } = POSTED_LIST_PROTOCOLS['posted-acts'].index(villeneuve, html, { url: villeneuve.page }, { since: '2026-08-01' });
+  assert.equal(files[0].url, 'https://www.ville-villeneuve-sur-lot.fr/pdf/affichage/6abfada909c3b.pdf');
+  assert.equal(files[0].row.dossier, 'DP 047323 26 00255');
 });

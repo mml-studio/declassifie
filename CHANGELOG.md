@@ -6,8 +6,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
-- **Saint-Joseph (La Réunion), Matoury (Guyane) and Schiltigheim now show
-  their fresh permits**, 111,041 inhabitants. Saint-Joseph posts the same
+- **Saint-Joseph (La Réunion), Saumur and fourteen communes of its
+  agglomeration, Matoury (Guyane), Schiltigheim, Montbéliard, Villeneuve-sur-Lot,
+  Voiron and Wasquehal now show their fresh permits**, 238,800 inhabitants.
+  Saumur Val de Loire's Cart@DS board sits under `/guichet-saumur` on a host
+  whose other board the scan already read; Voiron has its own board;
+  Montbéliard, Villeneuve-sur-Lot and Wasquehal link one PDF per act, read by
+  the posted-acts protocol. Saint-Joseph posts the same
   register of pending dossiers and decisions as Marseille and Nîmes;
   Schiltigheim posts its own Cart@DS lists, read by the posted-list protocol;
   Matoury's Cart@DS board is named `ville-matoury`, a form the board scan now

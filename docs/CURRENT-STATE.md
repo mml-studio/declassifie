@@ -5512,7 +5512,7 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
-**Saint-Joseph, Matoury and Schiltigheim (2026-10-03).** Saint-Joseph (La
+**Saint-Joseph, Saumur, Matoury, Schiltigheim, Montbéliard, Villeneuve-sur-Lot, Voiron and Wasquehal (2026-10-03).** Saint-Joseph (La
 Réunion) posts one PDF replaced in place, its « Registre des dossiers en
 cours » followed by its « Registre des décisions », the export Marseille and
 Nîmes post: it joins `PERMIT_LISTS` with the `register` layout, and read live
@@ -5528,7 +5528,23 @@ installed and empty), so `tenantGuesses` now adds `ville-<name>` for each
 commune. The rescan of 2026-10-03 found no installed but empty board lit up
 since the 1st (Metz Métropole's still empty) and a commune more on Porte de
 DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
-1st with those boards' and Matoury's readings. 111 041 inhabitants more.
+1st with those boards' and Matoury's readings. A host holds one board per
+instruction service, and the scan reads one per host, the first path that
+answers: Saumur Val de Loire's 17 communes are under `/guichet-saumur`, while
+the archive had seen Doué's board (`/guichet-doue`, Cizay-la-Madeleine only,
+which leaves). A seed now comes before the archive's and the last scan's
+candidates, so that its path wins; Saumur and fourteen communes join.
+Montbéliard and Villeneuve-sur-Lot post one PDF per order and join the
+`posted-acts` communes: Montbéliard writes its declarations' numbers without
+their year (« DP 176 CHOPARD »), which `source.bareCounter` takes from the
+upload month until the order's own heading gives the full number (DP 42 is
+2025's); Villeneuve-sur-Lot's list is drawn inside another page, whose
+address `source.linkBase` gives its relative links. Read live with the
+sweep's OCR: Montbéliard 19 orders, Villeneuve-sur-Lot 40, sites and verdicts
+from the scans. Voiron's own Cart@DS board (`portail-urbanisme.ville-voiron.fr`)
+joins the seeds, and Wasquehal, whose legal notices link each avis and order,
+the posted acts (12 orders and 3 filings read live, parcels from the acts).
+238 812 inhabitants more.
 
 **Fourteen communes that post one act at a time (2026-10-03).** Many small
 towns link each receipt and order, one PDF each, from a page of their own
