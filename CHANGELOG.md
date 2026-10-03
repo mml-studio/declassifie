@@ -6,6 +6,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Sixty communes that post their permits on a WordPress site now show their
+  fresh permits**, 290,504 inhabitants — Francheville, Lourdes, Beausoleil,
+  Nœux-les-Mines, La Roche-sur-Foron, Villeneuve-lès-Maguelone, Seysses,
+  Lillers and 52 smaller ones. The new `wp-media` protocol asks the site's
+  media API for the PDFs uploaded since the window's first day, whatever page
+  links them, and keeps the instruction service's lists and the acts whose
+  file name carries one of the commune's dossier numbers, abbreviated
+  numbers (`DP-2600033`, `DP-022-004-26-P-0048`) included.
 - **Manosque's published filing notices now join the permit layer**, adding
   22,718 residents to municipal-source coverage (32.3962% to 32.4294%).
   Scanned notices use the existing daily OCR collector; 13 filings were

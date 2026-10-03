@@ -154,3 +154,75 @@ test('a page drawn inside another names its files from that page', async () => {
   assert.equal(files[0].url, 'https://www.ville-villeneuve-sur-lot.fr/pdf/affichage/6abfada909c3b.pdf');
   assert.equal(files[0].row.dossier, 'DP 047323 26 00255');
 });
+
+test('file names that abbreviate a number still name the commune’s dossier', () => {
+  const acts = (key, href) => postedActFiles(city(key), link(href), 'https://example.fr/', '2026-08-01')?.map((file) => file.row.dossier) ?? null;
+  assert.deepEqual(acts('wp-media-59514', '/wp-content/uploads/sites/22/2026/02/DP-2600033.pdf'), ['DP 059514 26 00033'], 'the year run into its counter');
+  assert.deepEqual(acts('wp-media-59514', '/wp-content/uploads/sites/22/2026/02/DP-2600017M01.pdf'), ['DP 059514 26 00017 M01']);
+  assert.deepEqual(acts('wp-media-53140', '/wp-content/uploads/2023/12/2026-09-28-DP-2600078-ARRETE.pdf'), ['DP 053140 26 00078'], 'after a date');
+  assert.deepEqual(acts('wp-media-22004', '/wp-content/uploads/2026/10/01.10.2026-Rejet-tacite-DP-022-004-26-P-0048.pdf'), ['DP 022004 26 P0048'], 'a service letter set apart');
+  assert.deepEqual(acts('wp-media-50410', '/wp-content/uploads/2026/09/Arrete-Favorable-PC-050-410-26-0-0023.pdf'), ['PC 050410 26 00023'], 'a zero set apart');
+  assert.equal(acts('wp-media-50410', '/wp-content/uploads/2026/09/Arrete-Favorable-PC-050-411-26-0-0023.pdf'), null, 'another commune’s number');
+  assert.equal(acts('wp-media-59514', '/wp-content/uploads/2026/09/Budget-2026-00033.pdf'), null);
+});
+
+test('the WordPress communes are in the permit registry, read by `wp-media`', () => {
+  const towns = BOARD_PERMIT_SOURCES.filter((source) => source.source.protocol === 'wp-media');
+  assert.ok(towns.length >= 60);
+  for (const town of towns) {
+    assert.equal(permitListFor(town.insee), town, town.key);
+    assert.match(town.page, /^https:\/\/[^/]+\/$/, town.key);
+    assert.equal(town.source.ocr, true, 'their signed acts are scans');
+  }
+  assert.equal(BOARD_PROTOCOLS['wp-media'], POSTED_LIST_PROTOCOLS['wp-media']);
+});
+
+test('the media API gives a town’s lists and acts, newest first, and leaves its other PDFs', () => {
+  const wp = POSTED_LIST_PROTOCOLS['wp-media'];
+  const royat = city('wp-media-63308');
+  const [start] = wp.start(royat, { since: '2026-08-01', day: '2026-10-03' });
+  const asked = new URL(start.url);
+  assert.equal(asked.origin + asked.pathname, 'https://www.royat.fr/wp-json/wp/v2/media');
+  assert.equal(asked.searchParams.get('mime_type'), 'application/pdf');
+  assert.equal(asked.searchParams.get('after'), '2026-08-01T00:00:00');
+  assert.equal(start.as, 'json');
+  const item = (date, path, title = '') => ({ date: `${date}T10:00:00`, source_url: `https://www.royat.fr/wp-content/uploads/${path}`, title: { rendered: title } });
+  const body = [
+    item('2026-10-04', '2026/10/Liste-des-avis-de-depot-04_10_2026.pdf'),
+    item('2026-09-30', '2026/09/Liste-des-avis-de-depot-30_09_2026.pdf', 'Liste des avis de dépôt &#8211; 30 09 2026'),
+    item('2026-09-30', '2026/09/Liste-des-decisions-30_09_2026.pdf'),
+    item('2026-09-29', '2026/09/DP-063-308-26-00071-Arrete.pdf'),
+    item('2026-09-28', '2026/09/Menus-octobre.pdf'),
+    item('2026-09-27', '2026/09/DP-063-113-26-00012-Arrete.pdf'),
+  ];
+  const { files, next } = wp.index(royat, body, start, { since: '2026-08-01', day: '2026-10-03' });
+  assert.deepEqual(files.map((file) => [file.board, file.layout, file.published, file.row?.dossier ?? null]), [
+    ['filings', 'cartds-report-filings', '2026-09-30', null],
+    ['decisions', 'cartds-report-decisions', '2026-09-30', null],
+    ['decisions', 'dematdoc-notice', '2026-09-29', 'DP 063308 26 00071'],
+  ], 'a file after the reading’s day, a menu and another commune’s act are left');
+  assert.deepEqual(next, []);
+  const full = Array.from({ length: 100 }, (_, i) => item('2026-09-01', `2026/09/menu-${i}.pdf`));
+  const paged = wp.index(royat, full, start, { since: '2026-08-01', day: '2026-10-03' });
+  assert.equal(new URL(paged.next[0].url).searchParams.get('page'), '2');
+  assert.equal(wp.index(royat, { code: 'rest_not_logged_in' }, start, { since: '2026-08-01' }), null, 'a closed API is not the board');
+  const listsOnly = wp.index({ ...royat, source: { ...royat.source, acts: false } }, body, start, { since: '2026-08-01', day: '2026-10-03' });
+  assert.equal(listsOnly.files.length, 2);
+});
+
+test('a commune whose links name no number sets `unnumbered`: a dated act is read for its heading’s', () => {
+  const rozay = { ...city('wp-media-59514'), insee: '77393', postcode: '77540', source: { protocol: 'posted-acts', unnumbered: true } };
+  const html = [
+    link('/wp-content/uploads/2026/09/DP-15-FAUBOURG-DE-GIRONDE.pdf'),
+    link('/wp-content/uploads/2026/10/AVIS-DE-DEPOT-2-RUE-DES-QUATRE-VENTS.pdf'),
+    link('/wp-content/uploads/2026/09/Arrete-160-2026-OLYMPIADES-Ecole-Elementaire.pdf'),
+    link('/wp-content/uploads/2026/09/Menus-octobre.pdf'),
+  ].join('');
+  const files = postedActFiles(rozay, html, 'https://www.rozay-en-brie.fr/', '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.url.replace(/^.*\//, ''), file.board, file.published, file.row ?? null]), [
+    ['DP-15-FAUBOURG-DE-GIRONDE.pdf', 'decisions', '2026-09-01', null],
+    ['AVIS-DE-DEPOT-2-RUE-DES-QUATRE-VENTS.pdf', 'filings', '2026-10-01', null],
+    ['Arrete-160-2026-OLYMPIADES-Ecole-Elementaire.pdf', 'decisions', '2026-09-01', null],
+  ], 'its heading must then give the number: a police order gives no row');
+  assert.equal(postedActFiles({ ...rozay, source: { protocol: 'posted-acts' } }, html, 'https://www.rozay-en-brie.fr/', '2026-08-01'), null);
+});
