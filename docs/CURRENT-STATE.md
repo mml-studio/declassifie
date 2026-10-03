@@ -5330,7 +5330,7 @@ no date is printed and the PDFs are session-bound, so its rows carry none,
 and only a numbered site and works phrases are kept from each free-text
 description. Through the proxy on 2026-10-02, Garges placed 28 dossiers of
 28, Cergy 33 of 38, Châlons 79 of 83 and Anglet 184 of 205.
-**Fifty-six communes that post on DematDOC (2026-10-02).**
+**Fifty-six communes that post on DematDOC (2026-10-02; Aubière on 2026-10-03).**
 `src/data/dematdocFeed.js` registers the tenants of the acts platform
 `<tenant>.dematdoc.eu` whose urbanism shelves carry dossiers posted since July
 — Montélimar, Plaisir, Le Pontet, Fontenay-le-Comte, Saint-Gaudens and 51
@@ -5366,10 +5366,59 @@ stay with Pau's e-permis board, which has their parcels, and Le Crès stays
 with Montpellier Méditerranée Métropole's open data: a commune on two
 registers would have every dossier twice. Viviers, read by Du Rhône aux
 Gorges de l'Ardèche's Cart@DS board since #399 (with its parcels), left the
-DematDOC list the same day, so 55 tenants are read. Measured against
+DematDOC list the same day, so 55 tenants were read; Aubière, whose shelf the
+2 October sweep missed while the network was down, makes 56 on 2026-10-03. Measured against
 geo.api.gouv.fr's populations: 338 535 inhabitants more, 26.8 % of the
 population seen within days, from 26.3 %; 105 of the 300 most populous
 communes, from 103, and 248 of the 1 000, from 243.
+
+**SPL-Xdemat, seven self-hosted Cart@DS boards and five Sirap tenants
+(2026-10-03).** `src/data/permitBoardsXdemat.js` reads the urbanism tab of
+SPL-Xdemat's legal boards (`opendata.spl-xdemat.fr`), the acts platform of the
+Aube, the Ardennes, the Marne, the Haute-Marne, the Aisne, the Meuse, the
+Vosges and Meurthe-et-Moselle: one shared protocol (`spl-xdemat`) for the 54
+communes `permitBoardCities.js` lists. The frame's endpoint answers twenty
+postings a page, newest first, back to 2024, whatever is asked; pages are read
+until one reaches back past the window, the last page, or fifteen. Each
+posting gives its full number (`DP 088 160 2600341`, the commune checked),
+the site, the works and the posting day; « Récépissé de dépôt » is a filing,
+« Arrêté de décision » a decision, any other link nothing. The order's verdict
+is only in its PDF, not read: the row says « Décision signée ». The applicant
+has a field of its own and is never read. A non-member's answer has no total
+and is no board. Measured on 2026-10-02: 139 of the 479 most populous
+uncovered communes of the eight departments had a frame and 31 had posted
+since July; asking the 4 192 others added 23 smaller ones. Through the reader
+on 2026-10-02, Épinal gave 47 filings and 9 decisions over the window, 55 of
+56 with their site. `robots.txt` is `Disallow: /`, overridden by the
+project's decision as for DematDOC.
+
+Seven Cart@DS boards on hosts no scan could name are written by hand in
+`cartdsFeed.js`: Orly, Saint-Mandé, Salazie and the Haute-Bigorre (ten
+communes) on hosts of their own, found by asking twenty usual ADS
+sub-domains (`urbanisme.`, `ads.`, `sig.`, `cartads.`, …) of the 1 253
+intercommunalities' and the uncovered communes' websites from the
+service-public directory, wildcard DNS left out; and Moret Seine et Loing,
+Terre d'Émeraude and Habsheim's `/guichet-scin` path on geosphere.fr, found by
+asking the DNS about tenant names drawn from intercommunalities' and
+syndicates' acronyms. Sixteen more boards answer but were empty on
+2026-10-03 — Metz Métropole's new host until its migration ends on 8
+October, Saint-Lô Agglo, Riom Limagne et Volcans, Creusot-Montceau, La
+Roche-sur-Yon Agglomération, Pévèle Carembault, Colombes, Livry-Gargan and
+others: they join `CARTDS_SCAN_SEEDS`, and each scan asks them again.
+
+`*.pu.sirap.com` is a wildcard: an unknown tenant name answers Sirap's whole
+default catalogue (first entry « AAST »), a tenant its own list. The names
+the Wayback Machine saw as `sve-<tenant>.sirap.fr` (2026-10-01) and 23 000
+names drawn from intercommunalities, syndicates (BANATIC) and the 4 000 most
+populous communes (2026-10-03) give 31 tenants the layer did not read. Five post and are
+written by hand in `sirapFeed.js`: the Bassin de Joinville en Champagne (29
+communes), the Portes de la Thiérache (18), Lavalette Tude Dronne (17),
+Valréas and Duras. The 26 others list their communes but posted nothing in
+three months (the Pays du Mans's 96, Tarbes-Lourdes-Pyrénées's 66, Vienne et
+Gartempe's 55, the Gironde's SDEEG, which stopped in February); all join
+`SIRAP_SCAN_HOSTS`. Measured against geo.api.gouv.fr's populations: 372 763
+inhabitants more, 30.44 % of the population seen within days, from 29.90 %;
+300 of the 1 000 most populous communes, from 288.
 
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25

@@ -158,6 +158,28 @@ export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'paysdelor.geosphere.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'urbanisme.payssaintgilles.fr', prefixes: Object.freeze(['']) }),
   Object.freeze({ host: 'ads.paysvoironnais.com', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Found on 2026-10-03 by asking the usual ADS sub-domains of every
+  // intercommunality's and uncovered commune's website. Installed, menu or
+  // rows empty that day — Metz Métropole's new host until its migration ends
+  // on 8 October, the others since R.423-6 leaves posting online optional:
+  // each scan asks them again. Those that posted are written by hand in
+  // `cartdsFeed.js`.
+  Object.freeze({ host: 'urbanisme-eurometropolemetz.geosphere.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'sig.saint-lo-agglo.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'sig.rlv.eu', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.cc-paysdesachards.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'sig.creusot-montceau.org', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'ads.larochesuryon.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'cartads.cc-sevreloire.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'portailurbanisme.pevelecarembault.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.saintgervais.com', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'portail-urbanisme.ville-chaville.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.ville-yzeure.com', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urba.boucbelair.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.livry-gargan.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.colombes.fr', prefixes: Object.freeze(['/guichet-unique']) }),
+  Object.freeze({ host: 'urbanisme.ville-bonneuil.fr', prefixes: Object.freeze(['']) }),
+  Object.freeze({ host: 'urbanisme.ville-chamalieres.fr', prefixes: Object.freeze(['']) }),
 ]);
 
 /**
@@ -200,6 +222,20 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   // The Ain's SIEA moved its public portal to this host in December 2025.
   // Bugey-Sud and municipal websites link it; it uses the same PU API.
   'puu.siea-sig.fr',
+  // Tenants of the `*.pu.sirap.com` wildcard named by guessing, on 2026-10-01
+  // (the Wayback Machine's `sve-<tenant>.sirap.fr`) and 2026-10-03 (names
+  // drawn from intercommunalities, syndicates and communes; an unknown name
+  // answers the default catalogue). The first five post and are written by
+  // hand in `sirapFeed.js`; the others list their communes but posted
+  // nothing in three months, and each scan asks them again.
+  'ccbjc.pu.sirap.com', 'ccpt.pu.sirap.com', 'ltd.pu.sirap.com', 'valreas.pu.sirap.com', 'duras.pu.sirap.com',
+  'catlp.pu.sirap.com', 'ccvg.pu.sirap.com', 'paysdumans.pu.sirap.com', 'portesdemeuse.pu.sirap.com',
+  'ccpl.pu.sirap.com', 'cceppg.pu.sirap.com', 'bvc.pu.sirap.com', 'ccyn.pu.sirap.com', 'celavu.pu.sirap.com',
+  'paysdephalsbourg.pu.sirap.com', 'cc-genevois.pu.sirap.com', 'ccbpam.pu.sirap.com', 'ccdoreallier.pu.sirap.com',
+  'cdcba.pu.sirap.com', 'cdcmedullienne.pu.sirap.com', 'cinl.pu.sirap.com', 'ads.pu.sirap.com',
+  'monautorisationdurbanisme-ccbbo.pu.sirap.com', 'pln.pu.sirap.com', 'urbanisme-vic-bigorre.pu.sirap.com',
+  'urbabressebourguignonne.pu.sirap.com', 'noirmoutier.pu.sirap.com', 'sdeeg33.pu.sirap.com',
+  'courtomer.pu.sirap.com', 'saintleulaforet.pu.sirap.com', 'montbonnot-saint-martin.pu.sirap.com',
 ]);
 
 const { values } = parseArgs({

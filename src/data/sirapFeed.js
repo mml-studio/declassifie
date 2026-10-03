@@ -172,6 +172,54 @@ const SIRAP_DOCUMENTED_INSTANCES = Object.freeze([
       '01449', '01451', '01452', '01453', '01454', '01456',
     ]),
   }),
+  // Tenants of `*.pu.sirap.com` that no site linked, found on 2026-10-03 by
+  // asking the wildcard for names drawn from intercommunalities, syndicates
+  // and communes: an unknown name answers Sirap's whole default catalogue
+  // (first entry « AAST »), a tenant its own list. Of the tenants found this
+  // way, these five post; each commune below posted within 92 days.
+  Object.freeze({
+    key: 'ccbjc',
+    base: 'https://ccbjc.pu.sirap.com',
+    label: 'Communauté de communes du Bassin de Joinville en Champagne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze([
+      '52007', '52030', '52055', '52110', '52118', '52131', '52175', '52178',
+      '52181', '52212', '52230', '52250', '52284', '52288', '52321', '52337',
+      '52346', '52356', '52376', '52378', '52398', '52440', '52442', '52456',
+      '52484', '52490', '52495', '52511', '52512',
+    ]),
+  }),
+  Object.freeze({
+    key: 'ccpt',
+    base: 'https://ccpt.pu.sirap.com',
+    label: 'Communauté de communes des Portes de la Thiérache — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze([
+      '02038', '02126', '02160', '02181', '02200', '02256', '02264', '02265',
+      '02354', '02433', '02502', '02586', '02641', '02642', '02666', '02678',
+      '02801', '02802',
+    ]),
+  }),
+  Object.freeze({
+    key: 'ltd',
+    base: 'https://ltd.pu.sirap.com',
+    label: 'Communauté de communes Lavalette Tude Dronne — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze([
+      '16047', '16049', '16072', '16073', '16082', '16103', '16125', '16143',
+      '16162', '16198', '16230', '16283', '16285', '16350', '16362', '16394',
+      '16408',
+    ]),
+  }),
+  Object.freeze({
+    key: 'valreas',
+    base: 'https://valreas.pu.sirap.com',
+    label: 'Valréas — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['84138']),
+  }),
+  Object.freeze({
+    key: 'duras',
+    base: 'https://duras.pu.sirap.com',
+    label: 'Duras — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze(['47086']),
+  }),
 ]);
 
 /**

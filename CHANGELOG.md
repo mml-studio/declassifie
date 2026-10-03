@@ -6,6 +6,24 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Épinal, Épernay, Chaumont, Lunéville, Sedan, Romilly-sur-Seine and 48
+  more communes of the Aube, the Marne, the Vosges and five neighbouring
+  departments now show the permits they post on SPL-Xdemat's shared board**,
+  233,732 inhabitants. Each filing receipt and each order is read with its
+  full number, its site, the works and the day it was posted; the order's
+  verdict is only in its PDF, so the card says the decision was signed.
+- **Orly, Saint-Mandé, Moret-Loing-et-Orvanne, Bagnères-de-Bigorre and its
+  valley, Salazie, Habsheim and two Jura communes now show their posted
+  permits**, from seven Cart@DS boards on hosts no scan could name, found by
+  asking the usual ADS sub-domains of every intercommunality's and uncovered
+  commune's website (92,000 inhabitants). Sixteen more boards are installed
+  but empty, Metz Métropole's new one among them; each scan asks them again.
+- **Five Sirap tenants found by guessing their names now feed the layer**:
+  the Bassin de Joinville, the Portes de la Thiérache, Lavalette Tude Dronne,
+  Valréas and Duras, 66 communes and 36,700 inhabitants. Twenty-six other
+  tenants list their communes but have posted nothing in three months; each
+  scan asks them again. Aubière's DematDOC shelf, which the 2 October sweep
+  missed while the network was down, joins the 55 DematDOC communes.
 - **Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce now show their
   published planning decisions**, adding 61,425 residents to current
   municipal-source coverage (29.81% to 29.90%). Eaubonne's planning-theme

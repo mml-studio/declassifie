@@ -17,8 +17,8 @@ const doc = (id, name, values = {}, extra = {}) => ({
 });
 
 test('every DematDOC tenant is its own commune’s permit list, read despite the platform’s robots.txt', () => {
-  assert.equal(DEMATDOC_PERMIT_SOURCES.length, 55);
-  assert.equal(new Set(DEMATDOC_PERMIT_SOURCES.map((source) => source.insee)).size, 55);
+  assert.equal(DEMATDOC_PERMIT_SOURCES.length, 56);
+  assert.equal(new Set(DEMATDOC_PERMIT_SOURCES.map((source) => source.insee)).size, 56);
   for (const source of DEMATDOC_PERMIT_SOURCES) {
     assert.equal(permitListFor(source.insee), source);
     assert.equal(source.robots, 'overridden');
