@@ -5542,6 +5542,33 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Manosque and population-first discovery (2026-10-03).** Manosque's public
+Datahall app 327 posts individual scanned filing notices on category 3608,
+sub-category 0. It joins `digilorTownsB.js` through the existing
+`outer-notice` reader and daily OCR collector, with no new platform protocol.
+The notice's `Date du dépôt` label is now read alongside `Date de dépôt`.
+Private applicants and their residential addresses are excluded; a scan
+without a safely read dossier and project site remains withheld. The collector
+also rejects PDF identities conflicting with the index, even from the edition
+cache: 13 filings retained from 32 files, 19 conflicts excluded on the live
+check. Extraction remains partial. The source adds 22,718 residents against
+main's existing 4,199-municipality registry:
+22,143,065 to 22,165,783 residents, 32.3962% to 32.4294% of the same
+68,350,798 population snapshot. Reims, Montluçon, Saint-Laurent-du-Var and
+Concarneau were already integrated on main and add no new population here.
+
+`npm run permits:priorities -- --exclude 31555 --out .context/priorities.json`
+reports uncovered towns of at least 50,000 residents and intermunicipalities
+ranked by the sum of their uncovered population. It reads current source
+registries at invocation, accepts a saved Geo API municipality snapshot and
+optional verified candidate reports, and never changes a source registry.
+Overlapping candidate gains are counted once; old, future or unverified
+publication dates contribute no verified gain. Annual Montpellier data and
+national Sitadel do not remove a town from the current-board research queue.
+Toulouse is excluded by the command above, as requested. A service's member
+population is a research priority, not evidence that it publishes for every
+member. [Research and limits](research/population-first-permits-2026-10-03.md).
+
 **Saint-Joseph, Matoury and Schiltigheim (2026-10-03).** Saint-Joseph (La
 Réunion) posts one PDF replaced in place, its « Registre des dossiers en
 cours » followed by its « Registre des décisions », the export Marseille and

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DIGILOR_TOWNS } from './digilorTowns.js';
 import { DIGILOR_TOWNS_B } from './digilorTownsB.js';
 import { BOARD_READERS } from './permitBoards.js';
-import { PERMIT_LIST_READERS, digilorDocuments, permitListFor, scrubPermitListRow } from './permitListsFeed.js';
+import { PERMIT_LIST_READERS, digilorDocuments, digilorMatchingRows, permitListFor, scrubPermitListRow } from './permitListsFeed.js';
 import { readConcarneauRegister, readHarnesFiling, readHarnesOrder, readHeninTable, readIllkirchList, readSaintLaurentList, readVerrieresFiling, readVerrieresOrder, readStateFormOrder } from './permitBoardsDigilorB.js';
 
 const town = (key) => DIGILOR_TOWNS.find((item) => item.key === key);
@@ -42,6 +42,44 @@ test('Montluçon’s sub-category gives its two Cart@DS reports by title, the no
 const run = (text, x, y, size = 8) => ({ text, x, x1: x + text.length * 4, y, size });
 const page = (...runs) => ({ pages: [{ runs }] });
 const PRIVATE = /PRIVATE|PERSON|Privée/;
+
+test('Manosque reads only its filing notices and keeps the project fields of a scan', () => {
+  const city = town('digilor-manosque');
+  assert.deepEqual(picked(city.key, [
+    doc(327, 1, 3608, 0, 'PRIVATE PERSON'),
+    doc(327, 2, 3000, 4245, 'Urbanisme'),
+    doc(327, 3, 3608, 0, 'PRIVATE PERSON', '2026-01-01'),
+  ]), [['1.pdf', 'filings', 'outer-notice']]);
+  const rows = BOARD_READERS['outer-notice'](page(
+    run('AVIS DE DEPOT : Déclaration préalable', 40, 770),
+    run('Dossier numéro : DP 004 112 26 00274', 40, 740),
+    run('Date du dépôt : 28/09/2026', 40, 710),
+    run('Demandeur : PRIVATE PERSON', 40, 680),
+    run('Demeurant : 1 rue Privée', 40, 655),
+    run('Adresse du terrain : 33 Boulevard Charles de Gaulle', 40, 625),
+    run('Nature des Travaux : ISOLATION THERMIQUE PAR L’EXTERIEUR', 40, 590),
+    run('AVIS AFFICHÉ LE : 28/09/2026', 40, 540),
+  ), { city, file: { board: 'filings', published: '2026-09-28', asOf: '2026-10-03' } });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dossier, 'DP 004112 26 00274');
+  assert.equal(rows[0].address, '33 Boulevard Charles de Gaulle');
+  assert.equal(rows[0].filedOn, '2026-09-28');
+  assert.equal(rows[0].applicant, null);
+  assert.doesNotMatch(JSON.stringify(rows.map((row) => scrubPermitListRow(row))), PRIVATE);
+});
+
+test('Manosque rejects a PDF identity conflicting with its index, including cached rows', () => {
+  const city = town('digilor-manosque');
+  const [file] = digilorDocuments(city, [doc(327, 1, 3608, 0, 'DP 004112 26 00274')], '2026-09-01');
+  assert.equal(file.dossier, 'DP 004112 26 00274');
+  const right = { cells: ['DP 004112 26 00274'] };
+  assert.deepEqual(digilorMatchingRows(city, file, [right,
+    { cells: ['DP 004112 26 00257'] }, { cells: ['PC 004112 26 00274'] },
+    { cells: ['DP 004112 26 00274 M01'] },
+  ]), [right]);
+  // The title can name only the applicant. Its PDF remains authoritative.
+  assert.deepEqual(digilorMatchingRows(city, { dossier: undefined }, [right]), [right]);
+});
 
 test('Saint-Laurent-du-Var’s family shelves give the lists of dossiers filed, a tacit-decision certificate left out', () => {
   assert.deepEqual(picked('digilor-saint-laurent-du-var', [

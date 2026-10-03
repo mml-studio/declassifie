@@ -132,7 +132,7 @@ import { organisationApplicant } from './permitApplicant.js';
 import { ADS_KINDS, dossierKey, formatDossier, seriesOfKind } from './adsFeed.js';
 import { ADS_STATE_WORDS } from './adsFeed.i18n.js';
 import {
-  MUNICIPAL_PERMIT_SOURCES, readMunicipalNotice, readBalmaTable, readWattrelosTable, saintPriestGridSpec,
+  MUNICIPAL_PERMIT_SOURCES, municipalDossier, readMunicipalNotice, readBalmaTable, readWattrelosTable, saintPriestGridSpec,
 } from './municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES, readBloisFilings, readExtendedNotice } from './municipalPermitExtensions.js';
 import { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
@@ -1661,7 +1661,14 @@ function digilorShelfFile(city, doc, since) {
   const file = String(doc.url_uiid ?? '').replace(/^(?:\.\.\/bo\/|bo\/|\.\/)/, '');
   if (!board || !file || !published || published < since) return null;
   return { board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published,
-    layout: shelf.layout ?? city.source.formats?.[board] ?? 'grid', title };
+    layout: shelf.layout ?? city.source.formats?.[board] ?? 'grid', title,
+    ...(city.source.checkDossier ? { dossier: municipalDossier(title, city) ?? undefined } : {}) };
+}
+
+/** A PDF served under another dossier's indexed URL must never be imported. */
+export function digilorMatchingRows(city, file, rows) {
+  return city.source.checkDossier && file.dossier
+    ? rows.filter((row) => municipalDossier(row.cells[0], city) === file.dossier) : rows;
 }
 
 // --- Tables whose cells are centred on their row ----------------------------

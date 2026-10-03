@@ -145,7 +145,7 @@ export function readOuterParisNotice(document, context) {
   const lines = noticeLines(document);
   const body = lines.join('\n');
   // i18n-ignore-start — explicit labels and operative wording printed by the municipalities
-  const filedOn = noticeDate(/(?:Date de d[ée]p[ôo]t\s*:?|(?:Demande |Dossier )?d[ée]pos[ée]e? le)\s*([^\n]+)/i.exec(body)?.[1]);
+  const filedOn = noticeDate(/(?:Date (?:de|du) d[ée]p[ôo]t\s*:?|(?:Demande |Dossier )?d[ée]pos[ée]e? le)\s*([^\n]+)/i.exec(body)?.[1]);
   const postedOn = noticeDate(/Document publi[ée] le\s+([^\n]+)/i.exec(body)?.[1]);
   const opening = /(?:^|\n)\s*ARTICLE\s+(?:1(?:er)?|UNIQUE)\b\s*[:.\-–]?/i.exec(body);
   const article = opening ? body.slice(opening.index + opening[0].length, opening.index + opening[0].length + 600)
