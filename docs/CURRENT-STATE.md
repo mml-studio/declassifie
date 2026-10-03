@@ -5700,6 +5700,19 @@ sweep's OCR: Montbéliard 19 orders, Villeneuve-sur-Lot 40, Wasquehal 12
 orders and 3 filings, sites, parcels and verdicts from the acts. 127 771
 inhabitants more.
 
+**Mantes-la-Ville and Saint-Cyr-l'École (2026-10-03).** Saint-Cyr-l'École
+posts Limeil-Brévannes's two Word tables every month, « Dossiers déposés
+avant le … » and « Dossiers décidés jusqu'au … », renamed with each edition's
+day (`AFFICHAGE-DEPOT-090926.pdf`): one line of `postedListCities.js`, whose
+`layouts` name the `limeil-filings` and `limeil-decisions` readers. Read live:
+9 filings and 21 decisions, every row with its site.
+Mantes-la-Ville links one PDF per decision, twelve a page: it joins the
+posted acts with its first five pages, and a number typed without the
+commune's code nor spaces (« DP 2600099 », « PC 2500004-M01 ») is now spelled
+out by the protocol. 14 decisions read live with the sweep's OCR. 43 600
+inhabitants more, found by the 2026-10-03 survey of the outer Île-de-France
+departments.
+
 **Rochefort and Chemillé-en-Anjou (2026-10-03).** Rochefort's legal board is
 its own app, whose Drupal back end answers plain GETs in JSON:
 `src/data/permitBoardsRochefort.js` reads the Urbanisme section's list

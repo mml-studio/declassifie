@@ -79,7 +79,7 @@ test('a town that follows its links asks each one’s page for the PDF it links'
 
 // --- One PDF per act -----------------------------------------------------------
 
-const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor', 'montbeliard', 'villeneuve-sur-lot', 'wasquehal'];
+const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor', 'montbeliard', 'villeneuve-sur-lot', 'wasquehal', 'mantes-la-ville'];
 
 test('the communes that post one PDF per act are read by `posted-acts` and the DematDOC act reader', () => {
   for (const key of ACT_KEYS) {
@@ -225,4 +225,29 @@ test('a commune whose links name no number sets `unnumbered`: a dated act is rea
     ['Arrete-160-2026-OLYMPIADES-Ecole-Elementaire.pdf', 'decisions', '2026-09-01', null],
   ], 'its heading must then give the number: a police order gives no row');
   assert.equal(postedActFiles({ ...rozay, source: { protocol: 'posted-acts' } }, html, 'https://www.rozay-en-brie.fr/', '2026-08-01'), null);
+});
+
+test('a number typed without the commune’s code nor spaces names the dossier', () => {
+  const html = [
+    link('/wp-content/uploads/2026/10/cno.pdf', 'Certificat de non opposition DP 2600099'),
+    link('/wp-content/uploads/2026/10/pc.pdf', 'PC 2500004-M01 Arrêté favorable'),
+    link('/wp-content/uploads/2026/10/full.pdf', 'Arrêté favorable - DP 0783622600092'),
+  ].join('');
+  const files = postedActFiles(city('mantes-la-ville'), html, city('mantes-la-ville').page, '2026-08-01');
+  assert.deepEqual(files.map((file) => file.row.dossier), ['DP 078362 26 00099', 'PC 078362 25 00004 M01', 'DP 078362 26 00092']);
+});
+
+test('a town posting Limeil-Brévannes’s Word tables names those readers', () => {
+  const saintCyr = city('saint-cyr-l-ecole');
+  assert.deepEqual(saintCyr.source.layouts, { filings: 'limeil-filings', decisions: 'limeil-decisions' });
+  assert.equal(typeof BOARD_READERS['limeil-filings'], 'function');
+  const html = [
+    link('https://www.saintcyr78.fr/wp-content/uploads/2026/09/AFFICHAGE-DEPOT-090926.pdf', 'Dossiers déposés au 09/09/2026'),
+    link('https://www.saintcyr78.fr/wp-content/uploads/2026/09/AFFICHAGE-DECISIONS-090926.pdf', 'Autorisations délivrées au 09/09/2026'),
+  ].join('');
+  const files = postedListFiles(saintCyr, html, saintCyr.page);
+  assert.deepEqual(files.map((file) => [file.board, file.layout, file.published]), [
+    ['filings', 'limeil-filings', '2026-09-09'],
+    ['decisions', 'limeil-decisions', '2026-09-09'],
+  ]);
 });

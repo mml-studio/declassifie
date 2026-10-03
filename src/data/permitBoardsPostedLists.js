@@ -170,12 +170,14 @@ function actStreet(text) {
  * year run into its counter (Rousies' `DP-2600033`, Louverné's
  * `2026-09-28-DP-2600078-ARRETE`), or the counter's service letter or digit
  * set apart (Bégard's `DP-022-004-26-P-0048`, Pontorson's
- * `PC-050-410-26-0-0023`, Vif's `DP-38545-26-1-0035`).
+ * `PC-050-410-26-0-0023`, Vif's `DP-38545-26-1-0035`), or its modification
+ * after a dash (Mantes-la-Ville's « PC 2500004-M01 »).
  */
 function actDossier(value, city) {
   const spaced = clean(value)
     .replace(/\b(PC|DP|PA|PD|CU)\s*(1[5-9]|2\d)(\d{5})(?!\d)/gi, '$1 $2 $3')
-    .replace(/\b(PC|DP|PA|PD|CU)((?:\s*\d{3}){2}|\s*\d{5,6})?\s*(1[5-9]|2\d)\s+([A-Z\d])\s+(\d{4})(?!\d)/gi, '$1$2 $3 $4$5');
+    .replace(/\b(PC|DP|PA|PD|CU)((?:\s*\d{3}){2}|\s*\d{5,6})?\s*(1[5-9]|2\d)\s+([A-Z\d])\s+(\d{4})(?!\d)/gi, '$1$2 $3 $4$5')
+    .replace(/(\d{5})\s*-\s*([MT]\s*\d{1,2})\b/g, '$1 $2');
   return municipalDossier(value, city) ?? (spaced === clean(value) ? null : municipalDossier(spaced, city));
 }
 
