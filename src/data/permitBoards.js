@@ -37,6 +37,7 @@ import { REPORT_BOARD_PROTOCOLS, REPORT_BOARD_READERS, REPORT_BOARD_TEXT } from 
 import { ACT_BOARD_PROTOCOLS, ACT_BOARD_READERS, ACT_BOARD_TEXT } from './permitBoardsActs.js';
 import { OUTER_PARIS_PROTOCOLS, OUTER_PARIS_READERS } from './outerParisPermits.js';
 import { PUBLISHED_PERMIT_PROTOCOLS, PUBLISHED_PERMIT_READERS } from './publishedPermitBoards.js';
+import { XDEMAT_BOARD_PROTOCOLS, XDEMAT_BOARD_READERS, XDEMAT_BOARD_TEXT } from './permitBoardsXdemat.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -45,7 +46,7 @@ export const BOARD_PROTOCOLS = Object.freeze({
   ...LIST_BOARD_PROTOCOLS, ...NOTICE_BOARD_PROTOCOLS, ...PAGE_BOARD_PROTOCOLS,
   ...REPORT_BOARD_PROTOCOLS, ...ACT_BOARD_PROTOCOLS,
   ...OUTER_PARIS_PROTOCOLS,
-  ...PUBLISHED_PERMIT_PROTOCOLS,
+  ...PUBLISHED_PERMIT_PROTOCOLS, ...XDEMAT_BOARD_PROTOCOLS,
 });
 
 /** The PDF readers the boards' files name, by `layout`. */
@@ -53,13 +54,13 @@ export const BOARD_READERS = Object.freeze({
   ...LIST_BOARD_READERS, ...NOTICE_BOARD_READERS, ...PAGE_BOARD_READERS,
   ...REPORT_BOARD_READERS, ...ACT_BOARD_READERS,
   ...OUTER_PARIS_READERS,
-  ...PUBLISHED_PERMIT_READERS,
+  ...PUBLISHED_PERMIT_READERS, ...XDEMAT_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
 export const BOARD_TEXT = Object.freeze({
   ...LIST_BOARD_TEXT, ...NOTICE_BOARD_TEXT, ...PAGE_BOARD_TEXT,
-  ...REPORT_BOARD_TEXT, ...ACT_BOARD_TEXT,
+  ...REPORT_BOARD_TEXT, ...ACT_BOARD_TEXT, ...XDEMAT_BOARD_TEXT,
 });
 
 /** The protocol of a board city, or null. */

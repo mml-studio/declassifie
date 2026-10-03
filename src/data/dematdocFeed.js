@@ -97,6 +97,8 @@ const TENANTS = [
   ['tupinetsemons', '69253', '69420', 'Tupin-et-Semons', [14]],
   ['vagnas-ardeche', '07328', '07150', 'Vagnas', [14]],
   ['labastidedevirac', '07113', '07150', 'Labastide-de-Virac', [14]],
+  // Missed by the 2026-10-02 sweep, which lost the network for a while.
+  ['ville-aubiere', '63014', '63170', 'Aubière', [22]],
 ];
 // i18n-ignore-end
 

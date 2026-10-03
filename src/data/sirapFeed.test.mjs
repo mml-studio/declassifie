@@ -68,9 +68,12 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
     }
   }
   // Written by hand: Rennes Métropole 40, Dunkerque 14, Antibes, Asnières. The
-  // SIEA's 246 joined on 2026-10-02. The
-  // scan's communes are on top, and the loop above refused any it shares.
-  assert.equal(seen.size - SIRAP_SCANNED_INSTANCES.reduce((sum, i) => sum + i.communes.length, 0), 302);
+  // SIEA's 246 joined on 2026-10-02, and five guessed tenants' 66 on
+  // 2026-10-03. The scan's communes are on top, and the loop above refused
+  // any it shares.
+  assert.equal(seen.size - SIRAP_SCANNED_INSTANCES.reduce((sum, i) => sum + i.communes.length, 0), 368);
+  assert.equal(sirapInstanceFor('84138').key, 'valreas');
+  assert.equal(sirapBoardUrl(sirapInstanceFor('52250'), '52250'), 'https://ccbjc.pu.sirap.com/api/v1/communes/052250/affichage-reglementaire');
   const siea = sirapInstanceFor('01033');
   assert.equal(siea.key, 'siea');
   assert.equal(sirapInstanceFor('01160'), siea);

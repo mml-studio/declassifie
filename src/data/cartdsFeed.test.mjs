@@ -71,10 +71,14 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   // Narbonne host, then Rixheim's separate path on 2026-10-02. The scan's
   // are on top, then 146 municipalities below the top 400 on nine public
   // intercommunal boards, then Saint-Maurice, Bayonne and 18 path tenants of
-  // guichetunique.geosphere.fr, then eleven on the Pays Voironnais board.
+  // guichetunique.geosphere.fr, then eleven on the Pays Voironnais board,
+  // then eighteen on seven boards of hosts of their own on 2026-10-03.
   // The loop above already refused any shared code.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 379);
+  assert.equal(seen.size - scanned, 397);
+  assert.equal(cartdsInstanceFor('68118').base, 'https://ilenapoleon.geosphere.fr/guichet-scin');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('97421'), '97421'), '421');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('39397'), '39397'), '39397');
   assert.equal(cartdsInstanceFor('11262').key, 'narbonne');
   assert.equal(cartdsInstanceFor('11202').key, 'grandnarbonne');
   assert.equal(cartdsInstanceFor('68278').base, 'https://ilenapoleon.geosphere.fr/guichet-rixheim');
@@ -95,8 +99,9 @@ test('documented hosts with a robots.txt exception are read only by an explicit 
   const refused = [
     'ads.lecotentin.fr', 'grandlibournais.geosphere.fr', 'conches-en-ouche.geosphere.fr',
     'stemarie.geosphere.fr', 'brie-nangissienne.geosphere.fr',
-    // Rixheim's path joined the hosting-default exception on 2026-10-02.
-    'ilenapoleon.geosphere.fr',
+    // Rixheim's path joined the hosting-default exception on 2026-10-02,
+    // Habsheim's and Moret Seine et Loing's on 2026-10-03.
+    'ilenapoleon.geosphere.fr', 'ilenapoleon.geosphere.fr', 'moretseineloing.geosphere.fr',
   ];
   const documented = CARTDS_INSTANCES.filter((instance) => !CARTDS_SCANNED_INSTANCES.includes(instance));
   const overridden = documented.filter((instance) => instance.robots !== undefined);

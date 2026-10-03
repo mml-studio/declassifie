@@ -139,6 +139,43 @@ const CITIES = [
     // `Crawl-delay: 2` in its robots.txt.
     page: 'https://www.ville-pertuis.fr/ma-mairie/urbanisme/depots-et-decisions-dautorisation-de-travaux', crawlDelayMs: 2_000 },
 ];
+
+/**
+ * Communes that post on SPL-Xdemat's shared board (`permitBoardsXdemat.js`):
+ * [INSEE, postcode, name]. Found on 2026-10-02 by asking the frame of the 479
+ * most populous communes of its eight departments with no other source: 31
+ * had posted since July. Asking the urbanism tab of the 4 192 others the
+ * next night found 23 more, none above a thousand inhabitants (Macey, 975).
+ */
+const XDEMAT_COMMUNES = [
+  ['88160', '88000', 'Épinal'], ['51230', '51200', 'Épernay'], ['52121', '52000', 'Chaumont'],
+  ['54329', '54300', 'Lunéville'], ['08409', '08200', 'Sedan'], ['10323', '10100', 'Romilly-sur-Seine'],
+  ['10081', '10600', 'La Chapelle-Saint-Luc'], ['02810', '02600', 'Villers-Cotterêts'],
+  ['10362', '10300', 'Sainte-Savine'], ['88196', '88400', 'Gérardmer'], ['88321', '88300', 'Neufchâteau'],
+  ['10268', '10400', 'Nogent-sur-Seine'], ['88304', '88500', 'Mirecourt'], ['88075', '88250', 'La Bresse'],
+  ['10265', '10420', 'Les Noës-près-Troyes'], ['10003', '10160', 'Aix-Villemaur-Pâlis'],
+  ['10060', '10450', 'Bréviandes'], ['10349', '10180', 'Saint-Lyé'], ['51193', '51460', 'Courtisols'],
+  ['10401', '10140', 'Vendeuvre-sur-Barse'], ['10067', '10800', 'Buchères'],
+  ['10115', '10150', 'Creney-près-Troyes'], ['54167', '54200', 'Dommartin-lès-Toul'],
+  ['52332', '52140', 'Val-de-Meuse'], ['51237', '51310', 'Esternay'], ['54286', '54800', 'Labry'],
+  ['55117', '55120', 'Clermont-en-Argonne'], ['10282', '10600', 'Payns'], ['10368', '10600', 'Savières'],
+  ['88484', '88220', 'Uzemain'], ['10080', '10210', 'Chaource'],
+  ['10211', '10300', 'Macey'], ['88098', '88390', 'Chaumousey'], ['10426', '10310', 'Ville-sous-la-Ferté'],
+  ['10344', '10800', 'Saint-Léger-près-Troyes'], ['88500', '88310', 'Ventron'], ['10223', '10290', 'Marcilly-le-Hayer'],
+  ['10260', '10800', 'Moussey'], ['51482', '51240', 'Saint-Germain-la-Ville'], ['55258', '55200', 'Geville'],
+  ['54373', '54300', 'Moncel-lès-Lunéville'], ['10409', '10600', 'Villacerf'], ['51643', '51530', 'Vinay'],
+  ['88430', '88140', 'Saint-Ouen-lès-Parey'], ['10336', '10180', 'Saint-Benoît-sur-Seine'], ['10314', '10240', 'Ramerupt'],
+  ['55014', '55120', 'Aubréville'], ['51378', '51530', 'Monthelon'], ['51630', '51130', 'Villers-aux-Bois'],
+  ['10133', '10130', 'Eaux-Puiseaux'], ['51235', '51120', 'Les Essarts-lès-Sézanne'], ['02761', '02190', 'Variscourt'],
+  ['88005', '88110', 'Allarmont'], ['02102', '02860', 'Bouconville-Vauclair'],
+];
+for (const [insee, postcode, name] of XDEMAT_COMMUNES) {
+  CITIES.push({ key: `xdemat-${insee}`, insee, postcode, label: `${name} — décisions d’urbanisme (SPL-Xdemat)`,
+    page: `https://opendata.spl-xdemat.fr/frame/MA${insee}/affichage-administratif`,
+    // `robots.txt` is `Disallow: /` (2026-10-02): read by the project's
+    // decision, as DematDOC's boards are (`permitBoardsXdemat.js`).
+    robots: 'overridden', source: { protocol: 'spl-xdemat' } });
+}
 // i18n-ignore-end
 
 /**

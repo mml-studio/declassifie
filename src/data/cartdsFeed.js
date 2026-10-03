@@ -678,6 +678,68 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
       '38373', '38383', '38386',
     ]),
   }),
+  // Boards on hosts of their own that no scan could name, found on
+  // 2026-10-03 by asking the usual ADS sub-domains (`urbanisme.`, `ads.`,
+  // `sig.`, …) of every intercommunality's and every uncovered commune's
+  // website, and the DNS about tenant names of the geosphere.fr family drawn
+  // from intercommunalities' and syndicates' acronyms. Each commune below
+  // posted within 92 days.
+  Object.freeze({
+    key: 'hautebigorre',
+    base: 'https://urbanisme.haute-bigorre.fr/guichet-unique',
+    label: 'Communauté de communes de la Haute-Bigorre — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze([
+      '65042', '65059', '65078', '65123', '65198', '65221', '65320', '65335',
+      '65370', '65451',
+    ]),
+  }),
+  Object.freeze({
+    key: 'orly',
+    base: 'https://urbanisme.mairie-orly.fr',
+    label: 'Ville d’Orly — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['94054']),
+  }),
+  Object.freeze({
+    key: 'saintmande',
+    base: 'https://portail-usager.saintmande.fr',
+    label: 'Ville de Saint-Mandé — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['94067']),
+  }),
+  Object.freeze({
+    key: 'salazie',
+    base: 'https://demarche-urbanisme.ville-salazie.fr',
+    label: 'Ville de Salazie — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['97421']),
+  }),
+  Object.freeze({
+    key: 'moretseineloing',
+    base: 'https://moretseineloing.geosphere.fr/guichet-unique',
+    label: 'Moret Seine et Loing — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['77316', '77463']),
+  }),
+  Object.freeze({
+    key: 'terredemeraude',
+    base: 'https://terredemeraude.geosphere.fr/guichet-unique',
+    label: 'Terre d’Émeraude Communauté — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['39333', '39397']),
+  }),
+  // Habsheim posts on a path of its own, `/guichet-scin`, which the scan
+  // never asks (it knows `/guichet-unique`).
+  Object.freeze({
+    key: 'ilenapoleon',
+    base: 'https://ilenapoleon.geosphere.fr/guichet-scin',
+    label: 'Habsheim — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['68118']),
+  }),
 ]);
 
 /**
