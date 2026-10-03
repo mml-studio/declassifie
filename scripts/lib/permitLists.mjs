@@ -648,20 +648,23 @@ async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles,
       fetched += 1;
       const file = allows(new URL(doc.url).pathname) ? await http.fetch(doc.url) : null;
       const bytes = file?.ok ? await http.bytes(file, PDF_MAX_BYTES) : null;
-      if (city.source.formats && (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-'))) {
+      const readsPdf = Boolean(city.source.formats || city.source.shelves);
+      if (readsPdf && (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-'))) {
         failed += 1;
         continue;
       }
-      if (bytes && city.source.formats) {
+      if (bytes && readsPdf) {
         const context = { city, file: list };
         let rows = rowsOfPdf(bytes, list.layout, list.board, context);
         let awaitsOcr = false;
-        const needsOcr = list.layout === 'extended-notice' && (!rows?.length
-          || rows.some((row) => row.cells[8] === municipalMessages.definition.signed.fr));
+        // A town that lists its shelves may post scans on any layout.
+        const needsOcr = (list.layout === 'extended-notice' && (!rows?.length
+          || rows.some((row) => row.cells[8] === municipalMessages.definition.signed.fr)))
+          || Boolean(city.source.shelves && city.source.ocr && !rows?.length);
         if (needsOcr) {
           // No visitor runs OCR. The daily sweep retries the cached scans.
           const scanned = ocr ? await ocr(bytes, { positioned: true }) : null;
-          const scannedRows = scanned?.document ? keptRows(PERMIT_LIST_READERS[list.layout](scanned.document, context), list.board) : [];
+          const scannedRows = scanned?.document ? keptRows((PERMIT_LIST_READERS[list.layout] ?? BOARD_READERS[list.layout])(scanned.document, context), list.board) : [];
           if (scannedRows.length) rows = scannedRows;
           if (!rows?.length) {
             const fallback = digilorTitleRow(city, list);

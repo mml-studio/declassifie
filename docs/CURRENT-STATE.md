@@ -5488,6 +5488,30 @@ gave 230 filings and 322 decisions, every row with its site. Mutzig,
 Wittisheim and Huttenheim, said to post the same lists, link none from the
 pages found. 65 689 inhabitants more.
 
+**Forty-two towns on Digilor Datahall (2026-10-03).** The platform's
+public index answers every document a town's app holds
+(`DocumentController` `getAll`, one JSON); asking it for every app id found
+the towns that post permits, and 42 with no other source are read by the
+existing Digilor reader. `digilorDocuments` now takes a town's `shelves`:
+the category, the sub-category, a pattern its titles match (Le Mans posts
+its filings and decisions lists on one sub-category, named by title) and the
+board, or `auto` — a receipt or an avis de dépôt is a filing, an order a
+decision — with a `fallback` when the title says neither; a reader that
+names the board itself (`dematdoc-notice`, from the act's heading) has the
+last word. Towns with their own layouts live in `digilorTownsA/B/C.js` with
+their readers in `permitBoardsDigilorA/B/C.js`: Reims (the weekly Cart@DS
+« Liste des avis de dépôt », 210 filings, read by `cartds-report-filings`,
+and one granted order per PDF), Le Mans (weekly printed lists: 78 filings and
+23 decisions on six of them, every row with its site), Montluçon (Cart@DS
+reports), Saint-Laurent-du-Var, Illkirch-Graffenstaden, Concarneau (weekly
+registers), Yutz, Verrières-le-Buisson, Harnes, Hénin-Beaumont (one act per
+PDF, the scanned orders by the sweep's OCR) and fifteen more. Fifteen small
+towns that post one act per PDF are one generated line each
+(`digilorTownsActs.js`, read by `dematdoc-notice`): of the 113 towns whose
+shelves held permit titles since July, they are the ones whose eight newest
+acts gave placeable rows without OCR. Lattes also posts there and stays with
+Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
+
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
 members of Lorient Agglomération and Bondy, Blois, Aubagne, Thionville and

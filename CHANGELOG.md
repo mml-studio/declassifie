@@ -38,6 +38,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   stays empty; one protocol now reads such lists from any commune's page,
   newest edition first, with the number, site, parcels, works and verdict
   each row prints.
+- **Reims, Le Mans, Montluçon, Saint-Laurent-du-Var, Illkirch-Graffenstaden,
+  Concarneau and 36 more towns now show the permits they post on Digilor
+  Datahall**, 720,022 inhabitants. The legal-display platform's public index
+  lists every document of a town; each town names the shelves that hold its
+  avis de dépôt, orders or weekly lists, and the existing Digilor reader reads
+  them with the layout they need: Cart@DS reports (Reims's filings,
+  Montluçon), printed weekly lists (Le Mans, Illkirch, Concarneau), one order
+  per PDF (Reims, Yutz, Verrières-le-Buisson), and, for fifteen small towns,
+  the act reader DematDOC already uses, which takes the board from the act's
+  heading. Scanned orders wait for the daily sweep's OCR.
 - **Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce now show their
   published planning decisions**, adding 61,425 residents to current
   municipal-source coverage (29.81% to 29.90%). Eaubonne's planning-theme
