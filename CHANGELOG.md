@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Saint-Joseph (La Réunion), Matoury (Guyane) and Schiltigheim now show
+  their fresh permits**, 111,041 inhabitants. Saint-Joseph posts the same
+  register of pending dossiers and decisions as Marseille and Nîmes;
+  Schiltigheim posts its own Cart@DS lists, read by the posted-list protocol;
+  Matoury's Cart@DS board is named `ville-matoury`, a form the board scan now
+  guesses for every commune it asks about.
 - **Saint-Martin-Boulogne, Marquette-lez-Lille, Rouvroy, Dourges and ten more
   small towns now show the permits they post one PDF at a time**, 82,200
   inhabitants. Nine towns of the Nord and the Pas-de-Calais link each receipt

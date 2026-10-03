@@ -27,6 +27,10 @@ export const POSTED_LIST_CITIES = [
   { key: 'lauterbourg', insee: '67261', postcode: '67630', label: 'Ville de Lauterbourg — dépôts et décisions d’urbanisme',
     page: 'https://www.mairie-lauterbourg.fr/FR/Mes-demarches/Urbanisme/Liste-autorisations-urbanisme.html',
     source: { protocol: 'posted-lists', lists: { filings: '^DEPOTS DU\\b|\\bDEPOTS DU \\d', decisions: '^DECISIONS DU\\b|\\bDECISIONS DU \\d' } } },
+  // Schiltigheim posts its own Cart@DS exports, renamed with each edition's day.
+  { key: 'schiltigheim', insee: '67447', postcode: '67300', label: 'Ville de Schiltigheim — dépôts et décisions d’urbanisme',
+    page: 'https://www.ville-schiltigheim.fr/demarches/urbanisme-habitat/depots-decisions/',
+    source: { protocol: 'posted-lists', lists: { filings: '\\bAFFICHAGE DEPOTS\\b', decisions: '\\bAFFICHAGE DECISIONS\\b' } } },
   // One PDF per act (`posted-acts`), the number in the link or the file name.
   { key: 'saint-martin-boulogne', insee: '62758', postcode: '62280', label: 'Ville de Saint-Martin-Boulogne — affichage légal d’urbanisme',
     page: 'https://saintmartinboulogne.fr/affichage-legal/', source: { protocol: 'posted-acts', pages: ['https://saintmartinboulogne.fr/affichage-legal/page/2/'] } },

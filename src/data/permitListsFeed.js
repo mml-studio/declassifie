@@ -234,6 +234,16 @@ export const PERMIT_LISTS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    key: 'saint-joseph-974',
+    insee: '97412',
+    underReview: true,
+    label: 'Ville de Saint-Joseph — registre des dossiers en cours', // i18n-ignore-line — the publisher and its list
+    page: 'https://saintjoseph.re/Demande-d-urbanisme-en-ligne-3460',
+    lists: Object.freeze([
+      Object.freeze({ board: 'filings', layout: 'register', link: /registre_dossiers/i }),
+    ]),
+  }),
+  Object.freeze({
     key: 'lyon',
     insee: '69123',
     label: 'Ville de Lyon — autorisations d’urbanisme déposées et délivrées', // i18n-ignore-line — the publisher and its lists
