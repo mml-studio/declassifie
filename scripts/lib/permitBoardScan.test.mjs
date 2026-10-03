@@ -246,13 +246,14 @@ test('the module the scan writes is the instances it kept', async () => {
 
 test('tenant names are guessed the ways the tenants found were written', () => {
   const guesses = new Set(tenantGuesses(
-    [{ nom: 'Le Cannet', population: 41000 }, { nom: 'Saint-Zacharie', population: 5800 }, { nom: 'Ollioules', population: 14500 }],
+    [{ nom: 'Le Cannet', population: 41000 }, { nom: 'Saint-Zacharie', population: 5800 }, { nom: 'Ollioules', population: 14500 }, { nom: 'Matoury', population: 36500 }],
     [{ nom: 'CA de Cambrai' }, { nom: 'CC du Pays Sabolien' }],
   ));
   // Each of these answered the DNS on 2026-10-01.
   for (const tenant of ['le-cannet', 'stzacharie', 'ollioules', 'ca-cambrai', 'pays-sabolien']) {
     assert.ok(guesses.has(tenant), tenant);
   }
+  assert.ok(guesses.has('ville-matoury'), 'a commune’s name also comes after `ville-` (2026-10-03)');
   assert.ok([...guesses].every((name) => /^[a-z0-9-]{3,63}$/.test(name)));
   // Only the most populous communes are guessed.
   assert.ok(!tenantGuesses([{ nom: 'A', population: 1 }, { nom: 'Bbb', population: 0 }], [], 1).includes('bbb'));

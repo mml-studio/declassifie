@@ -93,7 +93,10 @@ export function candidatesFromCdx(lines, domain) {
  * `pays-sabolien` — and the family has no wildcard DNS, so asking the DNS
  * about a guessed name costs the family's servers nothing and answers only
  * for tenants that exist. Every name comes joined and hyphenated, with and
- * without its article, with `saint` spelled out and as `st`.
+ * without its article, with `saint` spelled out and as `st`; a commune's also
+ * comes after `ville-` (`ville-matoury`, `ville-creteil`: the only prefix that
+ * answered when `mairie-`, `commune-` and `ville-de-` were asked of the 6 000
+ * most populous on 2026-10-03).
  *
  * @param {Array<{nom: string, population?: number}>} communes
  * @param {Array<{nom: string}>} epcis
@@ -112,7 +115,7 @@ export function tenantGuesses(communes, epcis, limit = 6000) {
   };
   const names = new Set();
   const ranked = [...communes].sort((a, b) => (b.population ?? 0) - (a.population ?? 0)).slice(0, limit);
-  for (const commune of ranked) for (const name of spellings(fold(commune.nom))) names.add(name);
+  for (const commune of ranked) for (const name of spellings(fold(commune.nom))) { names.add(name); if (name.length <= 57) names.add(`ville-${name}`); }
   for (const epci of epcis) {
     let words = fold(epci.nom);
     while (['ca', 'cc', 'cu', 'communaute', 'de', 'communes', 'd', 'agglomeration', 'urbaine', 'metropole', 'du', 'la', 'des'].includes(words[0])) words = words.slice(1);

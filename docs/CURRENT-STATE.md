@@ -5512,6 +5512,24 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Saint-Joseph, Matoury and Schiltigheim (2026-10-03).** Saint-Joseph (La
+Réunion) posts one PDF replaced in place, its « Registre des dossiers en
+cours » followed by its « Registre des décisions », the export Marseille and
+Nîmes post: it joins `PERMIT_LISTS` with the `register` layout, and read live
+it gave 174 pending dossiers and 182 decisions, every row with its site.
+Schiltigheim posts its own Cart@DS « Liste des avis de dépôt » and « Liste des
+décisions », renamed with each edition's day (`affichage-depots-28.09.2026.pdf`):
+one line of `postedListCities.js`, 280 filings still under instruction and
+91 decisions. Matoury's Cart@DS board is `ville-matoury.geosphere.fr`, a name
+the scan's guesses missed: asking the DNS about `mairie-`, `commune-`,
+`ville-de-` and `ville-` before the 6 000 most populous communes' names
+answered for `ville-` only (Matoury, which posts, and Créteil and Sélestat,
+installed and empty), so `tenantGuesses` now adds `ville-<name>` for each
+commune. The rescan of 2026-10-03 found no installed but empty board lit up
+since the 1st (Metz Métropole's still empty) and a commune more on Porte de
+DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
+1st with those boards' and Matoury's readings. 111 041 inhabitants more.
+
 **Fourteen communes that post one act at a time (2026-10-03).** Many small
 towns link each receipt and order, one PDF each, from a page of their own
 site. The `posted-acts` protocol (`src/data/permitBoardsPostedLists.js`, next
