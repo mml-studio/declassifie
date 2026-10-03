@@ -5587,6 +5587,34 @@ since the 1st (Metz Métropole's still empty) and a commune more on Porte de
 DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
 1st with those boards' and Matoury's readings. 111 041 inhabitants more.
 
+**Sixty communes read through their WordPress media (2026-10-03).** Half the
+communes' sites are WordPress, and its media API lists every file a site
+uploaded with its day and title, open to anyone unless the site closes it.
+The `wp-media` protocol (`src/data/permitBoardsPostedLists.js`) asks
+`/wp-json/wp/v2/media?mime_type=application/pdf&after=<first day>`, 100 a
+page and 1 000 at most a reading, and needs no page or menu to find the
+board: a PDF whose name or title says it is the instruction service's
+« Liste des avis de dépôt » or « Liste des décisions » (or the commune's own
+`lists` patterns) is read by the Cart@DS report readers; one whose name
+carries one of the commune's dossier numbers is an act, read by the DematDOC
+act reader and, for the signed scans most of them are, by the sweep's OCR;
+any other PDF — minutes, menus, police orders — is left. The day is the one
+the name gives, failing that the upload's. File names abbreviate numbers in
+ways `municipalDossier` did not read; both act protocols now do: the year run
+into its counter (`DP-2600033`) and the counter's service letter or digit set
+apart (`DP-022-004-26-P-0048`, `PC-050-410-26-0-0023`). A commune whose links
+name the site but no number sets `source.unnumbered`: a dated link naming an
+act's kind is read for the number its heading prints. The 60 communes of
+`wpMediaCities.js` were found on 2026-10-03 by asking the media API of the
+sites of uncovered communes; read live the same day over September: Le
+Pallet 279 decisions and 123 filings, Royat 117 and 170, La Chapelle-Heulin
+118 and 55, Francheville 44 and 86, every row with its site; with the sweep's
+OCR, Nœux-les-Mines 19 acts, Esbly 31, Saint-Vit 10, Honfleur 30, nearly all
+with their site. Left out: Cap-d'Ail, which posts each dossier's plans;
+Mauges-sur-Loire, Cesson-Sévigné, Vif, Saint-Jean-d'Angély, Bouillargues and
+Trèbes, whose media API asks for a login; and some twenty communes whose
+lists no reader takes yet. 290 504 inhabitants more.
+
 **Saumur, Voiron, Montbéliard, Villeneuve-sur-Lot and Wasquehal
 (2026-10-03).** A host holds one Cart@DS board per instruction service, and
 the scan reads one per host, the first path that answers: Saumur Val de

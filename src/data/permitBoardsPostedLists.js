@@ -18,7 +18,7 @@
  * names. Applicants: the readers keep an organisation at most.
  */
 
-import { municipalDossier, municipalSite } from './municipalPermitsFeed.js';
+import { municipalDate, municipalDossier, municipalSite } from './municipalPermitsFeed.js';
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const fold = (value) => clean(value).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’‘]/g, "'").replace(/[_-]+/g, ' ').toUpperCase();
@@ -86,17 +86,22 @@ export function postedListDay(name, words = '') {
  * the board.
  */
 export function postedListFiles(city, html, pageUrl) {
+  return listFiles(city, pageLinks(html, pageUrl));
+}
+
+/** {@link postedListFiles} over links already gathered: `{url, name, words, published?}`. */
+function listFiles(city, links) {
   const patterns = { ...POSTED_LIST_PATTERNS, ...(city.source?.lists ?? {}) };
   const layouts = { ...LAYOUTS, ...(city.source?.layouts ?? {}) };
   const files = [];
   const rolling = new Set();
-  for (const link of pageLinks(html, pageUrl)) {
+  for (const link of links) {
     const target = fold(`${link.name} ${link.words}`);
     if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     const board = new RegExp(patterns.decisions).test(target) ? 'decisions'
       : new RegExp(patterns.filings).test(target) ? 'filings' : null;
     if (!board || files.some((file) => file.url === link.url)) continue;
-    const published = postedListDay(link.name, link.words);
+    const published = postedListDay(link.name, link.words) ?? link.published ?? null;
     if (!published) {
       if (rolling.has(board)) continue;
       rolling.add(board);
@@ -137,6 +142,8 @@ const postedListsProtocol = {
 // --- One PDF per act ---------------------------------------------------------
 
 // i18n-ignore-start — the boards' own words, matched on
+// What names an act when its link names no number: its kind, or a family first in its name or words.
+const UNNUMBERED_ACT = /\b(?:AVIS (?:DE )?DEPOT|RECEPISSE|ARRETE)\b/;
 const ACT_FILING = /\b(?:RECEPISSE|AVIS DE DEPOT|DEPOT DE (?:LA )?DEMANDE|DEMANDE)\b/;
 const ACT_DECISION = /\b(?:ARRETE|DECISION|ACCORD|REFUS|OPPOSITION|NON OPPOSITION|FAVORABLE|DEFAVORABLE|RETRAIT)\b/;
 const STREET = 'rue|avenue|av\\.?|boulevard|bd|place|chemin|all[ée]es?|impasse|route|rte|quai|cours|faubourg|square|sentier|ruelle|passage|r[ée]sidence|lotissement|voie|cit[ée]|clos|hameau|lieu-dit|dr[èe]ve|zac';
@@ -153,6 +160,20 @@ function actStreet(text) {
   if (!match) return null;
   const street = clean(match[1].replace(AFTER_SITE, '').replace(AFTER_STREET, '').replace(/[\s,;-]+$/, ''));
   return street.length >= 6 ? street : null;
+}
+
+/**
+ * The commune's dossier a link names, also as file names abbreviate it: the
+ * year run into its counter (Rousies' `DP-2600033`, Louverné's
+ * `2026-09-28-DP-2600078-ARRETE`), or the counter's service letter or digit
+ * set apart (Bégard's `DP-022-004-26-P-0048`, Pontorson's
+ * `PC-050-410-26-0-0023`, Vif's `DP-38545-26-1-0035`).
+ */
+function actDossier(value, city) {
+  const spaced = clean(value)
+    .replace(/\b(PC|DP|PA|PD|CU)\s*(1[5-9]|2\d)(\d{5})(?!\d)/gi, '$1 $2 $3')
+    .replace(/\b(PC|DP|PA|PD|CU)((?:\s*\d{3}){2}|\s*\d{5,6})?\s*(1[5-9]|2\d)\s+([A-Z\d])\s+(\d{4})(?!\d)/gi, '$1$2 $3 $4$5');
+  return municipalDossier(value, city) ?? (spaced === clean(value) ? null : municipalDossier(spaced, city));
 }
 
 /**
@@ -175,21 +196,36 @@ function bareDossier(city, words, published) {
  * when it names one, and the board its words say (`source.board`, else a
  * decision, when they say none). The day comes from the name or the words,
  * failing that the upload month; an undated act counts when its number is
- * of this year or the last, forty at most.
+ * of this year or the last, forty at most. A commune whose links name the
+ * site but not the number (Rozay-en-Brie's `DP-15-FAUBOURG-DE-GIRONDE.pdf`,
+ * Dargnies's `Avis-de-depot.pdf`) sets `source.unnumbered`: a dated link
+ * that names an act's kind is read for the number its heading prints.
  */
 export function postedActFiles(city, html, pageUrl, since = null) {
+  return actFiles(city, pageLinks(html, pageUrl), since);
+}
+
+/** {@link postedActFiles} over links already gathered: `{url, name, words, title?, published?}`. */
+function actFiles(city, links, since = null) {
   const files = [];
-  for (const link of pageLinks(html, pageUrl)) {
+  for (const link of links) {
     if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     // A « Téléchargement » button names its file in its title (Rouvroy).
     const words = clean(`${link.words} ${(link.title ?? '').replace(/_+/g, ' ')}`);
     const base = link.name.replace(/^.*\//, '').replace(/\.pdf$/i, '').replace(/[_.]+/g, ' ');
     const text = clean(`${words} ${base.replace(/-/g, ' ')}`);
-    const published = postedListDay(link.name, words);
-    const dossier = municipalDossier(words, city) ?? municipalDossier(base.replace(/-/g, ' '), city) ?? municipalDossier(text, city)
+    const published = postedListDay(link.name, words) ?? link.published ?? null;
+    const dossier = actDossier(words, city) ?? actDossier(base.replace(/-/g, ' '), city) ?? actDossier(text, city)
       ?? bareDossier(city, words, published);
-    if (!dossier || files.some((file) => file.url === link.url)) continue;
     const folded = fold(text);
+    if (files.some((file) => file.url === link.url)) continue;
+    if (!dossier) {
+      const named = UNNUMBERED_ACT.test(folded) || [base, link.words].some((value) => /^(?:PC|DP|PA|PD)\b/.test(fold(value)));
+      if (city.source?.unnumbered && published && named) {
+        files.push({ url: link.url, board: ACT_FILING.test(folded) ? 'filings' : 'decisions', layout: 'dematdoc-notice', ocr: true, published });
+      }
+      continue;
+    }
     const board = ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions';
     const street = actStreet(link.words) ?? actStreet(base.replace(/-/g, ' '));
     files.push({ url: link.url, board, layout: 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
@@ -215,9 +251,57 @@ const postedActsProtocol = {
   },
 };
 
+// --- WordPress media --------------------------------------------------------
+
+const WP_MEDIA_PAGE_SIZE = 100;
+const WP_MEDIA_PAGES = 10;
+
+function wpMediaRequest(city, since, page) {
+  const url = new URL('/wp-json/wp/v2/media', city.source?.wpBase ?? city.page);
+  url.search = new URLSearchParams({ mime_type: 'application/pdf', after: `${since}T00:00:00`,
+    per_page: String(WP_MEDIA_PAGE_SIZE), page: String(page), orderby: 'date', order: 'desc',
+    _fields: 'date,source_url,title' }).toString();
+  return { url: url.href, as: 'json' };
+}
+
+/**
+ * The PDFs a WordPress site uploaded since the window's first day, as its
+ * media API lists them, newest first: no page to find, whatever the menu
+ * that links them. Each is a list when its name or title says which
+ * (`listFiles`, the commune's own `lists` patterns), else an act when it
+ * names one of the commune's dossiers (`actFiles`); any other PDF — minutes,
+ * menus, bulletins — is left. The day is the one the name gives, failing
+ * that the upload's. `source.acts: false` keeps the lists only, for a
+ * commune whose other PDFs name dossiers they do not post. 1 000 PDFs at
+ * most a reading.
+ */
+const wpMediaProtocol = {
+  start: (city, { since }) => [wpMediaRequest(city, since, 1)],
+  index(city, body, request, { since, day } = {}) {
+    if (!Array.isArray(body)) return null;
+    const links = [];
+    for (const item of body) {
+      let url;
+      try { url = new URL(String(item?.source_url ?? '')); } catch { continue; }
+      const published = municipalDate(String(item?.date ?? '').slice(0, 10));
+      if (!/^https?:$/.test(url.protocol) || !published || (day && published > day)) continue;
+      let name = url.pathname.replace(/^.*\//, '');
+      try { name = decodeURIComponent(name); } catch { /* a stray % keeps the raw name */ }
+      links.push({ url: url.href, name, words: clean(decode(String(item?.title?.rendered ?? '').replace(/<[^>]*>/g, ' '))), published });
+    }
+    const lists = listFiles(city, links) ?? [];
+    const listed = new Set(lists.map((file) => file.url));
+    const acts = city.source?.acts === false ? [] : (actFiles(city, links.filter((link) => !listed.has(link.url)), since) ?? []);
+    const page = Number(new URL(request.url).searchParams.get('page') ?? 1);
+    const next = body.length >= WP_MEDIA_PAGE_SIZE && page < WP_MEDIA_PAGES ? [wpMediaRequest(city, since, page + 1)] : [];
+    return { files: [...lists, ...acts], next };
+  },
+};
+
 export const POSTED_LIST_PROTOCOLS = Object.freeze({
   'posted-lists': Object.freeze(postedListsProtocol),
   'posted-acts': Object.freeze(postedActsProtocol),
+  'wp-media': Object.freeze(wpMediaProtocol),
 });
 export const POSTED_LIST_READERS = Object.freeze({});
 export const POSTED_LIST_TEXT = Object.freeze({});
