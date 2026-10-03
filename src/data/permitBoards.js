@@ -52,6 +52,7 @@ import { DIGILOR_C_BOARD_READERS, DIGILOR_C_BOARD_TEXT } from './permitBoardsDig
 import { INTRAMUROS_BOARD_PROTOCOLS, INTRAMUROS_BOARD_READERS, INTRAMUROS_BOARD_TEXT } from './permitBoardsIntramuros.js';
 import { DEMATDOC_REGISTER_PROTOCOLS, DEMATDOC_REGISTER_READERS } from './dematdocRegisterBoards.js';
 import { CALUIRE_BOARD_PROTOCOLS, CALUIRE_BOARD_READERS } from './caluirePermitBoard.js';
+import { TOWN_LIST_READERS, TOWN_LIST_TEXT } from './permitBoardsTownLists.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -78,6 +79,7 @@ export const BOARD_READERS = Object.freeze({
   ...DIGILOR_A_BOARD_READERS, ...DIGILOR_B_BOARD_READERS, ...DIGILOR_C_BOARD_READERS, ...INTRAMUROS_BOARD_READERS,
   ...DEMATDOC_REGISTER_READERS,
   ...CALUIRE_BOARD_READERS,
+  ...TOWN_LIST_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
@@ -86,6 +88,7 @@ export const BOARD_TEXT = Object.freeze({
   ...REPORT_BOARD_TEXT, ...ACT_BOARD_TEXT, ...XDEMAT_BOARD_TEXT,
   ...MUNICIPAL_REGISTER_TEXT, ...POSTED_LIST_TEXT,
   ...DIGILOR_A_BOARD_TEXT, ...DIGILOR_B_BOARD_TEXT, ...DIGILOR_C_BOARD_TEXT, ...INTRAMUROS_BOARD_TEXT,
+  ...TOWN_LIST_TEXT,
 });
 
 /** The protocol of a board city, or null. */

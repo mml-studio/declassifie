@@ -58,5 +58,18 @@ export const POSTED_LIST_CITIES = [
   { key: 'wasquehal', insee: '59646', postcode: '59290', label: 'Ville de Wasquehal — annonces légales d’urbanisme',
     page: 'https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/',
     source: { protocol: 'posted-acts', pages: ['https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/page/2/', 'https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/page/3/'] } },
+  // Sites whose WordPress media API asks for a login (2026-10-03): their pages are read instead.
+  { key: 'bouillargues', insee: '30047', postcode: '30230', label: 'Ville de Bouillargues — avis de dépôt et décisions d’urbanisme',
+    page: 'https://bouillargues.fr/avis-de-depots/', source: { protocol: 'posted-lists' } },
+  { key: 'courseulles-sur-mer', insee: '14191', postcode: '14470', label: 'Ville de Courseulles-sur-Mer — actes d’urbanisme',
+    page: 'https://www.courseulles-sur-mer.com/mon-quotidien/urbanisme/actes-durbanisme/', source: { protocol: 'posted-acts' } },
+  { key: 'vif', insee: '38545', postcode: '38450', label: 'Ville de Vif — actes administratifs',
+    page: 'https://ville-vif.fr/vivre-a-vif/la-mairie/actes-administratifs/', source: { protocol: 'posted-acts' } },
+  { key: 'trebes', insee: '11397', postcode: '11800', label: 'Ville de Trèbes — avis de dépôt des demandes d’urbanisme',
+    page: 'https://ville-trebes.com/urbanisme/avis-de-depot-des-demandes-durbanisme/', source: { protocol: 'posted-acts' } },
+  // Names its acts by their site (`Avis-depot-DP-rue-Lachevalle-au-n°-64.pdf`) and prints each avis de dépôt as a one-row list.
+  { key: 'saint-jean-d-angely', insee: '17347', postcode: '17400', label: 'Ville de Saint-Jean-d’Angély — affichage légal d’urbanisme',
+    page: 'https://www.angely.net/ma-mairie/affichage-legal/urbanisme/',
+    source: { protocol: 'posted-acts', unnumbered: true, actLayouts: { filings: 'town-filed-before' } } },
 ];
 // i18n-ignore-end

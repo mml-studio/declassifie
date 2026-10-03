@@ -6,6 +6,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Moëlan-sur-Mer, Saint-Jean-d'Angély, Vif, Saint-Rémy, Bouillargues,
+  Trèbes, Courseulles-sur-Mer, Champhol, Rozay-en-Brie and Dargnies now show
+  their fresh permits**, 51,849 inhabitants. Moëlan, Saint-Rémy, Champhol and
+  Saint-Jean-d'Angély print « Dossiers déposés avant le … » and « Dossiers
+  décidés jusqu'au … » lists, now read with their columns taken from the rows
+  themselves; five sites whose WordPress media API asks for a login are read
+  from their page; acts named by their site alone are read for their number.
 - **Sixty communes that post their permits on a WordPress site now show their
   fresh permits**, 290,504 inhabitants — Francheville, Lourdes, Beausoleil,
   Nœux-les-Mines, La Roche-sur-Foron, Villeneuve-lès-Maguelone, Seysses,
