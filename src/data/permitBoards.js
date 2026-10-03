@@ -48,6 +48,8 @@ import { DIGILOR_A_BOARD_READERS, DIGILOR_A_BOARD_TEXT } from './permitBoardsDig
 import { DIGILOR_B_BOARD_READERS, DIGILOR_B_BOARD_TEXT } from './permitBoardsDigilorB.js';
 import { DIGILOR_C_BOARD_READERS, DIGILOR_C_BOARD_TEXT } from './permitBoardsDigilorC.js';
 import { INTRAMUROS_BOARD_PROTOCOLS, INTRAMUROS_BOARD_READERS, INTRAMUROS_BOARD_TEXT } from './permitBoardsIntramuros.js';
+import { DEMATDOC_REGISTER_PROTOCOLS, DEMATDOC_REGISTER_READERS } from './dematdocRegisterBoards.js';
+import { CALUIRE_BOARD_PROTOCOLS, CALUIRE_BOARD_READERS } from './caluirePermitBoard.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -59,6 +61,8 @@ export const BOARD_PROTOCOLS = Object.freeze({
   ...PUBLISHED_PERMIT_PROTOCOLS, ...XDEMAT_BOARD_PROTOCOLS,
   ...MUNICIPAL_REGISTER_PROTOCOLS, ...POSTED_LIST_PROTOCOLS, ...INTRAMUROS_BOARD_PROTOCOLS,
   ...DOCS2WEB_BOARD_PROTOCOLS,
+  ...DEMATDOC_REGISTER_PROTOCOLS,
+  ...CALUIRE_BOARD_PROTOCOLS,
 });
 
 /** The PDF readers the boards' files name, by `layout`. */
@@ -69,6 +73,8 @@ export const BOARD_READERS = Object.freeze({
   ...PUBLISHED_PERMIT_READERS, ...XDEMAT_BOARD_READERS,
   ...MUNICIPAL_REGISTER_READERS, ...POSTED_LIST_READERS,
   ...DIGILOR_A_BOARD_READERS, ...DIGILOR_B_BOARD_READERS, ...DIGILOR_C_BOARD_READERS, ...INTRAMUROS_BOARD_READERS,
+  ...DEMATDOC_REGISTER_READERS,
+  ...CALUIRE_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
