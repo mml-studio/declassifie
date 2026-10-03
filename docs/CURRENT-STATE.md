@@ -5165,6 +5165,36 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Caluire-et-Cuire and five DematDOC municipalities (2026-10-03).**
+`src/data/dematdocRegisterBoards.js` reuses the Cart@DS table reader for
+Châteauneuf-sur-Isère, La Tour-de-Salvagny and Saint-Jean-de-Monts,
+adds Millery's top-aligned BIRT register, and adapts Vernaison's project
+address label only under its exact filing heading. Public shelves use
+JSON POST and dated, same-origin PDFs, preferring redacted copies. Private
+applicant titles and columns are excluded. Millery's signature dates carry
+no verdict, so its decision rows stay signed decisions rather than grants.
+
+`src/data/caluirePermitBoard.js` reads Caluire's weekly scans in the daily
+sweep. The background OCR can reread the measured permit-type cell at
+400 dpi alongside the year anchor, at most 100 cells per page. Only exact
+families and counters form dossier identities; unread cells and changed
+table layouts are withheld. Visitors never initiate OCR or download these
+unread scans. Explicit negative states are preserved, future dates are
+withheld, and the existing cache, archive and geographic placement apply.
+Caluire's scan extraction remains partial. Caluire honours robots.txt;
+the DematDOC shelves use the existing public-board override.
+
+The live September–October reading retained 531 posting rows from 43
+documents, representing 338 distinct dossiers. All have a project address,
+503 also have cadastral references. No download failed or remained pending
+OCR. The six sources add 70,904 residents: 21,969,835 covered residents,
+32.1428% of the same Geo API snapshot, across 4,179 municipalities. Moussac,
+Chambœuf and Crozet were checked but keep their existing intercommunal
+readers, avoiding duplicate coverage. All 32 Caluire dossiers were placed
+in the real API response, 22 by parcel and 10 by address. Desktop, tablet
+and mobile rendering was checked without a layer error or horizontal
+document overflow. [Research, sources and limits](research/municipal-register-extensions-2026-10-03.md).
+
 **Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres (2026-10-03).**
 `src/data/municipalRegisterBoards.js` adds four municipal PDF protocols and
 readers to the existing six-hour cache and daily permit archive. Bry's

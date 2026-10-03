@@ -90,16 +90,18 @@ export async function pdfOcrAvailable({ run = runProgram } = {}) {
  * @param {string} [options.tmpdir]
  * @param {string} [options.lang]
  * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean, positioned?: boolean, rotate?: number,
- *   maxPages?: ?number}) =>
+ *   maxPages?: ?number, typeColumn?: object}) =>
  *   Promise<?{pages: Array<string>, read: number, ms: number}>} Each page's
  *   text — the band's alone for a page the screen set aside — and how many
  *   were read whole; null when the file could not be rendered or read, a
  *   failure the caller keeps for next time. `positioned` also returns a
  *   `document` of word runs in PDF points for column-based list readers.
  *   `maxPages`: the first pages only, for a form whose fields are on page 1.
+ *   `typeColumn`: reread tiny permit-family cells at 400 dpi, alongside
+ *   year anchors in a measured table. Whole-page OCR can omit these cells.
  */
 export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'fra' } = {}) {
-  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0, maxPages = null } = {}) {
+  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0, maxPages = null, typeColumn = null } = {}) {
     const started = Date.now();
     let dir = null;
     try {
@@ -133,6 +135,30 @@ export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'f
         if (positioned) {
           const pageText = ocrTsvPage(text);
           if (!pageText) return null;
+          if (typeColumn && !rotate) {
+            const { left, right, yearLeft, yearRight } = typeColumn;
+            const header = pageText.runs.find((word) => word.text === 'Type' && word.x >= left - 3 && word.x < right);
+            const anchors = header ? pageText.runs.filter((word) => word.y < header.y - 5
+              && word.x >= yearLeft && word.x < yearRight && /^\d{2}$/.test(word.text)) : [];
+            // A bad layout cannot trigger unbounded cell OCR. An unread type
+            // remains unread; the downstream reader requires an exact family.
+            for (const anchor of anchors.slice(0, 100)) {
+              if (pageText.runs.some((word) => word.x >= left && word.x < right
+                && Math.abs(word.y - anchor.y) < 2 && /^(?:PC|DP|PA|PD|CU)$/.test(word.text))) continue;
+              const cell = path.join(dir, 'cell');
+              const scale = 400 / 72;
+              const x = Math.round(left * scale);
+              const y = Math.round((pageText.height - anchor.y - 5.5) * scale);
+              if (x < 0 || y < 0 || right <= left) continue;
+              if (await run('pdftoppm', ['-r', '400', '-gray', '-f', String(page), '-l', String(page), '-singlefile',
+                '-x', String(x), '-y', String(y), '-W', String(Math.round((right - left) * scale)), '-H', '38', pdf, cell]) === null) continue;
+              const family = (await run('tesseract', [`${cell}.pgm`, '-', '-l', lang, '--psm', '7',
+                '-c', 'tessedit_char_whitelist=PCDUA']))?.trim();
+              await fsp.rm(`${cell}.pgm`, { force: true });
+              if (/^(?:PC|DP|PA|PD|CU)$/.test(family ?? '')) pageText.runs.push({ text: family,
+                x: left, x1: right, y: anchor.y, size: anchor.size, clip: null });
+            }
+          }
           positionedPages.push(pageText);
           pages.push(pageText.runs.map((word) => word.text).join(' '));
         } else pages.push(text);

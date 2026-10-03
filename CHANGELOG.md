@@ -30,6 +30,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   numbered street and the verdict from the name, then the act itself (by OCR
   for scans) for the dates, the site and the parcels. Pantin and
   L'Haÿ-les-Roses keep their own readers.
+- **Caluire-et-Cuire and five more municipalities now publish their current
+  permits on the map.** DematDOC aggregate registers and Vernaison's filing
+  notices join the daily archive; Caluire's tiny permit-family cells use
+  bounded background OCR. The six new sources add 70,904 residents, taking
+  municipal-source coverage from 32.04% to 32.14%. The live check retained
+  531 posting rows for 338 distinct dossiers. Private applicant fields are
+  excluded, unknown verdicts remain signed decisions and unread scan
+  identities remain withheld. [Research and limits](docs/research/municipal-register-extensions-2026-10-03.md).
 - **Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres now show their
   published planning permits**, adding 70,197 residents to current
   municipal-source coverage (30.44% to 30.54%). Weekly and rolling PDF

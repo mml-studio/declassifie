@@ -191,6 +191,24 @@ for (const [insee, postcode, name] of XDEMAT_COMMUNES) {
     // decision, as DematDOC's boards are (`permitBoardsXdemat.js`).
     robots: 'overridden', source: { protocol: 'spl-xdemat' } });
 }
+const DEMATDOC_REGISTER_COMMUNES = [
+  ['chateauneufsurisere', '26084', '26300', 'Châteauneuf-sur-Isère', 14],
+  ['salvagny', '69250', '69890', 'La Tour-de-Salvagny', 14],
+  ['saintjeandemonts', '85234', '85160', 'Saint-Jean-de-Monts', 14],
+  ['mairie-millery', '69133', '69390', 'Millery', 19, 'millery'],
+  ['mairie-vernaison', '69260', '69390', 'Vernaison', 14],
+];
+for (const [host, insee, postcode, name, doctype, registerLayout] of DEMATDOC_REGISTER_COMMUNES) {
+  CITIES.push({ key: `dematdoc-register-${host}`, insee, postcode,
+    label: `${name} — registres et actes d’urbanisme (DematDOC)`,
+    page: `https://${host}.dematdoc.eu/public/${doctype}`, robots: 'overridden',
+    source: { protocol: 'dematdoc-registers', base: `https://${host}.dematdoc.eu`,
+      doctypes: [doctype], registerLayout, ocr: true } });
+}
+CITIES.push({ key: 'caluire-et-cuire', insee: '69034', postcode: '69300',
+  label: 'Caluire-et-Cuire — registres d’urbanisme',
+  page: 'https://www.ville-caluire.fr/vie-municipale-citoyennete/affichage-legal',
+  source: { protocol: 'caluire-register', ocr: true } });
 // i18n-ignore-end
 
 /**

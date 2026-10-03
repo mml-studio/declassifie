@@ -1068,7 +1068,8 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
             if (canOcr()) {
               ocrRuns += 1;
               scanned = await ocr(bytes, { positioned: true, maxPages: file.ocrPages,
-                ...(file.ocrRotate ? { rotate: file.ocrRotate } : {}) });
+                ...(file.ocrRotate ? { rotate: file.ocrRotate } : {}),
+                ...(file.ocrTypeColumn ? { typeColumn: file.ocrTypeColumn } : {}) });
             }
             const reader = PERMIT_LIST_READERS[file.layout] ?? BOARD_READERS[file.layout];
             rows = scanned?.document && reader ? keptRows(reader(scanned.document, context), file.board) : null;

@@ -41,6 +41,30 @@ test('positioned mode requests TSV and returns words to the list readers', async
   assert.equal(calls.find(([file]) => file === 'tesseract').at(-1), 'tsv');
 });
 
+test('tiny permit types are reread alongside year anchors, without guessing an unread family', async () => {
+  const tsv = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n'
+    + '1\t1\t0\t0\t0\t0\t0\t0\t1000\t2000\t-1\t\n'
+    + '5\t1\t1\t1\t1\t1\t100\t100\t40\t20\t95\tType\n'
+    + '5\t1\t1\t1\t2\t1\t180\t180\t20\t10\t95\t26\n'
+    + '5\t1\t1\t1\t3\t1\t180\t230\t20\t10\t95\t26\n';
+  const calls = [];
+  const answers = ['DP', 'P'];
+  const run = async (file, args) => {
+    calls.push([file, ...args]);
+    if (file === 'pdfinfo') return 'Pages: 1';
+    if (file === 'pdftoppm') return '';
+    return args.includes('7') ? answers.shift() : tsv;
+  };
+  const answer = await createPdfOcr({ run })(new Uint8Array([1]), { positioned: true,
+    typeColumn: { left: 35, right: 49, yearLeft: 60, yearRight: 70 } });
+  const families = answer.document.pages[0].runs.filter((r) => /^(?:PC|DP)$/.test(r.text));
+  assert.equal(families.length, 1);
+  assert.deepEqual([families[0].text, families[0].x, families[0].y], ['DP', 35, 651.6]);
+  const cells = calls.filter(([program, ...args]) => program === 'pdftoppm' && args.includes('400'));
+  assert.equal(cells.length, 2);
+  assert.ok(cells.every((c) => c.includes('-W') && c.includes('-H')));
+});
+
 /** Programs that answer as poppler and Tesseract would, for a PDF of `pages`. */
 function fakePrograms(pages, { failOn = null } = {}) {
   const calls = [];

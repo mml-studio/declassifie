@@ -1,0 +1,421 @@
+{
+  "date": "2026-10-03",
+  "window": {
+    "since": "2026-09-01",
+    "through": "2026-10-03"
+  },
+  "populationSnapshot": "Official Geo API, 2026-10-02",
+  "denominator": 68350798,
+  "excludedCodePrefixes": [
+    "975",
+    "977",
+    "978",
+    "98"
+  ],
+  "coverage": {
+    "before": {
+      "municipalities": 4173,
+      "population": 21898931,
+      "percentage": 32.03902754727165,
+      "top100": 51,
+      "top300": 127,
+      "top1000": 328
+    },
+    "after": {
+      "municipalities": 4179,
+      "population": 21969835,
+      "percentage": 32.1427629857372,
+      "top100": 51,
+      "top300": 128,
+      "top1000": 329
+    },
+    "gain": {
+      "municipalities": 6,
+      "population": 70904,
+      "percentagePoints": 0.10373543846554652
+    }
+  },
+  "collection": {
+    "documents": 43,
+    "postingRows": 531,
+    "distinctDossiers": 338,
+    "addresses": 531,
+    "parcels": 503
+  },
+  "sources": [
+    {
+      "key": "dematdoc-register-chateauneufsurisere",
+      "insee": "26084",
+      "name": "Châteauneuf-sur-Isère",
+      "population": 4281,
+      "page": "https://chateauneufsurisere.dematdoc.eu/public/14",
+      "files": 8,
+      "total": 249,
+      "distinct": 75,
+      "addresses": 249,
+      "parcels": 245,
+      "boards": {
+        "filings": 144,
+        "decisions": 105
+      },
+      "states": {
+        "Déposé": 144,
+        "Accordé": 68,
+        "Refusé": 33,
+        "Annulé": 4
+      },
+      "latest": "2026-10-02",
+      "fetched": 8,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/10/P1699_261002095254_1700.pdf",
+          "rows": 39
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/10/P1698_261002095254_1701.pdf",
+          "rows": 20
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1693_260918115616_1695.pdf",
+          "rows": 36
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1692_260918115616_1694.pdf",
+          "rows": 31
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1685_260911101218_1687.pdf",
+          "rows": 34
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1684_260911101218_1686.pdf",
+          "rows": 28
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1652_260904093659_1654.pdf",
+          "rows": 35
+        },
+        {
+          "url": "https://chateauneufsurisere.dematdoc.eu/repository/2026/09/P1651_260904093659_1653.pdf",
+          "rows": 26
+        }
+      ]
+    },
+    {
+      "key": "dematdoc-register-salvagny",
+      "insee": "69250",
+      "name": "La Tour-de-Salvagny",
+      "population": 4649,
+      "page": "https://salvagny.dematdoc.eu/public/14",
+      "files": 2,
+      "total": 46,
+      "distinct": 46,
+      "addresses": 46,
+      "parcels": 46,
+      "boards": {
+        "decisions": 28,
+        "filings": 18
+      },
+      "states": {
+        "Annulé": 3,
+        "Refusé": 2,
+        "Accordé": 23,
+        "Déposé": 18
+      },
+      "latest": "2026-09-25",
+      "fetched": 2,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://salvagny.dematdoc.eu/repository/2026/09/P3959_260925022003_3961.pdf",
+          "rows": 28
+        },
+        {
+          "url": "https://salvagny.dematdoc.eu/repository/2026/09/P3958_260925022002_3960.pdf",
+          "rows": 18
+        }
+      ]
+    },
+    {
+      "key": "dematdoc-register-saintjeandemonts",
+      "insee": "85234",
+      "name": "Saint-Jean-de-Monts",
+      "population": 8868,
+      "page": "https://saintjeandemonts.dematdoc.eu/public/14",
+      "files": 2,
+      "total": 129,
+      "distinct": 129,
+      "addresses": 129,
+      "parcels": 128,
+      "boards": {
+        "filings": 62,
+        "decisions": 67
+      },
+      "states": {
+        "Déposé": 62,
+        "Annulé": 4,
+        "Accordé": 55,
+        "Refusé": 8
+      },
+      "latest": "2026-10-02",
+      "fetched": 2,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://saintjeandemonts.dematdoc.eu/repository/2026/10/P6864_261002051711_6866.pdf",
+          "rows": 62
+        },
+        {
+          "url": "https://saintjeandemonts.dematdoc.eu/repository/2026/10/P6863_261002051711_6865.pdf",
+          "rows": 67
+        }
+      ]
+    },
+    {
+      "key": "dematdoc-register-mairie-millery",
+      "insee": "69133",
+      "name": "Millery",
+      "population": 4299,
+      "page": "https://mairie-millery.dematdoc.eu/public/19",
+      "files": 5,
+      "total": 63,
+      "distinct": 44,
+      "addresses": 63,
+      "parcels": 61,
+      "boards": {
+        "filings": 27,
+        "decisions": 36
+      },
+      "states": {
+        "Déposé": 27,
+        "Décision signée": 36
+      },
+      "latest": "2026-09-28",
+      "fetched": 5,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://mairie-millery.dematdoc.eu/repository/2026/09/P2129_260928102739_2132.pdf",
+          "rows": 11
+        },
+        {
+          "url": "https://mairie-millery.dematdoc.eu/repository/2026/09/P2128_260928102739_2131.pdf",
+          "rows": 9
+        },
+        {
+          "url": "https://mairie-millery.dematdoc.eu/repository/2026/09/P2127_260928102739_2130.pdf",
+          "rows": 24
+        },
+        {
+          "url": "https://mairie-millery.dematdoc.eu/repository/2026/09/P2067_260922095521_2069.pdf",
+          "rows": 12
+        },
+        {
+          "url": "https://mairie-millery.dematdoc.eu/repository/2026/09/P2066_260922095240_2068.pdf",
+          "rows": 7
+        }
+      ]
+    },
+    {
+      "key": "dematdoc-register-mairie-vernaison",
+      "insee": "69260",
+      "name": "Vernaison",
+      "population": 5210,
+      "page": "https://mairie-vernaison.dematdoc.eu/public/14",
+      "files": 16,
+      "total": 12,
+      "distinct": 12,
+      "addresses": 12,
+      "parcels": 0,
+      "boards": {
+        "filings": 12
+      },
+      "states": {
+        "Déposé": 12
+      },
+      "latest": "2026-10-02",
+      "fetched": 16,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/10/P4021_261002015342_4022.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P4015_260929112538_4016.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P4009_260928113145_4010.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P4007_260928103043_4008.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3997_260923105926_3998.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3995_260922085841_3996.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3991_260921033919_3994.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3990_260921033902_3993.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3989_260921033847_3992.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3987_260917084448_3988.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3985_260916115533_3986.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3981_260915091227_3982.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3979_260914042305_3980.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3976_260914094155_3978.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3975_260914094155_3977.pdf",
+          "rows": 1
+        },
+        {
+          "url": "https://mairie-vernaison.dematdoc.eu/repository/2026/09/P3973_260910091932_3974.pdf",
+          "rows": 1
+        }
+      ]
+    },
+    {
+      "key": "caluire-et-cuire",
+      "insee": "69034",
+      "name": "Caluire-et-Cuire",
+      "population": 43597,
+      "page": "https://www.ville-caluire.fr/vie-municipale-citoyennete/affichage-legal",
+      "files": 10,
+      "total": 32,
+      "distinct": 32,
+      "addresses": 32,
+      "parcels": 23,
+      "boards": {
+        "filings": 27,
+        "decisions": 5
+      },
+      "states": {
+        "Déposé": 27,
+        "Annulé": 1,
+        "Accordé": 4
+      },
+      "latest": "2026-09-29",
+      "fetched": 10,
+      "reused": 0,
+      "failed": 0,
+      "skipped": 0,
+      "pendingOcr": 0,
+      "incomplete": false,
+      "documents": [
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_de_depot_dppc_au_29.09.2026.pdf",
+          "rows": 12
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_de_delivrance_dppc_au_29.09.2026.pdf",
+          "rows": 5
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_de_delivrance_pcdp_au_22.09.2026.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/affiche_de_depot_dppc_au_22.09.2026.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_de_depot_dp_au_15.09.2026.pdf",
+          "rows": 8
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_de_delivrance_dp_pa_au_15.09.2026.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_depot_dp_au_08.09.2026.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/avis_delivrance_dp_pc_au_08.09.2026.pdf",
+          "rows": 0
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/affichage_depot_dp_au_01.09.2026.pdf",
+          "rows": 7
+        },
+        {
+          "url": "https://www.ville-caluire.fr/fichiers/documents/vie_municipale_citoyennete/affichage_reglementaire/2-urbanisme/septembre2026/affichage_delivrance_dppc_au_01.09.2026.pdf",
+          "rows": 0
+        }
+      ]
+    }
+  ],
+  "excludedExistingCoverage": [
+    {
+      "insee": "30184",
+      "municipality": "Moussac",
+      "reader": "Cart@DS, Pays de Sommières"
+    },
+    {
+      "insee": "42043",
+      "municipality": "Chambœuf",
+      "reader": "Cart@DS, Saint-Étienne Métropole"
+    },
+    {
+      "insee": "01135",
+      "municipality": "Crozet",
+      "reader": "SIRAP, SIEA"
+    }
+  ],
+  "limits": [
+    "Source coverage, not completeness of every permit.",
+    "Caluire uses partial OCR; unread types, counters and changed layouts are excluded.",
+    "Millery publishes signature dates without verdicts: signed decisions remain unknown.",
+    "Edition rows can repeat a dossier; existing folding deduplicates them."
+  ]
+}
