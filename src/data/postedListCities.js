@@ -50,5 +50,13 @@ export const POSTED_LIST_CITIES = [
     page: 'https://www.ville-roostwarendin.fr/categorie-documents/arretes-et-decisions-du-maire/', source: { protocol: 'posted-acts' } },
   { key: 'anor', insee: '59012', postcode: '59186', label: 'Ville d’Anor — affichage urbanisme',
     page: 'https://www.anor.fr/affichage-urbanisme-Anor-7.html', source: { protocol: 'posted-acts' } },
+  { key: 'montbeliard', insee: '25388', postcode: '25200', label: 'Ville de Montbéliard — arrêtés d’urbanisme',
+    page: 'https://www.montbeliard.fr/ma-mairie/affichage-legal-ville/arretes-d-urbanisme/', source: { protocol: 'posted-acts', bareCounter: true } },
+  { key: 'villeneuve-sur-lot', insee: '47323', postcode: '47300', label: 'Ville de Villeneuve-sur-Lot — affichage légal d’urbanisme',
+    page: 'https://www.ville-villeneuve-sur-lot.fr/pagelb/affichage_doc.php?categorie=urbanisme',
+    source: { protocol: 'posted-acts', linkBase: 'https://www.ville-villeneuve-sur-lot.fr/' } },
+  { key: 'wasquehal', insee: '59646', postcode: '59290', label: 'Ville de Wasquehal — annonces légales d’urbanisme',
+    page: 'https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/',
+    source: { protocol: 'posted-acts', pages: ['https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/page/2/', 'https://www.ville-wasquehal.fr/vie-pratique/vos-demarches/annonces-legales/page/3/'] } },
 ];
 // i18n-ignore-end

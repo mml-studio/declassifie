@@ -92,6 +92,11 @@ const TIMEOUT_MS = 25_000;
  */
 export const CARTDS_SCAN_SEEDS = Object.freeze([
   Object.freeze({ host: 'ads-sig.douarnenez.bzh', prefixes: Object.freeze(['/guichet-unique']) }),
+  // Two boards on one host, one per instruction service: the archive saw
+  // Doué's, with one commune; Saumur's, with 17, is under this path (2026-10-03).
+  Object.freeze({ host: 'saumurvaldeloire.geosphere.fr', prefixes: Object.freeze(['/guichet-saumur', '/guichet-doue']) }),
+  // Voiron's own board, linked from its site (2026-10-03).
+  Object.freeze({ host: 'portail-urbanisme.ville-voiron.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'demarche-urbanisme.la-seyne.fr', prefixes: Object.freeze(['/guichet-unique']) }),
   Object.freeze({ host: 'demarches-urbanisme.ville-massy.fr', prefixes: Object.freeze(['']) }),
   Object.freeze({ host: 'demat-urb.vlpm.com', prefixes: Object.freeze(['/guichet-unique']) }),
@@ -395,7 +400,9 @@ async function readProbes(communes, epcis) {
   const archived = await archivedTenants();
   const guessed = values['skip-guess'] ? [] : await guessedTenants(communes, epcis);
   const seen = new Set();
-  const candidates = [...previous, ...archived, ...guessed, ...CARTDS_SCAN_SEEDS]
+  // A seed is chosen by hand, path included: it comes first, so that a host whose
+  // archive or last scan names another board is asked for the seed's.
+  const candidates = [...CARTDS_SCAN_SEEDS, ...previous, ...archived, ...guessed]
     .filter((candidate) => !known.has(candidate.host) && !isVendorTenant(candidate.host)
       && !seen.has(candidate.host) && seen.add(candidate.host));
   console.log(`[permits-scan] ${candidates.length} hosts to ask`);

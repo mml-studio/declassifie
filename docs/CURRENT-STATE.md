@@ -5560,6 +5560,24 @@ since the 1st (Metz Métropole's still empty) and a commune more on Porte de
 DrômArdèche and the Val de Sarthe; `cartdsScanned.js` is the reading of the
 1st with those boards' and Matoury's readings. 111 041 inhabitants more.
 
+**Saumur, Voiron, Montbéliard, Villeneuve-sur-Lot and Wasquehal
+(2026-10-03).** A host holds one Cart@DS board per instruction service, and
+the scan reads one per host, the first path that answers: Saumur Val de
+Loire's 17 communes are under `/guichet-saumur`, while the archive had seen
+Doué's board (`/guichet-doue`, Cizay-la-Madeleine only, which leaves). A seed
+now comes before the archive's and the last scan's candidates, so that its
+path wins; Saumur and fourteen communes join, and Voiron's own board
+(`portail-urbanisme.ville-voiron.fr`) joins the seeds. Montbéliard,
+Villeneuve-sur-Lot and Wasquehal post one PDF per act and join the
+`posted-acts` communes: Montbéliard writes its declarations' numbers without
+their year (« DP 176 CHOPARD »), which `source.bareCounter` takes from the
+upload month until the order's own heading gives the full number (DP 42 is
+2025's); Villeneuve-sur-Lot's list is drawn inside another page, whose
+address `source.linkBase` gives its relative links. Read live with the
+sweep's OCR: Montbéliard 19 orders, Villeneuve-sur-Lot 40, Wasquehal 12
+orders and 3 filings, sites, parcels and verdicts from the acts. 127 771
+inhabitants more.
+
 **Fourteen communes that post one act at a time (2026-10-03).** Many small
 towns link each receipt and order, one PDF each, from a page of their own
 site. The `posted-acts` protocol (`src/data/permitBoardsPostedLists.js`, next

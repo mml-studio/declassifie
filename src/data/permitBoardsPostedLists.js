@@ -156,6 +156,17 @@ function actStreet(text) {
 }
 
 /**
+ * A number written without its year (Montbéliard's « DP 176 CHOPARD »), for a
+ * town that says so (`source.bareCounter`): the year is the upload's. The act's
+ * own heading, read next, gives the full number.
+ */
+function bareDossier(city, words, published) {
+  if (!city.source?.bareCounter || !published) return null;
+  const match = /\b(PC|DP|PA|PD)\s+(\d{1,5})\b(?!\s*\d)/.exec(fold(words));
+  return match ? `${match[1]} ${city.insee.padStart(6, '0')} ${published.slice(2, 4)} ${match[2].padStart(5, '0')}` : null;
+}
+
+/**
  * The acts a page links, one PDF each: a link is an act when its words or its
  * file name name one of the commune's dossiers (`DP-062758-26-00149-Recepisse-de-Depot.pdf`,
  * « arrete DP 0593862600095 », « DP 059.052.26.00024 »). The act is read by
@@ -174,12 +185,13 @@ export function postedActFiles(city, html, pageUrl, since = null) {
     const words = clean(`${link.words} ${(link.title ?? '').replace(/_+/g, ' ')}`);
     const base = link.name.replace(/^.*\//, '').replace(/\.pdf$/i, '').replace(/[_.]+/g, ' ');
     const text = clean(`${words} ${base.replace(/-/g, ' ')}`);
-    const dossier = municipalDossier(words, city) ?? municipalDossier(base.replace(/-/g, ' '), city) ?? municipalDossier(text, city);
+    const published = postedListDay(link.name, words);
+    const dossier = municipalDossier(words, city) ?? municipalDossier(base.replace(/-/g, ' '), city) ?? municipalDossier(text, city)
+      ?? bareDossier(city, words, published);
     if (!dossier || files.some((file) => file.url === link.url)) continue;
     const folded = fold(text);
     const board = ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions';
     const street = actStreet(link.words) ?? actStreet(base.replace(/-/g, ' '));
-    const published = postedListDay(link.name, words);
     files.push({ url: link.url, board, layout: 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
       row: { board, dossier, applicant: null, ...(street ? municipalSite(street, city) : { address: null, postcode: city.postcode }), postedOn: published ?? null } });
   }
@@ -196,7 +208,9 @@ const postedActsProtocol = {
     return [city.page, ...(city.source?.pages ?? [])].map((url) => ({ url, as: 'html' }));
   },
   index(city, html, request, options = {}) {
-    const files = postedActFiles(city, html, request.url, options.since);
+    // A page drawn inside another (Villeneuve-sur-Lot's lightbox) names its files
+    // from the page it is drawn in: `source.linkBase`.
+    const files = postedActFiles(city, html, city.source?.linkBase ?? request.url, options.since);
     return files ? { files } : null;
   },
 };
