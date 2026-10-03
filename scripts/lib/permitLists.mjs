@@ -1045,7 +1045,10 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
       const headers = { Accept: 'application/pdf', ...(city.userAgent ? { 'User-Agent': city.userAgent } : {}), ...(file.headers ?? {}) };
       if (file.rolling && kept?.etag) headers['If-None-Match'] = kept.etag;
       if (file.rolling && kept?.modified) headers['If-Modified-Since'] = kept.modified;
-      const response = allows(new URL(file.url).pathname) ? await http.fetch(file.url, { headers }) : null;
+      // Some publishers sign downloads anew on each visit. Keep the stable
+      // edition URL in the cache and use the transient URL only for fetching.
+      const requestUrl = file.requestUrl ?? file.url;
+      const response = allows(new URL(requestUrl).pathname) ? await http.fetch(requestUrl, { headers }) : null;
       if (response?.status === 304 && kept) {
         answer = kept;
       } else {
@@ -1061,7 +1064,8 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
             let scanned = null;
             if (canOcr()) {
               ocrRuns += 1;
-              scanned = await ocr(bytes, { positioned: true, maxPages: file.ocrPages });
+              scanned = await ocr(bytes, { positioned: true, maxPages: file.ocrPages,
+                ...(file.ocrRotate ? { rotate: file.ocrRotate } : {}) });
             }
             const reader = PERMIT_LIST_READERS[file.layout] ?? BOARD_READERS[file.layout];
             rows = scanned?.document && reader ? keptRows(reader(scanned.document, context), file.board) : null;

@@ -6,6 +6,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres now show their
+  published planning permits**, adding 70,197 residents to current
+  municipal-source coverage (30.44% to 30.54%). Weekly and rolling PDF
+  registers join the daily archive; Bry's sideways scans use background
+  OCR. The live collection retained 342 posting rows for 329 distinct
+  dossiers, with applicant and architect fields excluded. Unread scan
+  identities are rejected and unread verdicts remain signed decisions.
 - **Épinal, Épernay, Chaumont, Lunéville, Sedan, Romilly-sur-Seine and 48
   more communes of the Aube, the Marne, the Vosges and five neighbouring
   departments now show the permits they post on SPL-Xdemat's shared board**,
