@@ -89,6 +89,15 @@ test('two Tj in a row without a move are one run, where the widths say so', () =
   assert.deepEqual(found.map((run) => run.text), ['Nature des travaux']);
 });
 
+test('explicit table edges keep gapless neighbouring fields in separate positioned runs', () => {
+  const bytes = simplePage('BT /F1 10 Tf 50 700 Td (PC123PRIVATE12 STREET) Tj ET');
+  const unchanged = extractPdfText(bytes, { inflate }).pages[0].runs;
+  const separated = extractPdfText(bytes, { inflate, columnEdges: [75, 110] }).pages[0].runs;
+  assert.deepEqual(unchanged.map((run) => run.text), ['PC123PRIVATE12 STREET']);
+  assert.deepEqual(separated.map((run) => run.text), ['PC123', 'PRIVATE', '12 STREET']);
+  assert.deepEqual(separated.map((run) => [run.x, run.x1]), [[50, 75], [75, 110], [110, 155]]);
+});
+
 test('the page matrix and a clip are applied, and Q restores both', () => {
   const found = runs(simplePage([
     'q 0.12 0 0 0.12 0 0 cm',

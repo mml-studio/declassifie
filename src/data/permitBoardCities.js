@@ -11,6 +11,17 @@
 
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 const CITIES = [
+  { key: 'bry-sur-marne', insee: '94015', postcode: '94360', label: 'Ville de Bry-sur-Marne — dépôts et décisions d’urbanisme',
+    page: 'https://www.brysurmarne.fr/mon-cadre-de-vie/urbanisme/information-de-la-population/les-avis-daffichage/',
+    userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)', source: { ocr: true } },
+  { key: 'saint-raphael', insee: '83118', postcode: '83700', label: 'Ville de Saint-Raphaël — dépôts et autorisations d’urbanisme',
+    page: 'https://www.ville-saintraphael.fr/utile/urbanisme/depots-et-decisions',
+    // As on Boulogne's board, the word "scan" in an agent name gets 403.
+    userAgent: 'Surplomb/1.0 (+https://github.com/mml-studio/surplomb)' },
+  { key: 'scionzier', insee: '74264', postcode: '74950', label: 'Ville de Scionzier — dépôts et autorisations d’urbanisme',
+    page: 'https://www.scionzier.fr/habiter/urbanisme/' },
+  { key: 'aiffres', insee: '79003', postcode: '79230', label: 'Ville d’Aiffres — dépôts et décisions d’urbanisme',
+    page: 'https://www.ville-aiffres.fr/autorisations-du-droit-des-sols' },
   { key: 'eaubonne', insee: '95203', postcode: '95600', label: 'Ville d’Eaubonne — décisions d’urbanisme',
     page: 'https://www.eaubonne.fr/vie-municipale-et-citoyennete/actes-administratifs/' },
   // Delibs permits its public pages but disallows /api/ in robots.txt.

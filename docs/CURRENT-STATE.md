@@ -5165,6 +5165,51 @@ not coverage of their whole metropolitan authorities. They use the same
 permit-list archive, dossier folding and cadastral/BAN placement as the
 thirteen existing publishers.
 
+**Bry-sur-Marne, Saint-Raphaël, Scionzier and Aiffres (2026-10-03).**
+`src/data/municipalRegisterBoards.js` adds four municipal PDF protocols and
+readers to the existing six-hour cache and daily permit archive. Bry's
+weekly Cart@DS scan combines filing and decision pages; ERP notices are
+excluded. Its sideways pages use `ocrRotate: 90` in the background sweep,
+never OCR on a visitor request. Only full, readable local dossier numbers
+and a project street are accepted; the scan remains a partial extraction.
+
+Saint-Raphaël's eight rolling PC, DP, PA and PD registers use HTTP validators
+on each refresh. Scionzier's spreadsheet paints adjacent cells without a
+gap, so `extractPdfText` accepts layout-specific `columnEdges` to split the
+glyph runs before reading project sites and parcels. The measured edges
+exclude applicant and architect columns and preserve continuation pages.
+Its decision register explicitly lists granted authorizations. Full
+cadastral references are reduced to local section/number references,
+with the published prefix retained when it is not `000`.
+
+Aiffres repeats a DDC table per permit family. The site comes from the
+terrain's `sis` line, not its owner's address. Signature and notification
+dates are separated from the verdict, including grants with prescriptions,
+negative certificates and withdrawals. The publisher renews its signed
+CDN download URLs on each visit. A file's transient `requestUrl` is used
+only for downloading; its stable `runtime_url` remains the edition cache
+identity and the returned source URL. Unknown verdicts stay signed
+decisions, and a row without a usable site or cadastral reference is dropped.
+
+All four sources honour robots.txt without a new override. Bry-sur-Marne
+and Saint-Raphaël reject the word `scan` in a User-Agent; their requests
+use the existing honest Surplomb identity without that word. Only project
+fields are retained; raw scans, private applicants, owners and architects
+are excluded from the archive.
+
+The September–October live check read 15 editions and retained 342 posting
+rows representing 329 distinct dossiers: 24 rows in Bry-sur-Marne, 231 in
+Saint-Raphaël, 52 in Scionzier and 35 in Aiffres. 337 rows have a published
+project address; the remaining five Scionzier rows have cadastral references.
+No downloads failed and no files remained skipped or pending OCR. Registry
+coverage gains 70,197 residents, from 20,806,381 to 20,876,578 (30.4406% to
+30.5433% of the same Geo API snapshot); 4,104 municipalities are registered.
+This delivery baseline includes the SPL-Xdemat and discovered-host additions
+merged in parallel in #405.
+This describes sources, not completeness of all permits. The
+[research report](research/municipal-registers-2026-10-03.md) records the
+source links, measured counts and extraction limits.
+
 **Eaubonne, Les Pavillons-sous-Bois and Sainte-Luce (2026-10-02).**
 `src/data/publishedPermitBoards.js` adds Eaubonne's planning-theme HTML
 index and the public Delibs legal boards of Les Pavillons-sous-Bois and

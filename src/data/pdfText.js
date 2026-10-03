@@ -533,7 +533,7 @@ function spellOut(text) {
  * new run, whichever operator put it there. The clip each run was drawn under
  * is kept too, as the layout hint it is.
  */
-function runContent(content, decoders, wordGapEm = null) {
+function runContent(content, decoders, wordGapEm = null, columnEdges = []) {
   const lexer = new Lexer(content, 0);
   const runs = [];
   let operands = [];
@@ -561,7 +561,8 @@ function runContent(content, decoders, wordGapEm = null) {
       const em = Math.abs(size * Math.hypot(trm[2], trm[3])) || 1;
       const last = runs[runs.length - 1];
       const joined = pen && last && Math.abs(y - pen.y) < em * 0.2
-        && x - pen.x < em * RUN_GAP_EM && x - pen.x > -em * 0.5;
+        && x - pen.x < em * RUN_GAP_EM && x - pen.x > -em * 0.5
+        && !columnEdges.some((edge) => last.x < edge && x >= edge);
       if (!joined && glyph.text && glyph.text.trim()) {
         runs.push({ x, x1: x, y, size: em, text: '', clip });
       }
@@ -672,16 +673,18 @@ function runContent(content, decoders, wordGapEm = null) {
  * The text runs of every page, in drawing order.
  *
  * @param {Uint8Array} bytes The file.
- * @param {{inflate: function(Uint8Array): Uint8Array, maxPages?: number, wordGapEm?: ?number}} options
+ * @param {{inflate: function(Uint8Array): Uint8Array, maxPages?: number, wordGapEm?: ?number, columnEdges?: number[]}} options
  *   `inflate` is zlib's `inflateSync` or anything with its contract.
  *   `wordGapEm`: inside a run, a gap wider than this many ems reads as a
  *   space — for a file that draws no space glyphs (Firefox's print to PDF).
+ *   `columnEdges`: measured table edges in page points; split a run there
+ *   even when the publisher paints adjacent cells without any gap.
  * @returns {?{pages: Array<{runs: Array<{x: number, x1: number, y: number, size: number,
  *   text: string, clip: ?{x0: number, y0: number, x1: number, y1: number}}>}>}}
  *   Null for a file that is not a PDF or is encrypted. Blank lines before
  *   the header are allowed.
  */
-export function extractPdfText(bytes, { inflate, maxPages = 40, wordGapEm = null } = {}) {
+export function extractPdfText(bytes, { inflate, maxPages = 40, wordGapEm = null, columnEdges = [] } = {}) {
   if (!bytes || !bytes.length) return null;
   const src = binaryString(bytes);
   // A header after a few stray bytes is still a PDF, as readers take it:
@@ -746,7 +749,7 @@ export function extractPdfText(bytes, { inflate, maxPages = 40, wordGapEm = null
         ? decodeStream(entry.value, entry.stream, inflate) : null;
       if (data !== null) content += `${data}\n`;
     }
-    out.push({ runs: runContent(content, decoders, wordGapEm) });
+    out.push({ runs: runContent(content, decoders, wordGapEm, columnEdges) });
   }
   return { pages: out };
 }

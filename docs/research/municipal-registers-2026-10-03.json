@@ -1,0 +1,113 @@
+{
+  "surveyDate": "2026-10-03",
+  "collectionWindow": {
+    "since": "2026-09-01",
+    "through": "2026-10-03"
+  },
+  "coverage": {
+    "populationSnapshot": "2026-10-02",
+    "populationDenominator": 68350798,
+    "before": {
+      "municipalities": 4100,
+      "population": 20806381,
+      "percentage": 30.4406,
+      "top100": 49,
+      "top300": 117,
+      "top1000": 300
+    },
+    "after": {
+      "municipalities": 4104,
+      "population": 20876578,
+      "percentage": 30.5433,
+      "top100": 49,
+      "top300": 118,
+      "top1000": 302
+    },
+    "additionalPopulation": 70197,
+    "percentagePointGain": 0.1027,
+    "deliveryBase": "PR #405"
+  },
+  "municipalities": [
+    {
+      "insee": "94015",
+      "name": "Bry-sur-Marne",
+      "population": 18503,
+      "key": "bry-sur-marne",
+      "sourcePage": "https://www.brysurmarne.fr/mon-cadre-de-vie/urbanisme/information-de-la-population/les-avis-daffichage/",
+      "protocol": "bry-sur-marne",
+      "latestPublication": "2026-09-28",
+      "selectedPdfs": 1,
+      "retainedRows": 24,
+      "distinctDossiers": 23,
+      "rowsWithProjectAddress": 24,
+      "rowsWithCadastralReferenceOnly": 0,
+      "filingRows": 16,
+      "decisionRows": 8
+    },
+    {
+      "insee": "83118",
+      "name": "Saint-Raphaël",
+      "population": 37113,
+      "key": "saint-raphael",
+      "sourcePage": "https://www.ville-saintraphael.fr/utile/urbanisme/depots-et-decisions",
+      "protocol": "saint-raphael",
+      "latestPublication": "2026-10-01",
+      "selectedPdfs": 8,
+      "retainedRows": 231,
+      "distinctDossiers": 231,
+      "rowsWithProjectAddress": 231,
+      "rowsWithCadastralReferenceOnly": 0,
+      "filingRows": 101,
+      "decisionRows": 130
+    },
+    {
+      "insee": "74264",
+      "name": "Scionzier",
+      "population": 9162,
+      "key": "scionzier",
+      "sourcePage": "https://www.scionzier.fr/habiter/urbanisme/",
+      "protocol": "scionzier",
+      "latestPublication": "2026-09-29",
+      "selectedPdfs": 2,
+      "retainedRows": 52,
+      "distinctDossiers": 52,
+      "rowsWithProjectAddress": 47,
+      "rowsWithCadastralReferenceOnly": 5,
+      "filingRows": 39,
+      "decisionRows": 13
+    },
+    {
+      "insee": "79003",
+      "name": "Aiffres",
+      "population": 5419,
+      "key": "aiffres",
+      "sourcePage": "https://www.ville-aiffres.fr/autorisations-du-droit-des-sols",
+      "protocol": "aiffres",
+      "latestPublication": "2026-10-02",
+      "selectedPdfs": 4,
+      "retainedRows": 35,
+      "distinctDossiers": 23,
+      "rowsWithProjectAddress": 35,
+      "rowsWithCadastralReferenceOnly": 0,
+      "filingRows": 17,
+      "decisionRows": 18
+    }
+  ],
+  "totals": {
+    "selectedPdfs": 15,
+    "retainedRows": 342,
+    "distinctDossiers": 329,
+    "rowsWithProjectAddress": 337,
+    "rowsWithCadastralReferenceOnly": 5,
+    "filingRows": 173,
+    "decisionRows": 169,
+    "failedDownloads": 0,
+    "skippedFiles": 0,
+    "pendingOcr": 0
+  },
+  "limits": [
+    "Coverage is a registered current municipal source, not completeness of every permit family.",
+    "Bry-sur-Marne is a partial scan extraction; unread dossier identities are rejected and three retained verdicts remain signed decisions.",
+    "Extracted project sites are not all confirmed geocodes."
+  ]
+}
