@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Saumur and fourteen communes of its agglomeration, Voiron, Montbéliard,
+  Villeneuve-sur-Lot and Wasquehal now show their fresh permits**, 127,771
+  inhabitants. Saumur Val de Loire's Cart@DS board sits under
+  `/guichet-saumur` on a host whose other board the scan already read; Voiron
+  has its own board; Montbéliard, Villeneuve-sur-Lot and Wasquehal link one
+  PDF per act, read by the posted-acts protocol.
 - **Saint-Joseph (La Réunion), Matoury (Guyane) and Schiltigheim now show
   their fresh permits**, 111,041 inhabitants. Saint-Joseph posts the same
   register of pending dossiers and decisions as Marseille and Nîmes;
