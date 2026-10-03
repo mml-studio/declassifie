@@ -4,6 +4,15 @@
  */
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 export const DIGILOR_TOWNS_B = [
+  // Manosque (app 327) posts scanned individual filing notices on the public
+  // AVIS DE DEPOT category. The PDF's labelled project address and dossier
+  // are read by the existing notice reader; unread identities stay withheld.
+  // Read on 2026-10-03: 32 September notices, 13 safely placeable after OCR.
+  { key: 'digilor-manosque', insee: '04112', postcode: '04100', label: 'Ville de Manosque — autorisations d’urbanisme',
+    page: 'https://datahall.mydigilor.fr/web/#/documents/327',
+    source: { kind: 'digilor', base: 'https://datahall.mydigilor.fr', app: 327, ocr: true, checkDossier: true, shelves: [
+      { category: 3608, sub: 0, board: 'filings', layout: 'outer-notice' },
+    ] }, lists: [] },
   // Montluçon (app 216) instructs on Cart@DS and posts its two reports every
   // Monday on « Aménagement - Urbanisme - Foncier » / sub-category 3015, named
   // by day: `2026_09_28_dépôts` (« Liste des avis de dépôt », every dossier

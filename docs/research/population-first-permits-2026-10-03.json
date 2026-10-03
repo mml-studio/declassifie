@@ -1,0 +1,271 @@
+{
+  "checkedOn": "2026-10-03",
+  "excludedMunicipalities": [
+    "31555"
+  ],
+  "coverageBefore": {
+    "municipalities": 4199,
+    "population": 22143065,
+    "denominator": 68350798,
+    "percentage": 32.39620552784183
+  },
+  "coverageAfter": {
+    "municipalities": 4200,
+    "population": 22165783,
+    "denominator": 68350798,
+    "percentage": 32.42944288667998
+  },
+  "additionalPopulation": 22718,
+  "percentagePointGain": 0.033237358838150044,
+  "newSource": {
+    "key": "digilor-manosque",
+    "insee": "04112",
+    "population": 22718,
+    "page": "https://datahall.mydigilor.fr/web/#/documents/327",
+    "publicCategory": 3608,
+    "publicShelf": 0,
+    "files": 32,
+    "retainedDistinctFilings": 13,
+    "conflictingIdentitiesWithheld": 19,
+    "partial": true,
+    "failedDownloads": 0,
+    "pendingOcr": 0,
+    "latestPublication": "2026-09-28"
+  },
+  "alreadyIntegrated": [
+    "digilor-reims",
+    "digilor-montlucon",
+    "digilor-saint-laurent-du-var",
+    "digilor-concarneau"
+  ],
+  "priorities": {
+    "minimumPopulation": 50000,
+    "uncoveredTownCount": 66,
+    "serviceCount": 226,
+    "largestTowns": [
+      {
+        "code": "34172",
+        "name": "Montpellier",
+        "population": 310240,
+        "epci": "243400017"
+      },
+      {
+        "code": "67482",
+        "name": "Strasbourg",
+        "population": 293771,
+        "epci": "246700488"
+      },
+      {
+        "code": "76351",
+        "name": "Le Havre",
+        "population": 166687,
+        "epci": "200084952"
+      },
+      {
+        "code": "69266",
+        "name": "Villeurbanne",
+        "population": 163684,
+        "epci": "200046977"
+      },
+      {
+        "code": "49007",
+        "name": "Angers",
+        "population": 159022,
+        "epci": "244900015"
+      },
+      {
+        "code": "38185",
+        "name": "Grenoble",
+        "population": 156140,
+        "epci": "200040715"
+      },
+      {
+        "code": "97411",
+        "name": "Saint-Denis",
+        "population": 155634,
+        "epci": "249740119"
+      },
+      {
+        "code": "80021",
+        "name": "Amiens",
+        "population": 136449,
+        "epci": "248000531"
+      },
+      {
+        "code": "57463",
+        "name": "Metz",
+        "population": 122572,
+        "epci": "200039865"
+      },
+      {
+        "code": "66136",
+        "name": "Perpignan",
+        "population": 121616,
+        "epci": "200027183"
+      },
+      {
+        "code": "92012",
+        "name": "Boulogne-Billancourt",
+        "population": 119019,
+        "epci": "200054781"
+      },
+      {
+        "code": "25056",
+        "name": "Besançon",
+        "population": 118489,
+        "epci": "242500361"
+      },
+      {
+        "code": "76540",
+        "name": "Rouen",
+        "population": 117662,
+        "epci": "200023414"
+      },
+      {
+        "code": "93048",
+        "name": "Montreuil",
+        "population": 111934,
+        "epci": "200054781"
+      },
+      {
+        "code": "14118",
+        "name": "Caen",
+        "population": 109400,
+        "epci": "200065597"
+      },
+      {
+        "code": "97415",
+        "name": "Saint-Paul",
+        "population": 108088,
+        "epci": "249740101"
+      },
+      {
+        "code": "59599",
+        "name": "Tourcoing",
+        "population": 98772,
+        "epci": "200093201"
+      },
+      {
+        "code": "59512",
+        "name": "Roubaix",
+        "population": 98286,
+        "epci": "200093201"
+      },
+      {
+        "code": "92050",
+        "name": "Nanterre",
+        "population": 97783,
+        "epci": "200054781"
+      },
+      {
+        "code": "94081",
+        "name": "Vitry-sur-Seine",
+        "population": 93963,
+        "epci": "200054781"
+      }
+    ],
+    "largestServices": [
+      {
+        "code": "200054781",
+        "potentialPopulation": 3093033,
+        "memberCount": 86
+      },
+      {
+        "code": "200093201",
+        "potentialPopulation": 831447,
+        "memberCount": 86
+      },
+      {
+        "code": "200046977",
+        "potentialPopulation": 682663,
+        "memberCount": 45
+      },
+      {
+        "code": "243400017",
+        "potentialPopulation": 522542,
+        "memberCount": 31
+      },
+      {
+        "code": "200023414",
+        "potentialPopulation": 479032,
+        "memberCount": 69
+      },
+      {
+        "code": "246700488",
+        "potentialPopulation": 460016,
+        "memberCount": 31
+      },
+      {
+        "code": "200040715",
+        "potentialPopulation": 439652,
+        "memberCount": 48
+      },
+      {
+        "code": "200059228",
+        "potentialPopulation": 364991,
+        "memberCount": 23
+      },
+      {
+        "code": "200059889",
+        "potentialPopulation": 364512,
+        "memberCount": 69
+      },
+      {
+        "code": "200054807",
+        "potentialPopulation": 344316,
+        "memberCount": 43
+      },
+      {
+        "code": "244900015",
+        "potentialPopulation": 312612,
+        "memberCount": 29
+      },
+      {
+        "code": "200055655",
+        "potentialPopulation": 284957,
+        "memberCount": 39
+      },
+      {
+        "code": "200065597",
+        "potentialPopulation": 275224,
+        "memberCount": 47
+      },
+      {
+        "code": "200084952",
+        "potentialPopulation": 267308,
+        "memberCount": 54
+      },
+      {
+        "code": "200058519",
+        "potentialPopulation": 263570,
+        "memberCount": 16
+      },
+      {
+        "code": "200027183",
+        "potentialPopulation": 240031,
+        "memberCount": 31
+      },
+      {
+        "code": "200058485",
+        "potentialPopulation": 237387,
+        "memberCount": 13
+      },
+      {
+        "code": "200039865",
+        "potentialPopulation": 232612,
+        "memberCount": 46
+      },
+      {
+        "code": "200072460",
+        "potentialPopulation": 230926,
+        "memberCount": 96
+      },
+      {
+        "code": "246200364",
+        "potentialPopulation": 229766,
+        "memberCount": 35
+      }
+    ]
+  },
+  "deliveryBase": "5b1335a9"
+}

@@ -49,6 +49,7 @@ import {
   bulletinLinks,
   BULLETIN_READERS,
   digilorDocuments,
+  digilorMatchingRows,
   digilorIndexBody,
   digilorIndexUrl,
   parseWebdelibActs,
@@ -678,8 +679,9 @@ async function readDigilorCity(city, http, { dir, allows, months, day, maxFiles,
     }
     if (!answer) { failed += 1; continue; }
     if (answer.pendingOcr) pendingOcr += 1;
-    if (!answer.rows.length) empty += 1;
-    for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+    const rows = digilorMatchingRows(city, doc, answer.rows);
+    if (!rows.length) empty += 1;
+    for (const row of rows) (boards[row.board] ??= []).push(row.cells);
   }
   return {
     boards,
