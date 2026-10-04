@@ -403,47 +403,9 @@ function lhayParcels(value) {
 
 // --- Limeil-Brévannes: two Word tables a week -----------------------------------
 
-// i18n-ignore-start — the tables' own column headers, matched on
-const LIMEIL_COLUMNS = {
-  filings: [['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'],
-    ['site', 'ADRESSE DU PROJET'], ['purpose', 'DESCRIPTION DU PROJET']],
-  decisions: [['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'], ['verdict', 'DECISION'],
-    ['decidedOn', 'DATE DE'], ['purpose', 'NATURE DES TRAVAUX'], ['site', 'ADRESSE DES TRAVAUX'],
-    ['floorArea', 'SURFACE', { optional: true }]],
-};
+// i18n-ignore-start — the tables' file names, matched on
 const LIMEIL_FILE = /\/Affichage[-_](d[ée]p[ôo]ts?|d[ée]cisions?)[-_](\d{1,2})[._-](\d{1,2})[^/]*\.pdf$/i;
 // i18n-ignore-end
-
-/**
- * Limeil-Brévannes's two tables, typed in Word: « Dossiers déposés avant le
- * 28 septembre 2026 » (date, number, applicant, site, works; 41 rows over 6
- * pages) and « Dossiers décidés jusqu'au … » (number, applicant, decision,
- * signature date, works, site, floor area; 18 pages). Each cell sits under
- * its own rectangle ({@link readCellTable}). The applicant's column is
- * named so that no cell of it lands in another, and is never read. Signs
- * (`AP`) and works on a building open to the public (`AT`) are not permits.
- */
-function limeilSpec(city, board) {
-  return {
-    columns: LIMEIL_COLUMNS[board],
-    build: (cells) => {
-      const dossier = municipalDossier((cells.dossier ?? []).join(' '), city);
-      const site = municipalSite((cells.site ?? []).map((line) => line.replace(/,\s*$/, '')).join(' '), city);
-      if (!dossier || !site.address || !isSite(site.address)) return null;
-      const said = clean((cells.verdict ?? []).join(' '));
-      return {
-        board, dossier, applicant: null, address: site.address, postcode: site.postcode,
-        purpose: clean((cells.purpose ?? []).join(' ')) || null,
-        filedOn: board === 'filings' ? municipalDate((cells.filedOn ?? []).join(' ')) : null,
-        ...(board === 'decisions' ? {
-          verdict: (said ? listVerdict(said) : null) ?? verdicts.signed.fr,
-          decidedOn: municipalDate((cells.decidedOn ?? []).join(' ')),
-          floorArea: squareMetres((cells.floorArea ?? []).join(' ')),
-        } : {}),
-      };
-    },
-  };
-}
 
 /**
  * Limeil-Brévannes's « Affichage numérique réglementaire » page (opened in
@@ -460,7 +422,9 @@ const limeilProtocol = Object.freeze({
       const match = LIMEIL_FILE.exec(decodeURIComponent(url.pathname));
       if (!match || url.origin !== new URL(city.page).origin) continue;
       const board = /^d[ée]p/i.test(match[1]) ? 'filings' : 'decisions';
-      files.set(url.href, { url: url.href, board, layout: `limeil-${board}`, published: dayWithoutYear(match[2], match[3], day) });
+      // Read by the readers of every town printing the same two tables (`permitBoardsTownLists.js`).
+      const layout = board === 'filings' ? 'town-filed-before' : 'town-decided-until';
+      files.set(url.href, { url: url.href, board, layout, published: dayWithoutYear(match[2], match[3], day) });
     }
     return files.size ? { files: [...files.values()] } : null;
   },
@@ -686,8 +650,6 @@ export const ACT_BOARD_READERS = Object.freeze({
   'oullins-report': readOullinsReport,
   'lhay-filings': readLhayFilings,
   'lhay-decision': readLhayDecision,
-  'limeil-filings': (document, { city }) => readCellTable(document, limeilSpec(city, 'filings')),
-  'limeil-decisions': (document, { city }) => readCellTable(document, limeilSpec(city, 'decisions')),
   'vsg-filings': (document, { city }) => readCellTable(document, vsgFilingSpec(city)),
   'vsg-decision': readVsgDecision,
   'romainville-decision': readRomainvilleDecision,

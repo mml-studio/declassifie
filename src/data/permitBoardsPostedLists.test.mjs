@@ -273,17 +273,17 @@ test('a number typed without the commune’s code nor spaces names the dossier',
   assert.deepEqual(files.map((file) => file.row.dossier), ['DP 078362 26 00099', 'PC 078362 25 00004 M01', 'DP 078362 26 00092']);
 });
 
-test('a town posting Limeil-Brévannes’s Word tables names those readers', () => {
+test('a town posting Limeil-Brévannes’s Word tables names the town-list readers of that template', () => {
   const saintCyr = city('saint-cyr-l-ecole');
-  assert.deepEqual(saintCyr.source.layouts, { filings: 'limeil-filings', decisions: 'limeil-decisions' });
-  assert.equal(typeof BOARD_READERS['limeil-filings'], 'function');
+  assert.deepEqual(saintCyr.source.layouts, { filings: 'town-filed-before', decisions: 'town-decided-until' });
+  assert.equal(typeof BOARD_READERS['town-filed-before'], 'function');
   const html = [
     link('https://www.saintcyr78.fr/wp-content/uploads/2026/09/AFFICHAGE-DEPOT-090926.pdf', 'Dossiers déposés au 09/09/2026'),
     link('https://www.saintcyr78.fr/wp-content/uploads/2026/09/AFFICHAGE-DECISIONS-090926.pdf', 'Autorisations délivrées au 09/09/2026'),
   ].join('');
   const files = postedListFiles(saintCyr, html, saintCyr.page);
   assert.deepEqual(files.map((file) => [file.board, file.layout, file.published]), [
-    ['filings', 'limeil-filings', '2026-09-09'],
-    ['decisions', 'limeil-decisions', '2026-09-09'],
+    ['filings', 'town-filed-before', '2026-09-09'],
+    ['decisions', 'town-decided-until', '2026-09-09'],
   ]);
 });

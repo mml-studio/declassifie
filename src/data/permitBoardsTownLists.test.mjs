@@ -98,6 +98,40 @@ test('« Dossiers décidés jusqu’au … »: a site that is only the postcode 
   ]);
 });
 
+test('« Dossiers décidés jusqu’au … »: a site wrapped on two lines stays with its own number, not the next row’s', () => {
+  // Saint-Rémy's list of 2 October 2026: the site of E0108 wraps, the next row's site starts 16 points lower.
+  const rows = readDecidedUntilList(page(
+    run('Numéro de dossier', 28, 391), run('Pétitionnaire', 139, 391), run('Décision', 259, 391), run('Date de', 334, 391),
+    run('Nature des travaux', 414, 391), run('Adresse des travaux', 594, 391), run('Surface', 769, 391), run('signature', 334, 378),
+    run('DP 71475 26 E0108', 28, 302), run('Monsieur PRIVATE', 139, 302), run('Favorable', 259, 302), run('11/09/2026', 334, 302),
+    run('Panneaux photovoltaiques', 414, 302), run('6 Rue Olympe de Gouges, Les', 594, 302), run('m²', 772, 302),
+    run('PERSON', 139, 289), run('Hauts de Marobin', 594, 289),
+    run('DP 71475 26 E0107', 28, 273), run('Madame PRIVATE', 139, 273), run('Favorable', 259, 273), run('11/09/2026', 334, 273),
+    run('Installation d’une clôture agricole,', 414, 273), run('Chemin de la Réserve', 594, 273), run('m²', 772, 273),
+  ), { city: city('wp-media-71475'), file: { board: 'decisions', published: '2026-10-02' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.verdict, row.decidedOn, row.applicant]), [
+    ['DP 071475 26 E0108', '6 Rue Olympe de Gouges, Les Hauts de Marobin', 'Accord', '2026-09-11', null],
+    ['DP 071475 26 E0107', 'Chemin de la Réserve', 'Accord', '2026-09-11', null],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+});
+
+test('« Dossiers déposés avant le … »: a site printed in glyphs its font maps to nothing is no site, and the dossier stays', () => {
+  const rows = readFiledBeforeList(page(
+    run('Date de dépôt', 28, 372), run('Numéro de', 120, 372), run('Pétitionnaire', 211, 372),
+    run('Adresse du projet', 312, 372), run('Description du projet', 455, 372), run('dossier', 120, 359),
+    run('04/08/2026', 28, 283), run('DP 78545 26 B0083', 154, 283), run('PRIVATE PERSON', 282, 283), run('\uFFFD\uFFFD\uFFFD\uFFFD \uFFFD', 374, 283),
+    run('Clôture', 502, 283),
+    run('05/08/2026', 28, 240), run('DP 78545 26 B0084', 154, 240), run('PRIVATE PERSON', 282, 240), run('12 rue Exemple', 374, 240),
+    run('Abri de jardin', 502, 240),
+  ), { city: city('saint-cyr-l-ecole'), file: { board: 'filings', published: '2026-09-09' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.filedOn]), [
+    ['DP 078545 26 B0083', null, '2026-08-04'],
+    ['DP 078545 26 B0084', '12 rue Exemple', '2026-08-05'],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+});
+
 test('Saint-Jean-d’Angély names its acts by their site: street first, then « au n° »', () => {
   const angely = city('saint-jean-d-angely');
   const html = [

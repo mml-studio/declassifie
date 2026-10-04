@@ -4,6 +4,7 @@ import {
   ACT_BOARD_PROTOCOLS, ACT_BOARD_READERS, lhayTitle, oullinsFileBoard, prefixedParcels, romainvilleFileDossier, vsgFileDossier,
 } from './permitBoardsActs.js';
 import { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
+import { TOWN_LIST_READERS } from './permitBoardsTownLists.js';
 import { normalisePermitListRow, permitListFor, scrubPermitListRow } from './permitListsFeed.js';
 
 const city = (key) => BOARD_PERMIT_SOURCES.find((source) => source.key === key);
@@ -164,7 +165,8 @@ test('L’Haÿ-les-Roses’s filings list puts each run with its nearest number,
 
 // --- Limeil-Brévannes and Villeneuve-Saint-Georges: Word tables -----------------------
 
-test('Limeil-Brévannes reads its two Word tables cell by cell and never the applicant’s column', () => {
+test('Limeil-Brévannes’s two Word tables are read by the town-list readers, never the applicant’s column', () => {
+  const readList = (layout, runs, file) => TOWN_LIST_READERS[layout]({ pages: [{ runs }] }, { city: city('limeil-brevannes'), file });
   const clip = (x0, x1, y0, y1) => ({ x0, y0, x1, y1 });
   const row = (y, cells) => cells.map(([text, x0, x1, dy = 0]) => cellRun(text, x0 + 5, y + dy, clip(x0, x1, y - 30, y + 10)));
   const filings = [
@@ -174,7 +176,7 @@ test('Limeil-Brévannes reads its two Word tables cell by cell and never the app
       ['44 Rue Exemple', 404, 568], ['94450 LIMEIL-BREVANNES', 404, 568, -13], ['Isolation', 569, 818]]),
     ...row(300, [['16/09/2026', 23, 148], ['AP 94044 26 0017', 149, 273], ['SAS EXEMPLE', 274, 403], ['10 allée Exemple', 404, 568]]),
   ];
-  const rows = read('limeil-brevannes', 'limeil-filings', filings, { board: 'filings' });
+  const rows = readList('town-filed-before', filings, { board: 'filings' });
   assert.deepEqual(pick(rows, 'dossier', 'address', 'postcode', 'filedOn', 'applicant'), [
     ['DP 094044 26 C0137', '44 Rue Exemple', '94450', '2026-09-23', null],
   ]);
@@ -187,17 +189,18 @@ test('Limeil-Brévannes reads its two Word tables cell by cell and never the app
     ...row(380, [['DP 94044 26', 23, 120], ['C0127', 23, 120, -12], ['PRIVATE NAME', 121, 220], ['Annulation', 221, 290],
       ['11/09/2026', 291, 360], ['Portail', 361, 520], ['Limeil-Brevannes', 521, 700]]),
   ];
-  const decided = read('limeil-brevannes', 'limeil-decisions', decisions, { board: 'decisions' });
+  const decided = readList('town-decided-until', decisions, { board: 'decisions' });
   assert.deepEqual(pick(decided, 'dossier', 'address', 'verdict', 'decidedOn', 'floorArea'), [
     ['DP 094044 26 C0124', '7 Rue Exemple', 'Favorable avec prescriptions', '2026-09-10', null],
-  ], 'a site that is only the town is no site');
+    ['DP 094044 26 C0127', null, 'Retrait', '2026-09-11', null],
+  ], 'a site that is only the town is no site, and the decision stays');
   assert.doesNotMatch(JSON.stringify([...rows, ...decided]), /PRIVATE|PERSON|NAME/);
   const html = '<a href="https://www.limeil-brevannes.fr/wp-content/uploads/2026/09/Affichage-depot-28.09.pdf">T</a>'
     + '<a href="https://www.limeil-brevannes.fr/wp-content/uploads/2026/09/Affichage-decision-28.09.pdf">T</a>';
   const limeil = city('limeil-brevannes');
   const found = ACT_BOARD_PROTOCOLS['limeil-brevannes'].index(limeil, html, { url: limeil.page }, { since: '2026-08-01', day: '2026-10-02' });
   assert.deepEqual(found.files.map((file) => [file.board, file.layout, file.published]),
-    [['filings', 'limeil-filings', '2026-09-28'], ['decisions', 'limeil-decisions', '2026-09-28']]);
+    [['filings', 'town-filed-before', '2026-09-28'], ['decisions', 'town-decided-until', '2026-09-28']]);
   assert.equal(ACT_BOARD_PROTOCOLS['limeil-brevannes'].index(limeil, '<p>maintenance</p>', { url: limeil.page }, { day: '2026-10-02' }), null);
 });
 

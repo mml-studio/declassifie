@@ -104,7 +104,7 @@ export const POSTED_LIST_CITIES = [
   { key: 'saint-cyr-l-ecole', insee: '78545', postcode: '78210', label: 'Ville de Saint-Cyr-l’École — autorisations d’urbanisme',
     page: 'https://www.saintcyr78.fr/mon-quotidien/habitat-et-urbanisme/mes-demarches/autorisations-durbanisme/',
     source: { protocol: 'posted-lists', lists: { filings: '\\bAFFICHAGE DEPOTS?\\b', decisions: '\\bAFFICHAGE DECISIONS?\\b' },
-      layouts: { filings: 'limeil-filings', decisions: 'limeil-decisions' } } },
+      layouts: { filings: 'town-filed-before', decisions: 'town-decided-until' } } },
   { key: 'mantes-la-ville', insee: '78362', postcode: '78711', label: 'Ville de Mantes-la-Ville — actes réglementaires d’urbanisme',
     page: 'https://www.manteslaville.fr/ma-mairie/vie-municipale/actes-reglementaires/',
     source: { protocol: 'posted-acts', pages: [2, 3, 4, 5].map((n) => `https://www.manteslaville.fr/ma-mairie/vie-municipale/actes-reglementaires/page/${n}/`) } },
