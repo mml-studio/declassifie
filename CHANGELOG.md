@@ -6,6 +6,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Dompierre-sur-Mer and Sarralbe now show their fresh permits**, 10,679
+  inhabitants. Their `robots.txt` refuses every PDF; the acts they post by
+  law are read anyway, one at a time, the exception marked on each town. Both
+  post scans, read by OCR in the daily sweep. Sarralbe gives each dossier a
+  page of its own: posted acts can now follow such a page to its act.
 - **Osny and Quimperlé now show current municipal filings and decisions**,
   adding 30,423 residents to municipal-source coverage. The newest register
   snapshots yield 234 distinct dossiers, 231 with project addresses and 223

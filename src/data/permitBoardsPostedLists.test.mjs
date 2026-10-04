@@ -287,3 +287,48 @@ test('a town posting Limeil-Brévannes’s Word tables names the town-list reade
     ['decisions', 'town-decided-until', '2026-09-09'],
   ]);
 });
+
+test('Dompierre-sur-Mer and Sarralbe refuse PDFs to robots and are read anyway, the exception marked', () => {
+  for (const key of ['dompierre-sur-mer', 'sarralbe']) {
+    assert.equal(city(key).robots, 'overridden', key);
+    assert.equal(permitListFor(city(key).insee), city(key), key);
+  }
+  const dompierre = city('dompierre-sur-mer');
+  const html = [
+    link('/sites/dompierresurmer/files/content/files/ar_pc_26_27.pdf', 'PC 17142 26 00027 - PRIVATE PERSON - Affiché le 25/09/2026'),
+    link('/sites/dompierresurmer/files/content/files/scan_urbanisme1_urbanisme1_-2026-05-26-16-09-34-637.pdf', 'PC 17142 26 0143 M02 - SCCV EXEMPLE - Affiché le 26/05/2026'),
+  ].join('');
+  const files = postedActFiles(dompierre, html, dompierre.page, '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.row.dossier, file.published, file.row.applicant]), [
+    ['PC 017142 26 00027', '2026-09-25', null],
+    ['PC 017142 26 00143 M02', '2026-05-26', null],
+  ], 'the number and the posting day from the link, a four-digit counter padded, never the applicant');
+  assert.doesNotMatch(JSON.stringify(files), /PRIVATE/);
+});
+
+test('posted acts with `follow`: a dossier’s own page is asked, its first PDF is the act, posted from the day it says', () => {
+  const sarralbe = city('sarralbe');
+  const acts = POSTED_LIST_PROTOCOLS['posted-acts'];
+  const index = [
+    '<a href="pc-057-628-26-00014privateperson" title="PC 057 628 26 00014_PRIVATE_PERSON"><h2>PC 057 628 26 00014_PRIVATE_PERSON</h2></a>',
+    '<a href="dp-057-628-26-00088exemple" title="DP 057 628 26 00088_EXEMPLE"><h2>DP 057 628 26 00088_EXEMPLE</h2></a>',
+    '<a href="plan-local-urbanisme" title="PLU (Plan local d’urbanisme)">PLU</a>',
+    '<a href="https://www.facebook.com/sharer.php?u=x" title="PC 057 628 26 00014">Partager</a>',
+  ].join('');
+  const listed = acts.index(sarralbe, index, { url: sarralbe.page, as: 'html' }, { since: '2026-08-01' });
+  assert.deepEqual(listed.files, []);
+  assert.deepEqual(listed.next.map((request) => [request.url.replace(/^.*\//, ''), request.act]), [
+    ['pc-057-628-26-00014privateperson', 'PC 057628 26 00014'],
+    ['dp-057-628-26-00088exemple', 'DP 057628 26 00088'],
+  ], 'another site’s link and a page naming no dossier are not asked');
+  const page = (from) => `<h1>PC 057 628 26 00014_PRIVATE_PERSON</h1><p>Décision d'accord d'un permis de construire</p>
+    <p>Disponible à compter du ${from} au 06/10/2026</p><a href="fichiers/contenus/textes/1853/fr/DECISION-PC2600014.pdf">DECISION PC2600014</a>`;
+  const detail = { url: 'https://www.sarralbe.fr/pc-057-628-26-00014privateperson', as: 'html', act: 'PC 057628 26 00014' };
+  const { files } = acts.index(sarralbe, page('06/08/2026'), detail, { since: '2026-08-01' });
+  assert.deepEqual(files.map((file) => [file.url, file.board, file.layout, file.published, file.row.dossier, file.row.applicant]), [
+    ['https://www.sarralbe.fr/fichiers/contenus/textes/1853/fr/DECISION-PC2600014.pdf', 'decisions', 'dematdoc-notice', '2026-08-06', 'PC 057628 26 00014', null],
+  ]);
+  assert.doesNotMatch(JSON.stringify(files), /PRIVATE/);
+  assert.equal(acts.index(sarralbe, page('06/06/2026'), detail, { since: '2026-08-01' }), null, 'posted before the window');
+  assert.equal(acts.index(sarralbe, '<p>Aucun document</p>', detail, { since: '2026-08-01' }), null);
+});
