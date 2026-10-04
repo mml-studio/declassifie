@@ -108,5 +108,16 @@ export const POSTED_LIST_CITIES = [
   { key: 'mantes-la-ville', insee: '78362', postcode: '78711', label: 'Ville de Mantes-la-Ville — actes réglementaires d’urbanisme',
     page: 'https://www.manteslaville.fr/ma-mairie/vie-municipale/actes-reglementaires/',
     source: { protocol: 'posted-acts', pages: [2, 3, 4, 5].map((n) => `https://www.manteslaville.fr/ma-mairie/vie-municipale/actes-reglementaires/page/${n}/`) } },
+  // Their robots.txt refuses every PDF (`Disallow: /*.pdf`, `Disallow: *.pdf`): the legal
+  // display is read anyway, one file a second, the exception marked by `robots`.
+  // Dompierre-sur-Mer links each act with its number and posting day
+  // (« PC 17142 26 00006 - … - Affiché le 06/05/2026 »), every act a scan.
+  { key: 'dompierre-sur-mer', insee: '17142', postcode: '17139', label: 'Ville de Dompierre-sur-Mer — affichage légal numérique d’urbanisme',
+    page: 'https://www.dompierresurmer.fr/vie-municipale/affichage-legal-numerique/urbanisme', robots: 'overridden',
+    source: { protocol: 'posted-acts' } },
+  // Sarralbe gives each dossier a page of its own, titled with its number, linking the scanned act.
+  { key: 'sarralbe', insee: '57628', postcode: '57430', label: 'Ville de Sarralbe — autorisations d’urbanisme',
+    page: 'https://www.sarralbe.fr/pc-permis-de-construire', robots: 'overridden',
+    source: { protocol: 'posted-acts', follow: true, pages: ['https://www.sarralbe.fr/dp-declaration-prealable-de-travaux'] } },
 ];
 // i18n-ignore-end

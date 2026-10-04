@@ -5542,6 +5542,22 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Dompierre-sur-Mer and Sarralbe, PDFs refused to robots (2026-10-04).**
+Both towns' `robots.txt` refuse every PDF (`Disallow: /*.pdf`, `Disallow:
+*.pdf`), the only files their legal display is made of; neither asks for a
+login nor answers with a challenge (each act comes back `200
+application/pdf`). Their lines in `postedListCities.js` carry `robots:
+'overridden'`, as for the Cart@DS instances and Bourges. Dompierre-sur-Mer
+links each act with its number and posting day (« PC 17142 26 00027 - … -
+Affiché le 25/09/2026 »); its decisions are scans, its avis de dépôt Word
+files no reader takes, so its filings stand without a site. Sarralbe gives
+each dossier a page of its own, titled with its number, linking the scanned
+act: `source.follow` on `posted-acts` asks every same-site link naming a
+dossier as a page, takes the first PDF it links and the day it is posted
+from (« Disponible à compter du 06/08/2026 »), and leaves a page posted
+before the window. Read live on 2026-10-04 with OCR: Dompierre-sur-Mer 27
+decisions, all with their site, and 18 filings; Sarralbe 6 decisions in the
+window, 4 with their site. 10 679 inhabitants more.
 **One reader per list template (2026-10-04).** « Dossiers déposés avant
 le … » and « Dossiers décidés jusqu'au … » come out of one instruction
 software, sometimes typed over in Word, and three pull requests had each

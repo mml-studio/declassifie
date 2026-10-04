@@ -262,15 +262,44 @@ function actFiles(city, links, since = null) {
   return kept.length ? kept : null;
 }
 
+/**
+ * A dossier posted on a page of its own (Sarralbe's `pc-057-628-26-00014…`,
+ * titled with the number): the first PDF the page links is the act, posted
+ * from the day the page says (« Disponible à compter du 06/08/2026 »). A
+ * page posted before the window gives nothing.
+ */
+function followedAct(city, html, request, since) {
+  const pdf = pageLinks(html, request.url).find((link) => /\.pdf$/i.test(link.name));
+  if (!pdf) return null;
+  // i18n-ignore-next-line — the page's own words
+  const day = /\bcompter du (\d{1,2}\/\d{1,2}\/\d{4})/i.exec(clean(decode(String(html ?? '').replace(/<[^>]*>/g, ' '))))?.[1];
+  const published = day ? municipalDate(day) : null;
+  if (since && published && published < since) return null;
+  const words = fold(`${pdf.words} ${pdf.name.replace(/^.*\//, '')}`);
+  const board = ACT_FILING.test(words) ? 'filings' : ACT_DECISION.test(words) ? 'decisions' : city.source?.board ?? 'decisions';
+  return { files: [{ url: pdf.url, board, layout: 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
+    row: { board, dossier: request.act, applicant: null, address: null, postcode: city.postcode, postedOn: published } }] };
+}
+
 const postedActsProtocol = {
   start(city) {
     return [city.page, ...(city.source?.pages ?? [])].map((url) => ({ url, as: 'html' }));
   },
   index(city, html, request, options = {}) {
+    if (request.act) return followedAct(city, html, request, options.since);
     // A page drawn inside another (Villeneuve-sur-Lot's lightbox) names its files
     // from the page it is drawn in: `source.linkBase`.
     const files = postedActFiles(city, html, city.source?.linkBase ?? request.url, options.since);
-    return files ? { files } : null;
+    if (!city.source?.follow) return files ? { files } : null;
+    // `source.follow`: a link of the same site naming a dossier, and no file, opens the dossier's own page.
+    const origin = new URL(request.url).origin;
+    const next = new Map();
+    for (const link of pageLinks(html, request.url)) {
+      if (/\.pdf$/i.test(link.name) || new URL(link.url).origin !== origin || next.has(link.url)) continue;
+      const dossier = actDossier(clean(`${link.title ?? ''} ${link.words}`).replace(/_+/g, ' '), city);
+      if (dossier) next.set(link.url, { url: link.url, as: 'html', act: dossier });
+    }
+    return files || next.size ? { files: files ?? [], next: [...next.values()] } : null;
   },
 };
 
