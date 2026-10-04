@@ -220,6 +220,27 @@ const SIRAP_DOCUMENTED_INSTANCES = Object.freeze([
     label: 'Duras — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
     communes: Object.freeze(['47086']),
   }),
+  // The PETR Centre-Cher's ADS service instructs for 62 communes of four
+  // intercommunalities (Terres du Haut Berry, FerCher, La Septaine, Cœur de
+  // Berry). Its tenant was found on 2026-10-04 while looking at who instructs
+  // permits in the departments the map left empty: of the 63 communes it lists,
+  // these 55 posted within 92 days (568 rows, 34 communes within 14 days).
+  // Saint-Martin-d'Auxigny also posts here but stays with the list it already
+  // reads (wpMediaCities.js): one register per commune.
+  Object.freeze({
+    key: 'adspetr18',
+    base: 'https://adspetr18.pu.sirap.com',
+    label: 'PETR Centre-Cher (service ADS) — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    communes: Object.freeze([
+      '18001', '18003', '18004', '18005', '18016', '18018', '18019', '18023',
+      '18035', '18044', '18051', '18064', '18066', '18081', '18092', '18097',
+      '18105', '18109', '18119', '18133', '18134', '18137', '18140', '18145',
+      '18148', '18156', '18158', '18162', '18166', '18174', '18176', '18179',
+      '18181', '18186', '18188', '18189', '18190', '18194', '18201', '18206',
+      '18207', '18211', '18229', '18235', '18237', '18244', '18247', '18253',
+      '18254', '18271', '18280', '18282', '18285', '18286', '18289',
+    ]),
+  }),
 ]);
 
 /**

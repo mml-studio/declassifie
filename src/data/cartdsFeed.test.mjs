@@ -73,10 +73,14 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   // intercommunal boards, then Saint-Maurice, Bayonne and 18 path tenants of
   // guichetunique.geosphere.fr, then eleven on the Pays Voironnais board,
   // then eighteen on seven boards of hosts of their own on 2026-10-03, then
-  // Bayeux on Bayeux Intercom's board on 2026-10-04.
+  // Bayeux on Bayeux Intercom's board on 2026-10-04, then La
+  // Plaine-des-Palmistes, Appietto and Agon-Coutainville the same day.
   // The loop above already refused any shared code.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 398);
+  assert.equal(seen.size - scanned, 401);
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('97406'), '97406'), '406');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('2A017'), '2A017'), '17');
+  assert.equal(cartdsCommuneValue(cartdsInstanceFor('50003'), '50003'), '50003');
   assert.equal(cartdsInstanceFor('68118').base, 'https://ilenapoleon.geosphere.fr/guichet-scin');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('97421'), '97421'), '421');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('39397'), '39397'), '39397');
@@ -101,8 +105,9 @@ test('documented hosts with a robots.txt exception are read only by an explicit 
     'ads.lecotentin.fr', 'grandlibournais.geosphere.fr', 'conches-en-ouche.geosphere.fr',
     'stemarie.geosphere.fr', 'brie-nangissienne.geosphere.fr',
     // Rixheim's path joined the hosting-default exception on 2026-10-02,
-    // Habsheim's and Moret Seine et Loing's on 2026-10-03.
+    // Habsheim's and Moret Seine et Loing's on 2026-10-03, Appietto's on 2026-10-04.
     'ilenapoleon.geosphere.fr', 'ilenapoleon.geosphere.fr', 'moretseineloing.geosphere.fr',
+    'appietto.geosphere.fr',
   ];
   const documented = CARTDS_INSTANCES.filter((instance) => !CARTDS_SCANNED_INSTANCES.includes(instance));
   const overridden = documented.filter((instance) => instance.robots !== undefined);
