@@ -6,6 +6,20 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Le Grand-Quevilly, La Valette-du-Var, Le Plessis-Trévise, Lattes and 32
+  more towns now show the permits they post themselves**, 194,241
+  inhabitants more (211,592 counting Lattes), bringing current-source
+  coverage from 33.59% to 33.90%. Thirty-one post on Digilor Datahall — weekly lists in
+  Alsace, Nilvange and Le Plessis-Bouchard, Créhange's register, and scanned
+  acts elsewhere, read by OCR in the daily sweep through a shared frame
+  reader that no longer takes « les travaux ne sont pas autorisés » for a
+  grant. La Valette-du-Var, Saint-Ismier and Saint-Amand-les-Eaux post on
+  Screensoft Docs2Web kiosks whose papers are named after their applicant, an
+  act or a day, now read from the PDF alone; Saint-Étienne-au-Mont names each
+  step of a dossier on an A2Display legal display; Jouy-en-Josas publishes one
+  Webdelib+ act per decision. Lattes, drawn until now from Montpellier
+  Méditerranée Métropole's yearly file without number or address, is read
+  from its own orders instead.
 - **Fleury-les-Aubrais and Guipavas now show their current municipal filing
   and decision registers.** The 2 October lists retain 272 distinct dossiers,
   with 268 placed and four unplaced. Fleury adds 21,804 previously uncovered

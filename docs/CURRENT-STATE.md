@@ -4245,7 +4245,7 @@ recomputed on each theme's row, which would give two numbers for one fact.
 | `dpe-fr` | `dp` | `/api/dpe` | ADEME `dpe03existant` — a `geo_distance` query below 600 m; above it the rows of a box (parcels) or a 50 m `values_agg` grid (sections), placed on the Etalab cadastre |
 | `urbanisme-gpu` | `ur` | `/api/gpu` | APIcarto `zone-urba` + `assiette-sup-s` |
 | `idfm-network` | `if` | `/api/idfm/stops`, `/api/idfm/lines` | Île-de-France Mobilités Opendatasoft |
-| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 217 Cart@DS *affichage réglementaire* boards (1 730 municipalities) and Sirap PU boards (1 067 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 28 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
+| `ads-fr` | `au` | `/api/ads-fr` | Sitadel (SDES DiDo, 4 datafiles) + Paris / Bordeaux / Nantes / Tours ADS portals + Brest métropole's granted permits (ArcGIS) + 217 Cart@DS *affichage réglementaire* boards (1 730 municipalities) and Sirap PU boards (1 067 communes), both with a daily archive and both mostly found by `npm run permits:scan` + the e-permis boards of Métropole Nice Côte d'Azur (38 communes), the Agglomération Pau Béarn Pyrénées (28) and eighteen more communes (daily archive) + publication-actes.fr acts and lists of filed dossiers (Ustaritz, Ciboure, Monts) + the lists Marseille, Nîmes, Lyon, Béziers, Aix-en-Provence, Argenteuil, Mulhouse, Annecy, Clermont-Ferrand, Versailles, La Rochelle, Limoges, Saint-Priest, Wattrelos, Lambersart, Achères, Balma and Anzin publish and the arrêtés of Lille's daily bulletin, read by OCR, with a daily archive + Montpellier Méditerranée Métropole's favourable decisions (ODbL, 27 communes), with a daily archive that dates what each edition adds + Etalab cadastre (current and dated editions) + BAL + BAN bulk geocoder |
 
 ### `dvf-sales` above 600 m — the cadastre, not discs
 
@@ -5539,8 +5539,9 @@ PDF, the scanned orders by the sweep's OCR) and fifteen more. Fifteen small
 towns that post one act per PDF are one generated line each
 (`digilorTownsActs.js`, read by `dematdoc-notice`): of the 113 towns whose
 shelves held permit titles since July, they are the ones whose eight newest
-acts gave placeable rows without OCR. Lattes also posts there and stays with
-Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
+acts gave placeable rows without OCR. Lattes also posts there; it stayed with
+Montpellier Méditerranée Métropole's open data until 2026-10-04, when its
+orders were read (below). 720 022 inhabitants more.
 
 **Ten more towns: the last readable ones of the 128 (2026-10-04).** Five
 WordPress communes print their lists in layouts of their own (`wpMediaCities.js`).
@@ -6014,9 +6015,77 @@ dossier in their papers, serve their PDFs and have no other source:
 Joué-lès-Tours and Bousbecque. Teloché's `content/` redirects to Screensoft's
 login, Bassens is read by Bordeaux Métropole's portal, and Quesnoy-sur-Deûle's
 kiosk answers over plain HTTP only. La Valette-du-Var names its papers
-by applicant, Saint-Amand-les-Eaux posts weekly lists, Varennes-Jarcy and
-Font-Romeu posted no urbanism since August; Pantin and L'Haÿ-les-Roses keep
-their own readers. 43 401 inhabitants more.
+by applicant and Saint-Amand-les-Eaux posts daily lists, both read since
+2026-10-04 (below); Varennes-Jarcy and Font-Romeu posted no urbanism since
+August; Pantin and L'Haÿ-les-Roses keep their own readers. 43 401
+inhabitants more.
+
+**Thirty-six towns on Digilor Datahall, Docs2Web, A2Display and Webdelib+
+(2026-10-04).** Each posts its own legal board on a platform the layer
+already reads, in a shape no reader took. Thirty-one Datahall towns are
+listed in `digilorTownsD.js`, their readers in `permitBoardsDigilorD.js`.
+Lists: Souffelweyersheim, La Wantzenau, Oberhausbergen and Reichstett post
+the weekly lists of the Alsace instruction service V that
+Illkirch-Graffenstaden posts (`digilor-alsace-list` mends Excel's one-cell
+`SURFACE DE` header, a « N° Dossier » header centred off its numbers, a
+street left in the applicant's cell, and a verdict cell the next row's works
+spill into, which then reads « Décision signée »); Nilvange posts a weekly
+two-page table, Créhange its year's register (the applicant's name and own
+address, printed beside the site, are told apart by where their cells sit and
+never read), Richardménil its Cart@DS reports, Le Plessis-Bouchard scanned
+weekly lists. Acts, one per file and mostly scans read by the sweep's OCR: Le
+Grand-Quevilly's orders titled by a short number (`DP 26 G 0085` →
+`DP 076322 26 G0085`); Le Plessis-Trévise's titled by their site, the number
+typed in the record's `numero`, which a shelf's new `numbered` option puts
+before the title; Lattes's picked among the town's other orders by the number
+in their title; Jarville-la-Malgrange, Châtel-Saint-Germain,
+Longeville-lès-Saint-Avold, Morhange and Ennery through the Amnéville scan
+reading with each town's mends; Xertigny and Puttelange-aux-Lacs through it
+unchanged; Basse-Ham's text notices through `extended-notice`. Twelve
+villages of the Moselle, the Vosges and the Haut-Rhin share `digilor-frame-act`:
+dematdoc's act reader, then the title's number when OCR lost the act's, a
+verdict looked for again in the operative article and the heading — « Les
+travaux ne sont pas autorisés » or a « REFUS » heading is a refusal, which
+dematdoc read as a grant, and the recitals are never read for one — the site
+cut before the town, the cadastre and an aside, the parcels kept only when
+the cadastre label names lettered sections, the dotted filing day and the
+signing day kept when they fall between the filing and the posting. Eleven
+towns give decisions only: a receipt that prints no site (the State's form)
+is not read, Lattes's weekly filing lists are tables scanned sideways, and Le
+Grand-Quevilly posts none. Lattes leaves `MMM_COMMUNES` (27): its orders carry
+the number, site and day the métropole's yearly file lacks. Docs2Web: La
+Valette-du-Var and Saint-Ismier are SaaS tenants whose `content/` sends to
+Screensoft's login; the `media` option asks their PDFs at Screensoft's media
+store (`/frontend/images/MT_medias/<tenant>/`), and `unnamed` reads every
+paper of the named `folders`, the number and site from the scan alone — La
+Valette names its papers after the applicant, Saint-Ismier after its own act
+(`DP2026-106DECI` for DP 038 397 26 10106) — each file known by its QR link,
+which names nobody; `docs2web-act` takes the verdict a letter's « Objet » line
+or a tacit certificate's heading states. Saint-Amand-les-Eaux posts its daily
+Cart@DS tables, read whole by `grid` (`layout`); its kiosk has posted nothing
+since 20 August. A2Display: Saint-Étienne-au-Mont's legal display
+(`api.a2display.fr/cvv/documents/<key>`) names each step of a dossier with its
+number, step and site (`DP 26-59 Décision 49 Rue du Calvaire`);
+`a2display-display` makes the rows from the names alone, a request a filing
+and a decision « Décision signée » unless its name says « Refus », and opens
+no file (a request is the 15 MB application). Webdelib+: Jouy-en-Josas
+publishes one text act per decision, read by `dematdoc-notice`;
+`readWebdelibCity` now hands an act reader the city and the act's title and
+dates the decision by the act's day (Lyon's and Béziers's readers ignore
+both); its platform answers `Disallow: /` and is read by the project's
+decision, as Lyon's. Measured by the implementation sweeps on 2026-10-03 and
+2026-10-04, since 3 July: 502 filings and 949 decisions, every one with its
+number and site — the Datahall towns 431 and 790, La Valette-du-Var 38
+decisions, Saint-Ismier 29, Jouy-en-Josas 21, Saint-Amand-les-Eaux 54 filings
+and 46 decisions, Saint-Étienne-au-Mont 17 and 25. Read again on 2026-10-04
+with the six newest files of each (OCR on): every one of the 36 gave rows, all
+1 204 with their number and site, the applicant an organisation's name or
+nothing; eight refusals of the frame reader checked against the scans were
+refusals or oppositions. Left out: Manosque, read since #416, and Lamastre,
+whose Docs2Web tables give the town's act number (« Arrêté 7401 »), never the
+dossier's, and whose two notices of filing in three months are in a layout no
+reader takes. 194 241 inhabitants more (211 592 with Lattes, which moves from
+the métropole's yearly file to its own orders).
 
 **Thirty additional municipalities from Lorient, Digilor and Rueil
 (2026-10-01).** `src/data/municipalPermitExtensions.js` registers the 25
@@ -6085,10 +6154,13 @@ Saint-Priest, Lambersart's files and Anzin's `/documents/` are read by the
 user's integration request of 2026-10-01, with `robots: 'overridden'` as for
 the existing Lyon and Lille sources.
 
-**Montpellier and 27 communes of its métropole** publish no list a reader
+**Montpellier and 26 communes of its métropole** publish no list a reader
 could follow, but the métropole exports every favourable decision since 2006
 as one CSV per commune, every night (`src/data/mmmPermitsFeed.js`, ODbL —
-read per scan, never bundled). It is anonymised: one row per parcel, the
+read per scan, never bundled). Lattes publishes the file too, but since
+2026-10-04 it is read from the orders it posts on Digilor Datahall, each with
+its number, site and day, and has left `MMM_COMMUNES`: a commune is read
+from one register. It is anonymised: one row per parcel, the
 form, the filing year and nothing finer, no number, no address. The rows of
 one dossier are folded back by consecutive ids and equal attributes (24 432
 dossiers for Montpellier), placed on their parcel — 21 215 — or on the

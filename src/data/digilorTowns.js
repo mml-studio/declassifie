@@ -9,6 +9,7 @@
 import { DIGILOR_TOWNS_A } from './digilorTownsA.js';
 import { DIGILOR_TOWNS_B } from './digilorTownsB.js';
 import { DIGILOR_TOWNS_C } from './digilorTownsC.js';
+import { DIGILOR_TOWNS_D } from './digilorTownsD.js';
 import { DIGILOR_TOWNS_ACTS } from './digilorTownsActs.js';
 
 const freezeSource = (source) => Object.freeze({
@@ -17,5 +18,5 @@ const freezeSource = (source) => Object.freeze({
   ...(source.shelves ? { shelves: Object.freeze(source.shelves.map((shelf) => Object.freeze({ ...shelf }))) } : {}),
 });
 
-export const DIGILOR_TOWNS = Object.freeze([...DIGILOR_TOWNS_A, ...DIGILOR_TOWNS_B, ...DIGILOR_TOWNS_C, ...DIGILOR_TOWNS_ACTS]
+export const DIGILOR_TOWNS = Object.freeze([...DIGILOR_TOWNS_A, ...DIGILOR_TOWNS_B, ...DIGILOR_TOWNS_C, ...DIGILOR_TOWNS_D, ...DIGILOR_TOWNS_ACTS]
   .map((town) => Object.freeze({ ...town, source: freezeSource(town.source), lists: Object.freeze([...(town.lists ?? [])]) })));

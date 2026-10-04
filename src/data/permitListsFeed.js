@@ -282,6 +282,31 @@ export const PERMIT_LISTS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    key: 'jouy-en-josas',
+    insee: '78322',
+    postcode: '78350',
+    name: 'Jouy-en-Josas',
+    label: 'Ville de Jouy-en-Josas — décisions d’urbanisme', // i18n-ignore-line — the publisher and its acts
+    page: 'https://jouyenjosas-webdelibplus.digitechcloud.fr/webdelibplus/jsp/summary_orders.jsp?role=usager',
+    // `Disallow: /` for every agent on 2026-10-04, as Lyon's platform (Trap 7):
+    // what is read is the legal posting of the Code de l'urbanisme (art. R.424-15).
+    robots: 'overridden',
+    source: Object.freeze({
+      kind: 'webdelib',
+      base: 'https://jouyenjosas-webdelibplus.digitechcloud.fr/webdelibplus',
+      tab: 'summary_orders',
+    }),
+    // One act per decision, its title the verdict and the number
+    // (« DÉCISION DE NON-OPPOSITION A UNE DÉCLARATION PRÉALABLE N° 0783222600038 … »),
+    // its PDF text: number, filing day, site, parcel and the article's verdict.
+    // 23 published from July to September 2026, 21 read with their site; two
+    // signed for the State are not (a scan, a number short of two digits).
+    lists: Object.freeze([
+      // i18n-ignore-next-line — the titles of the city's own acts, matched on
+      Object.freeze({ board: 'decisions', layout: 'dematdoc-notice', title: /\b(?:PERMIS\s+D(?:E\s+CONSTRUIRE|E\s+D[ÉE]MOLIR|['’]\s*AM[ÉE]NAGER)|D[ÉE]CLARATION\s+PR[ÉE]ALABLE)\b/i }),
+    ]),
+  }),
+  Object.freeze({
     key: 'aix',
     insee: '13001',
     underReview: true,
@@ -522,7 +547,7 @@ export function parseWebdelibActs(html, pageUrl, { actDate = false } = {}) {
  *
  * @param {object} city
  * @param {Array<{title: string, url: string, published: ?string}>} acts
- * @returns {Array<{board: ?string, layout: string, url: string, title: string, published: ?string}>}
+ * @returns {Array<{board: ?string, layout: string, url: string, title: string, published: ?string, decidedOn?: string}>}
  */
 export function webdelibLists(city, acts) {
   const out = [];
@@ -537,7 +562,8 @@ export function webdelibLists(city, acts) {
       seen.add(stem);
     }
     seen.add(act.url);
-    out.push({ board: list.board ?? null, layout: list.layout, url: act.url, title: act.title, published: act.published });
+    out.push({ board: list.board ?? null, layout: list.layout, url: act.url, title: act.title, published: act.published,
+      ...(act.decidedOn ? { decidedOn: act.decidedOn } : {}) });
   }
   return out;
 }
@@ -1607,8 +1633,13 @@ export function digilorIndexUrl(city) {
  * one sub-category, named by title), `board` `filings`, `decisions` or
  * `auto` (a receipt or an avis de dépôt is a filing, an order a decision, any
  * other title `fallback`, or nothing), `layout` the file's reader when not
- * `formats[board]`. A reader that names the board itself (`dematdoc-notice`
- * reads it from the act's heading) has the last word.
+ * `formats[board]`, `numbered` true for a town that titles a file by its
+ * site and types the dossier's number in the record's own `numero` field (Le
+ * Plessis-Trévise: « 12 allée des Tilleuls », `DP0940592600012`, both
+ * invented here) — the number is then put before the title, so that a title
+ * row has both. A reader that
+ * names the board itself (`dematdoc-notice` reads it from the act's heading)
+ * has the last word.
  *
  * @param {object} city
  * @param {*} index The parsed answer.
@@ -1660,9 +1691,11 @@ function digilorShelfFile(city, doc, since) {
   const published = isoDay(doc.aff_deb);
   const file = String(doc.url_uiid ?? '').replace(/^(?:\.\.\/bo\/|bo\/|\.\/)/, '');
   if (!board || !file || !published || published < since) return null;
+  const number = shelf.numbered ? text(doc.numero) : null;
+  const shown = number ? `${number} ${title}` : title;
   return { board, url: `${city.source.base}/web/server/get_file.php?file=${encodeURIComponent(file)}`, published,
-    layout: shelf.layout ?? city.source.formats?.[board] ?? 'grid', title,
-    ...(city.source.checkDossier ? { dossier: municipalDossier(title, city) ?? undefined } : {}) };
+    layout: shelf.layout ?? city.source.formats?.[board] ?? 'grid', title: shown,
+    ...(city.source.checkDossier ? { dossier: municipalDossier(shown, city) ?? undefined } : {}) };
 }
 
 /** A PDF served under another dossier's indexed URL must never be imported. */

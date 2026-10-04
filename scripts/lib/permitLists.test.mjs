@@ -14,7 +14,7 @@ import {
   sweepPermitLists,
 } from './permitLists.mjs';
 import { createCartdsArchiveStore } from './cartdsArchive.mjs';
-import { PERMIT_LIST_ROWS, PERMIT_LISTS, normalisePermitListRow } from '../../src/data/permitListsFeed.js';
+import { PERMIT_LIST_FIELDS, PERMIT_LIST_ROWS, PERMIT_LISTS, normalisePermitListRow } from '../../src/data/permitListsFeed.js';
 import { MUNICIPAL_PERMIT_SOURCES } from '../../src/data/municipalPermitsFeed.js';
 import { EXTENDED_PERMIT_SOURCES } from '../../src/data/municipalPermitExtensions.js';
 import { BOARD_PERMIT_SOURCES } from '../../src/data/permitBoardCities.js';
@@ -577,6 +577,52 @@ test('a Webdelib+ city is read month by month, a closed month and a read act nev
   assert.equal(await readPermitCity(WEBDELIB, webdelibHttp({ months: { ...months, '09-2026': null } }), { months: 2, day: '2026-10-01' }), null);
   const partial = await readPermitCity(WEBDELIB, webdelibHttp({ months, files: { B: files.B } }), { months: 3, day: '2026-10-01' });
   assert.deepEqual([partial.incomplete, partial.failed, partial.boards.decisions.length], [true, 1, 1]);
+});
+
+/** A one-page act, WinAnsi text: `lines` as `[x, y, words]`. */
+function actPdf(lines) {
+  const content = lines.map(([x, y, words]) => `BT /F1 10 Tf 1 0 0 1 ${x} ${y} Tm (${words}) Tj ET`).join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >>',
+  ];
+  let out = '%PDF-1.7\n';
+  objects.forEach((body, i) => { out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  out += 'trailer\n<< /Root 1 0 R >>\n%%EOF\n';
+  return new Uint8Array(Buffer.from(out, 'latin1'));
+}
+
+test('a Webdelib+ city of one act per decision hands the act reader its city, its title and the act\'s day', async () => {
+  const jouy = PERMIT_LISTS.find((city) => city.key === 'jouy-en-josas');
+  const city = { ...jouy, source: { ...jouy.source, base: 'https://wd.example/webdelibplus' } };
+  const months = {
+    '09-2026': monthPage([
+      ['D\u00c9CISION DE NON OPPOSITION A UNE D\u00c9CLARATION PR\u00c9ALABLE N\u00b0 DP0783222600040', 'A', '11/09/2026'],
+      ['D\u00e9l\u00e9gation de fonction et de signature', 'Z', '21/09/2026'],
+    ]),
+  };
+  const files = { A: actPdf([
+    [150, 800, 'D\xc9CISION DE NON OPPOSITION A UNE D\xc9CLARATION PR\xc9ALABLE'],
+    [250, 786, 'N\xb0 DP0783222600040'],
+    [60, 760, 'D\xe9pos\xe9e le : 02/06/2026'],
+    [60, 740, 'Par :'], [200, 740, 'PRIVATE PERSON'],
+    [60, 726, 'Demeurant \xe0 :'], [200, 726, '9 rue Priv\xe9e'],
+    [60, 700, 'Sur un terrain sis \xe0 :'], [200, 700, '10 chemin Exemple'],
+    [200, 686, 'Parcelle : AK-0511'],
+    [60, 600, 'ARTICLE 1'],
+    [60, 586, 'Il n\x92est pas fait opposition \xe0 la d\xe9claration pr\xe9alable.'],
+  ]) };
+  const http = webdelibHttp({ months, files });
+  const read = await readPermitCity(city, http, { months: 1, day: '2026-09-30' });
+  assert.equal(read.incomplete, false);
+  const [cells] = read.boards.decisions;
+  const row = Object.fromEntries(PERMIT_LIST_FIELDS.map((field, i) => [field, cells[i]]));
+  assert.deepEqual([row.dossier, row.address, row.parcels, row.verdict, row.decidedOn, row.filedOn, row.applicant],
+    ['DP 078322 26 00040', '10 chemin Exemple', 'AK 511', 'Non-opposition', '2026-09-11', '2026-06-02', null]);
+  assert.ok(!http.calls.includes('openfile.jsp?Z'), 'a delegation is not a permit');
 });
 
 test('an overridden robots.txt is not asked for', async () => {

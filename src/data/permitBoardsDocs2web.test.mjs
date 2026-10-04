@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DOCS2WEB_BOARD_PROTOCOLS, docs2webFiles, docs2webPapers, docs2webStreet } from './permitBoardsDocs2web.js';
-import { BOARD_PERMIT_SOURCES, BOARD_PROTOCOLS } from './permitBoards.js';
+import { DOCS2WEB_BOARD_PROTOCOLS, docs2webFiles, docs2webPapers, docs2webStreet, readDocs2webAct } from './permitBoardsDocs2web.js';
+import { BOARD_PERMIT_SOURCES, BOARD_PROTOCOLS, BOARD_READERS } from './permitBoards.js';
 import { DOCS2WEB_CITIES } from './docs2webCities.js';
 import { PERMIT_LIST_READERS, permitListFor } from './permitListsFeed.js';
 
@@ -89,4 +89,119 @@ test('a paper posted before the window or scheduled after the day is left out', 
   const files = docs2webFiles(city('59098'), docs2webPapers(script(xml)), '2026-08-01', '2026-10-03');
   assert.deepEqual(files.map((file) => file.row.dossier), ['DP 059098 26 00072']);
   assert.equal(docs2webPapers('var params = "";'), null);
+});
+
+// A SaaS tenant's paper: its media address and its QR link, an opaque token, beside its path.
+const saasPaper = (name, file, day = '30/09/2026') => paper(name, `/${file}`, `real_date_debut="${day}" date_debut="${day}"`)
+  .replace(`fileInAdmin="/1/${file}"`, `fileInAdmin="/7500/${file}" qrcode="https://www.screensoft.eu/media.php?params=${btoa(file).replace(/\W/g, '')}%3D"`);
+
+test('an unnamed SaaS kiosk is read folder by folder, every paper from its media address, known by its QR link, nothing taken from its name', () => {
+  const xml = [
+    '<theme name="theme1"><subtheme name="Urbanisme">',
+    '<subtheme name="Déclarations préalables">',
+    saasPaper('M. PRIVATE PERSON', 'm--private-person_1.pdf'),
+    saasPaper('M. PRIVATE PERSON', 'm--private-person_1.pdf'),
+    saasPaper('PRIVATE SCI 12 rue Privée', 'private-sci.pdf', '20/07/2026'),
+    '</subtheme><subtheme name="Permis de construire">',
+    saasPaper('Mme PRIVATE (2)', 'mme-private_3.pdf', '01/10/2026'),
+    '</subtheme><subtheme name="Dépôt des demandes d&apos;autorisations d&apos;urbanisme">',
+    saasPaper('M. PRIVATE OTHER', 'm--private-other.pdf'),
+    '</subtheme><subtheme name="Foncier">',
+    saasPaper('Cession PRIVATE', 'cession.pdf'),
+    '</subtheme></subtheme></theme>',
+  ].join('');
+  const valette = city('83144');
+  assert.equal(valette.robots, 'overridden');
+  const files = docs2webFiles(valette, docs2webPapers(script(xml)), '2026-08-01', '2026-10-03');
+  assert.deepEqual(files.map((file) => [file.board, file.published, file.requestUrl]), [
+    ['decisions', '2026-09-30', 'https://www.screensoft.eu/frontend/images/MT_medias/7500/m--private-person_1.pdf'],
+    ['decisions', '2026-10-01', 'https://www.screensoft.eu/frontend/images/MT_medias/7500/mme-private_3.pdf'],
+  ], 'listed twice, read once; receipts and land sales are other folders; July is before the window');
+  for (const file of files) {
+    assert.match(file.url, /^https:\/\/www\.screensoft\.eu\/media\.php\?params=\w+%3D$/);
+    assert.equal(file.row, undefined, 'the number and site come from the PDF alone');
+    assert.equal(file.layout, 'docs2web-act');
+    assert.equal(file.scan, true);
+    assert.equal(file.ocr, true);
+  }
+  assert.doesNotMatch(JSON.stringify(files.map(({ requestUrl, ...file }) => file)), /PRIVATE|private/i, 'no name in what a reading keeps');
+  assert.equal(BOARD_READERS['docs2web-act'], readDocs2webAct);
+});
+
+/** A page of positioned runs: [x, y, text], top of the page first. */
+const page = (...runs) => ({ pages: [{ runs: runs.map(([x, y, text]) => ({ x, y, x1: x + text.length * 4.5, text })) }] });
+
+test('an act read without its name takes the verdict its Objet line or its heading gives, and a certificate of urbanism is not a permit', () => {
+  const context = (file = {}) => ({ city: city('83144'), file: { board: 'decisions', title: '', published: '2026-10-01', ...file } });
+  const letter = (number, object) => page(
+    [300, 800, 'À rappeler dans toute correspondance'],
+    [300, 788, `DOSSIER : N° ${number}`],
+    [300, 776, 'Demande du : 14/09/2026'],
+    [300, 740, 'ADRESSE DES TRAVAUX :'],
+    [60, 728, 'COMMUNE DE'], [300, 728, '114 Avenue Exemple'],
+    [300, 716, '83160 LA VALETTE-DU-VAR'],
+    [300, 680, 'DEMANDEUR :'],
+    [300, 668, 'Monsieur PRIVATE PERSON'],
+    [300, 656, '9 rue Privée'],
+    [60, 620, `OBJET : ${object}`],
+    [60, 590, 'Monsieur,'],
+  );
+  const [withdrawn] = readDocs2webAct(letter('DP 083 144 26 00132', 'Retrait avant décision d’une Déclaration Préalable.'), context());
+  assert.deepEqual([withdrawn.dossier, withdrawn.address, withdrawn.verdict], ['DP 083144 26 00132', '114 Avenue Exemple', 'Retrait']);
+  assert.doesNotMatch(JSON.stringify(withdrawn), /PRIVATE|Privée/);
+  const [rejected] = readDocs2webAct(letter('PC 083 144 26 00027', 'Décision tacite de rejet'), context());
+  assert.equal(rejected.verdict, 'Décision signée', 'no verdict the layer knows: a signed decision');
+  assert.deepEqual(readDocs2webAct(letter('CU 083 144 26 00419', 'Récépissé'), context()), []);
+  const certificate = page(
+    [200, 800, 'COMMUNE DE SAINT-ISMIER'],
+    [200, 788, 'Arrêté n° URB/2026/DP/tac/36'],
+    [150, 776, 'CERTIFICAT DE NON OPPPOSITION A UNE DEMANDE DE'],
+    [150, 764, 'DECLARATION PREALABLE TACITE'],
+    [60, 740, 'DEMANDE n° DP 038397 26 10106 Déposée le 04/09/2026'],
+    [60, 700, 'Par : PRIVATE PERSON'],
+    [60, 688, 'Demeurant : 9 rue Privée - 38000 Exemple'],
+    [60, 676, 'Parcelle(s) cadastrée(s) : AN73'],
+    [60, 664, 'Sur un terrain sis : 117 Chemin De Chartreuse - 38330 Saint-Ismier'],
+  );
+  const [tacit] = readDocs2webAct(certificate, { city: { key: 'x', insee: '38397', postcode: '38330', name: 'Saint-Ismier' }, file: { board: 'decisions', title: '' } });
+  assert.deepEqual([tacit.dossier, tacit.address, tacit.parcels, tacit.verdict], ['DP 038397 26 10106', '117 Chemin De Chartreuse', 'AN 73', 'Accord tacite']);
+});
+
+test('a kiosk of daily lists reads each list whole with the grid reader, its board from its folder, never by OCR', () => {
+  const list = (name, file, day) => paper(name, `/${file}`, `real_date_debut="${day}" date_debut="${day}"`)
+    .replace(`fileInAdmin="/1/${file}"`, `fileInAdmin="/6066/${file}" qrcode="https://www.screensoft.eu/media.php?params=${btoa(file).replace(/\W/g, '')}%3D"`);
+  const xml = [
+    '<theme name="theme1"><subtheme name="URBANISME"><subtheme name="Catégorie">',
+    '<subtheme name="DEPOT DE DOSSIERS">',
+    list('Affichage dépôt du 18 août 2026', 'affichage-d--p--t-du-18-ao--t-2026.pdf', '18/08/2026'),
+    '</subtheme><subtheme name="ARRETES">',
+    list('Affichage décision du 18 août 2026', 'affichage-d--cision-du-18-ao--t-2026.pdf', '18/08/2026'),
+    '</subtheme></subtheme></subtheme>',
+    '<subtheme name="ARRETES MUNICIPAUX"><subtheme name="TRAVAUX ET CIRCULATIONS">',
+    list('Arrêté de circulation rue X', 'circulation.pdf', '18/08/2026'),
+    '</subtheme></subtheme></theme>',
+  ].join('');
+  const files = docs2webFiles(city('59526'), docs2webPapers(script(xml)), '2026-08-01', '2026-10-04');
+  const base = 'https://www.screensoft.eu/Docs2Web/1680%20-%20MAIRIE%20DE%20SAINT%20AMAND%20LES%20EAUX/content/';
+  assert.deepEqual(files.map((file) => [file.board, file.layout, file.ocr, file.requestUrl]), [
+    ['filings', 'grid', false, `${base}affichage-d--p--t-du-18-ao--t-2026.pdf`],
+    ['decisions', 'grid', false, `${base}affichage-d--cision-du-18-ao--t-2026.pdf`],
+  ]);
+  assert.ok(files.every((file) => file.row === undefined && !file.scan));
+});
+
+test('an act read by OCR loses the spaced postcode and the misread commune after its site', () => {
+  const ismier = city('38397');
+  assert.equal(ismier.source.media, true);
+  const certificate = (site) => page(
+    [150, 776, 'CERTIFICAT DE NON OPPOSITION A UNE DEMANDE DE'],
+    [150, 764, 'DECLARATION PREALABLE TACITE'],
+    [60, 740, 'DEMANDE n° DP 038397 26 10112 Déposée le 04/09/2026'],
+    [60, 664, `Sur un terrain sis : ${site}`],
+  );
+  const site = (value) => readDocs2webAct(certificate(value), { city: ismier, file: { board: 'decisions', title: '' } })[0]?.address;
+  assert.equal(site('357 Chemin du Grand Torrent - 38 330'), '357 Chemin du Grand Torrent');
+  assert.equal(site('430 chemin des Semaises — 38 330 Saint-lsmier'), '430 chemin des Semaises');
+  assert.equal(site('148 chemin de la source - Saint-lsmier'), '148 chemin de la source');
+  assert.equal(site('661 Route de Chambéry - Route Départementale'), '661 Route de Chambéry - Route Départementale');
 });

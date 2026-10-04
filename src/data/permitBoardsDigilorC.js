@@ -198,7 +198,7 @@ const townName = (city) => clean(String(city?.label ?? '').split(/\s+[—–]\s+
 const letters = (value) => fold(value).replace(/[^A-Z]/g, '');
 
 /** A site without the town's name OCR read after it: `12 Chemin … à Champagne-au-Mont-d'Or` → `12 Chemin …`. */
-function withoutTown(address, city) {
+export function withoutTown(address, city) {
   const name = letters(townName(city));
   const words = clean(address).split(' ');
   for (let k = 1; name && k <= Math.min(5, words.length); k += 1) {
