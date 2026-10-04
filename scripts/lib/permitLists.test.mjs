@@ -1197,3 +1197,69 @@ test('a city\'s own User-Agent goes with every request to its host, robots.txt i
   assert.ok(http.calls.length > 1);
   for (const call of http.calls) assert.equal(call.headers['User-Agent'], city.userAgent);
 });
+
+/** A ZIP of stored (uncompressed) entries: what `xlsx-sheet.mjs` unpacks, built here byte by byte. */
+function storedZip(entries) {
+  const parts = [];
+  const directory = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const data = Buffer.from(text, 'utf8');
+    const bytesOfName = Buffer.from(name, 'utf8');
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(bytesOfName.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(bytesOfName.length, 28);
+    central.writeUInt32LE(offset, 42);
+    parts.push(local, bytesOfName, data);
+    directory.push(central, bytesOfName);
+    offset += 30 + bytesOfName.length + data.length;
+  }
+  const listing = Buffer.concat(directory);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(directory.length / 2, 8); end.writeUInt16LE(directory.length / 2, 10);
+  end.writeUInt32LE(listing.length, 12); end.writeUInt32LE(offset, 16);
+  return new Uint8Array(Buffer.concat([...parts, listing, end]));
+}
+
+/** A one-sheet workbook of strings (`inlineStr`) and numbers. */
+function workbookOf(rows) {
+  const column = (i) => String.fromCharCode(65 + i);
+  const cell = (value, i, r) => (typeof value === 'number' ? `<c r="${column(i)}${r}"><v>${value}</v></c>`
+    : `<c r="${column(i)}${r}" t="inlineStr"><is><t>${value}</t></is></c>`);
+  return storedZip({
+    'xl/workbook.xml': '<workbook xmlns:r="r"><sheets><sheet name="Demandes en cours d\'instruction" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((value, i) => cell(value, i, r + 1)).join('')}</row>`).join('')}</sheetData></worksheet>`,
+  });
+}
+
+test('a board’s workbook is read by its named sheet, revalidated by its ETag, and a non-workbook answer fails', async () => {
+  const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'saint-germain-les-arpajon');
+  const share = 'EbxExample0123456789';
+  const download = `https://example.sharepoint.com/sites/Affichage/_layouts/15/download.aspx?share=${share}`;
+  const page = `<script>var et_link_options_data = [{"class":"dipi_hover_box_0","url":"https:\\/\\/example.sharepoint.com\\/:x:\\/s\\/Affichage\\/${share}?e=abc","target":"_blank"}];</script>
+    <div class="et_pb_module dipi_hover_box dipi_hover_box_0 et_clickable"><h2>Avis de dépôt des demandes d’autorisation d’urbanisme en cours d’instruction</h2></div>`;
+  const bytes = workbookOf([
+    ['Numéro', 'Date dépôt', 'Demandeur désigné', 'Adresse du projet', 'Nature du projet', 'Affichage le'],
+    ['DECLARATIONS PREALABLES', '', '', '', '', ''],
+    ['DP 091 552 26 1 0071', 46294, 'PRIVATE PERSON', '20 CHEMIN EXEMPLE', 'INSTALLATION D’UNE POMPE A CHALEUR', 46297],
+  ]);
+  const dir = await tempDir();
+  const http = fakeHttp({ pages: { [city.page]: page }, files: { [download]: { bytes, etag: '"v1"' } } });
+  const answer = await readPermitCity(city, http, { dir, day: '2026-10-03' });
+  assert.equal(answer.failed, 0);
+  assert.equal(answer.boards.filings.length, 1);
+  const row = normalisePermitListRow(city, 'filings', answer.boards.filings[0]);
+  assert.equal(row.dossier, 'DP 091 552 26 10071');
+  assert.equal(row.depositedOn, '2026-09-29');
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE/);
+  const again = await readPermitCity(city, http, { dir, day: '2026-10-03' });
+  assert.equal(http.calls.at(-1).headers['If-None-Match'], '"v1"', 'the rolling workbook is asked with its validator');
+  assert.equal(again.boards.filings.length, 1);
+  const html = fakeHttp({ pages: { [city.page]: page }, files: { [download]: { bytes: new Uint8Array(Buffer.from('<html>Sign in</html>')) } } });
+  const refused = await readPermitCity(city, html, { day: '2026-10-03' });
+  assert.equal(refused.failed, 1, 'a sign-in page is no workbook');
+});

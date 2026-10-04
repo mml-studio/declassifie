@@ -41,14 +41,15 @@ const LAYOUTS = Object.freeze({ filings: 'cartds-report-filings', decisions: 'ca
 /** Every `<a href>` of a page, resolved: its address, decoded path and words. */
 function pageLinks(html, base) {
   const out = [];
-  for (const match of String(html ?? '').matchAll(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+  // The quote that opens the address closes it: Rurange's `/RENOV'EST arrêté.pdf` holds an apostrophe.
+  for (const match of String(html ?? '').matchAll(/<a\b[^>]*?\bhref\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>([\s\S]*?)<\/a>/gi)) {
     let url;
-    try { url = new URL(decode(match[1]).trim(), base); } catch { continue; }
+    try { url = new URL(decode(match[1] ?? match[2]).trim(), base); } catch { continue; }
     if (!/^https?:$/.test(url.protocol)) continue;
     let name = url.pathname;
     try { name = decodeURIComponent(url.pathname); } catch { /* a stray % keeps the raw path */ }
     const title = /\btitle\s*=\s*["']([^"']*)["']/i.exec(match[0].slice(0, match[0].indexOf('>') + 1))?.[1];
-    out.push({ url: url.href, name, words: clean(decode(match[2].replace(/<[^>]*>/g, ' '))), title: clean(decode(title ?? '')) });
+    out.push({ url: url.href, name, words: clean(decode(match[3].replace(/<[^>]*>/g, ' '))), title: clean(decode(title ?? '')) });
   }
   return out;
 }
@@ -236,6 +237,14 @@ function bareDossier(city, words, published) {
  * that names an act's kind is read for the number its heading prints.
  * `source.actLayouts` names another reader for a board's acts
  * (Saint-Jean-d'Angély prints each avis de dépôt as a one-row list).
+ *
+ * A page that groups its acts under tabs says the board by them
+ * (`source.sections`: `{words, board, bare?}`, `words` a RegExp source matched
+ * on the heading link's folded words; `bare: false` keeps no row for an act
+ * whose link names no site); one that lists the oldest first says so
+ * (`source.oldestFirst`) and may widen the forty (`source.limit`); one whose
+ * acts print the cadastral references as « S37 P0113 » (section 37, parcel
+ * 113: Rurange) has them left unread (`source.noParcels`).
  */
 export function postedActFiles(city, html, pageUrl, since = null) {
   return actFiles(city, pageLinks(html, pageUrl), since);
@@ -243,8 +252,14 @@ export function postedActFiles(city, html, pageUrl, since = null) {
 
 /** {@link postedActFiles} over links already gathered: `{url, name, words, title?, published?}`. */
 function actFiles(city, links, since = null) {
-  const files = [];
+  const entries = [];
+  const sections = city.source?.sections ?? [];
+  const noParcels = city.source?.noParcels ? { noParcels: true } : {};
+  let section = null;
   for (const link of links) {
+    // A heading link (the tabs of Hagondange's accordion) names the board of the acts under it.
+    const heading = sections.find((candidate) => new RegExp(candidate.words).test(fold(link.words)));
+    if (heading) { section = heading; continue; }
     if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     // A « Téléchargement » button names its file in its title (Rouvroy).
     const words = clean(`${link.words} ${(link.title ?? '').replace(/_+/g, ' ')}`);
@@ -255,25 +270,33 @@ function actFiles(city, links, since = null) {
     const dossier = actDossier(words, city) ?? actDossier(base.replace(/-/g, ' '), city) ?? actDossier(text, city)
       ?? bareDossier(city, words, published);
     const folded = fold(text);
-    if (files.some((file) => file.url === link.url)) continue;
+    if (entries.some((entry) => entry.file.url === link.url)) continue;
     if (!dossier) {
       const named = UNNUMBERED_ACT.test(folded) || [base, link.words].some((value) => /^(?:PC|DP|PA|PD)\b/.test(fold(value)));
       if (city.source?.unnumbered && published && named) {
-        const board = ACT_FILING.test(folded) ? 'filings' : 'decisions';
-        files.push({ url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true, published });
+        const board = section?.board ?? (ACT_FILING.test(folded) ? 'filings' : 'decisions');
+        entries.push({ dossier: null, file: { url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true, published, ...noParcels } });
       }
       continue;
     }
-    const board = ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions';
+    const board = section?.board ?? (ACT_FILING.test(folded) ? 'filings' : ACT_DECISION.test(folded) ? 'decisions' : city.source?.board ?? 'decisions');
     const street = actStreet(link.words) ?? actStreet(base.replace(/-/g, ' '));
-    files.push({ url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true, ...(published ? { published } : {}),
-      row: { board, dossier, applicant: null, ...(street ? municipalSite(street, city) : { address: null, postcode: city.postcode }), postedOn: published ?? null } });
+    // A section whose acts name no site in their link (`bare: false`) keeps no row of its own:
+    // the act is read, or nothing is said of it.
+    const row = street || section?.bare !== false
+      ? { board, dossier, applicant: null, ...(street ? municipalSite(street, city) : { address: null, postcode: city.postcode }), postedOn: published ?? null }
+      : null;
+    entries.push({ dossier, file: { url: link.url, board, layout: city.source?.actLayouts?.[board] ?? 'dematdoc-notice', ocr: true,
+      ...(published ? { published } : {}), ...(row ? { row } : {}), ...noParcels } });
   }
   // An undated act counts when its number is of this year or the last: a page
-  // that keeps every year's decrees (Dourges) gives its forty newest.
+  // that keeps every year's decrees (Dourges) gives its forty newest — the
+  // last forty of a page that lists the oldest first (`source.oldestFirst`),
+  // `source.limit` of them when a board needs more (Hagondange: 109).
   const year = since ? Number(since.slice(2, 4)) - 1 : 0;
-  const undated = files.filter((file) => !file.published && Number(file.row.dossier.split(' ')[2]) >= year).slice(0, 40);
-  const kept = [...files.filter((file) => file.published), ...undated];
+  const undated = entries.filter((entry) => !entry.file.published && Number(entry.dossier.split(' ')[2]) >= year);
+  if (city.source?.oldestFirst) undated.reverse();
+  const kept = [...entries.filter((entry) => entry.file.published), ...undated.slice(0, city.source?.limit ?? 40)].map((entry) => entry.file);
   return kept.length ? kept : null;
 }
 

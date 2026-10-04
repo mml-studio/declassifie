@@ -168,6 +168,61 @@ const CITIES = [
   { key: 'pertuis', insee: '84089', postcode: '84120', label: 'Ville de Pertuis — dépôts et décisions d’autorisation de travaux',
     // `Crawl-delay: 2` in its robots.txt.
     page: 'https://www.ville-pertuis.fr/ma-mairie/urbanisme/depots-et-decisions-dautorisation-de-travaux', crawlDelayMs: 2_000 },
+  // Boards in a shape of their own, seen posting by the backlog survey of
+  // 2026-10-03 (`permitBoardsOwnSites.js`).
+  { key: 'le-port', insee: '97407', postcode: '97420', label: 'Ville du Port — dossiers d’urbanisme déposés et décidés',
+    page: 'https://www.ville-port.re/affichage-legal-2/' },
+  // The portal's anonymous session cookie, which its download links need:
+  // its name is the portal's own, the value the one each link carries. The
+  // portal opens that session for any visitor, with no login (2026-10-03).
+  { key: 'les-sables-d-olonne', insee: '85194', postcode: '85100', label: 'Les Sables-d’Olonne — avis de dépôt et décisions d’urbanisme',
+    page: 'https://lessablesdolonneen1clic.fr/affichage-legal/affichage-legal-categories/ville-urbanisme/',
+    source: { sessionCookie: 'sessionid-combo-43cc4a' } },
+  // The page renders the posts of the WordPress its town-hall kiosk reads,
+  // whose REST API the protocol asks (2026-10-03: 200, no robots.txt).
+  { key: 'sarreguemines', insee: '57631', postcode: '57200', label: 'Ville de Sarreguemines — arrêtés d’urbanisme',
+    page: 'https://www.sarreguemines.fr/page/264-arretes-urbanisme',
+    source: { posts: 'https://asld2.fr/handon/wp-json/wp/v2/posts', ocr: true } },
+  { key: 'caudry', insee: '59139', postcode: '59540', label: 'Ville de Caudry — dépôts et décisions d’urbanisme',
+    page: 'https://www.caudry.fr/fr/cadre-de-vie/urbanisme-et-travaux/arretes-urbanisme.html' },
+  // affichage.legal: the commune's tenant (the page's embed key, decoded) and
+  // its category « Urbanisme » (2026-10-03).
+  { key: 'la-queue-en-brie', insee: '94060', postcode: '94510', label: 'La Queue-en-Brie — décisions d’urbanisme (affichage légal)',
+    page: 'https://www.laqueueenbrie.fr/affichage-legal/',
+    source: { tenant: 'c58fc4e2-bcaf-8bb3-b446-ec17d2d3ce78', category: '9c074ae2-8fd1-1a54-6093-f701c59d4ff9', ocr: true } },
+  // Its workbooks are on SharePoint, whose robots.txt is `Disallow: /`
+  // (2026-10-03): read by the project's decision, being the commune's legal
+  // postings, linked from its own page.
+  { key: 'saint-germain-les-arpajon', insee: '91552', postcode: '91180', label: 'Saint-Germain-lès-Arpajon — demandes d’urbanisme en cours',
+    page: 'https://ville-sgla.fr/affichage-en-mairie-v2/', robots: 'overridden' },
+  { key: 'thorigny-sur-marne', insee: '77464', postcode: '77400', label: 'Thorigny-sur-Marne — décisions d’urbanisme',
+    page: 'https://www.thorigny.fr/mes-services/urbanisme-espaces-publics-services-techniques/affichage-reglementaire' },
+  // Clouange's kiosk web app (no robots.txt, 2026-10-03) and Douvrin's Download
+  // Manager packages (robots.txt: only /wp-admin/ closed).
+  { key: 'clouange', insee: '57143', postcode: '57185', label: 'Commune de Clouange — affichage réglementaire d’urbanisme',
+    page: 'https://panneau.clouange.fr/pages/urbanisme.php' },
+  { key: 'douvrin', insee: '62276', postcode: '62138', label: 'Ville de Douvrin — autorisations d’urbanisme',
+    page: 'https://douvrin.fr/publications-municipales/autorisations-d-urbanisme/' },
+  // Maing's table of the legal display, the category « Droit d'occupation des sols ».
+  { key: 'maing', insee: '59369', postcode: '59233', label: 'Ville de Maing — affichage légal (droit d’occupation des sols)',
+    page: 'https://www.maing.fr/affichage-legal/' },
+  // Montesson's page of the dossiers under review, and the fragments its
+  // decisions' page and its legal display load (`Crawl-delay: 15` in its
+  // robots.txt, 2026-10-04; neither fragment's path is closed).
+  { key: 'montesson', insee: '78418', postcode: '78360', underReview: true,
+    label: 'Ville de Montesson — dossiers d’urbanisme déposés et décisions',
+    page: 'https://www.montesson.fr/Dossiers-en-cours-d-instruction/507/', crawlDelayMs: 15_000,
+    source: {
+      decisions: 'https://www.montesson.fr/index.php/contenucritere/chargementContenusCritere?iddossiercontenu=454&positioncontenu=B2&idpage=506&fichiermodele=telechargement/incmodtelechargementliste.tpl&liste1=0&liste2=0&liste3=0&liste4=0&motcle=&nomdiv=telechargement454&lienvers=',
+      orders: 'https://www.montesson.fr/index.php/callgabarit/chargementGabaritAffichageLegal?iddossiercontenu=556&positioncontenu=A1&idpage=634&fichiermodele=affichagelegal/incmod_affichagelegal_liste.tpl&liste1=0&liste2=1835&liste3=0&liste4=0&motcle=&nomdiv=affichagelegalA1&datepubdebut=&datepubfin=&pagination=',
+    } },
+  { key: 'morangis', insee: '91432', postcode: '91420', label: 'Ville de Morangis — permis de construire et déclarations préalables',
+    page: 'https://www.morangis91.com/permis-de-construire' },
+  { key: 'amilly', insee: '45004', postcode: '45200', label: 'Ville d’Amilly — dépôts et décisions d’urbanisme',
+    page: 'https://www.amilly.com/ma-mairie/publications-reglementaires/autorisations-durbanisme/' },
+  // Dourdan's document library, its category « E-Ressources - urbanisme » (no robots.txt, 2026-10-04).
+  { key: 'dourdan', insee: '91200', postcode: '91410', label: 'Ville de Dourdan — dossiers d’urbanisme déposés et arrêtés',
+    page: 'https://www.dourdan.fr/systeme/documentheque/?documents_category=132', source: { category: 132, ocr: true } },
 ];
 
 /**

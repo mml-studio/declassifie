@@ -131,5 +131,49 @@ export const POSTED_LIST_CITIES = [
   { key: 'sarralbe', insee: '57628', postcode: '57430', label: 'Ville de Sarralbe — autorisations d’urbanisme',
     page: 'https://www.sarralbe.fr/pc-permis-de-construire', robots: 'overridden',
     source: { protocol: 'posted-acts', follow: true, pages: ['https://www.sarralbe.fr/dp-declaration-prealable-de-travaux'] } },
+  // Boards that post one PDF per act on a page of their own (backlog survey of 2026-10-03).
+  // Val de Briey (WordPress): « DP 054 099 26 00117 M01 Télécharger », the
+  // upload month in the path; the arrêtés are scans, read by OCR in the sweep
+  // (2026-10-04: 37 decisions, 34 with a site, signed 28 July to 2 October).
+  { key: 'val-de-briey', insee: '54099', postcode: '54150', label: 'Ville de Val de Briey — arrêtés d’urbanisme',
+    page: 'https://www.valdebriey.fr/mes-demarches/urbanisme/arretes-durbanisme/', source: { protocol: 'posted-acts' } },
+  // Kaysersberg Vignoble names each file by its site, number and day:
+  // `ka_6_rue_du_chateau_PC0681622600011_23_09_2026_arrete.pdf`, `…_avis_depot.pdf`
+  // (2026-10-04: 4 decisions and 2 filings on the page, all with a site, the newest of 1 October).
+  { key: 'kaysersberg-vignoble', insee: '68162', postcode: '68240', label: 'Commune de Kaysersberg Vignoble — publications par voie d’affichage',
+    page: 'https://www.kaysersberg-vignoble.fr/services/urbanisme/publications-par-voie-daffichage/', source: { protocol: 'posted-acts' } },
+  // Biesheim (WordPress): `DP-06803626R0032.pdf`, one arrêté each, the upload month in the path
+  // (2026-10-04: 9 decisions, 8 with a site, the newest signed 23 September; the page also holds a
+  // monthly Excel list of the dossiers under review, not read). OCR reads its scans' « R0028 » as
+  // « RO028 » (`oForZero`).
+  { key: 'biesheim', insee: '68036', postcode: '68600', label: 'Commune de Biesheim — arrêtés d’urbanisme',
+    page: 'https://www.biesheim.fr/municipalite/urbanisme/', source: { protocol: 'posted-acts', oForZero: true } },
+  // Rurange-lès-Thionville links each arrêté by its number, from a file named
+  // after its applicant: only the number is read from the link, its counter's zero
+  // typed as the letter O (`DP05760226NO060`, `oForZero`). Its acts print
+  // the parcels as « S37 P0113 » (section 37, parcel 113): left unread
+  // (2026-10-04: 40 decisions, 39 with a site, 38 with a signing day, 21 since 3 July, the newest of 24 September).
+  { key: 'rurange-les-thionville', insee: '57602', postcode: '57310', label: 'Commune de Rurange-lès-Thionville — arrêtés d’urbanisme',
+    page: 'https://rurange-les-thionville.fr/urbanisme/arrêtés-urbanisme', source: { protocol: 'posted-acts', noParcels: true, oForZero: true } },
+  // Hagondange lists its acts in two tabs, « Affichage des dépôts » and « Affichage des décisions »,
+  // `view_document.php?id=N` (a scan each) under the number's words, oldest first.
+  // Only a site the act labels « Terrain sis » is read: a filing for a declaration whose notice prints just
+  // the applicant's address gives no row, and the link names no site (`bare: false`). The newest acts
+  // are the last of the page; its scans take three sweeps to read (40 by OCR each). 2026-10-04: 51
+  // decisions (40 signed since 3 July, 49 with a site) and 6 filings, the newest of 24 September.
+  { key: 'hagondange', insee: '57283', postcode: '57300', label: 'Ville de Hagondange — affichage légal des autorisations d’urbanisme',
+    page: 'https://www.hagondange.fr/Ma-mairie-ses-services/Urbanisme/Affichage-legal-autorisations-urbanisme.html',
+    source: { protocol: 'posted-acts', oldestFirst: true, limit: 110, sections: [
+      { words: '\\bAFFICHAGE DES DEPOTS\\b', board: 'filings', bare: false },
+      { words: '\\bAFFICHAGE DES DECISIONS\\b', board: 'decisions' },
+    ] } },
+  // Émerainville's document library, « Arrêtés d'urbanisme » (the six newest on its first page;
+  // the rest load by script): `Avis-de-depot-DP-n°-077-169-26-00024.pdf` (typed, the
+  // site in the notice) and `DP-26-00009.pdf` (a scanned certificate), the title in
+  // each link's `title`. 2026-10-04: 2 filings and 4 decisions on the page, all with a site; nothing
+  // posted since 12 August. (The rest of the library, 42 documents, is behind
+  // `/wp-json/creasit/postsQuery?cpt=documents&category=284`, not read.)
+  { key: 'emerainville', insee: '77169', postcode: '77184', label: 'Ville d’Émerainville — arrêtés d’urbanisme',
+    page: 'https://www.mairie-emerainville.fr/systeme/documentheque/?documents_category=284', source: { protocol: 'posted-acts' } },
 ];
 // i18n-ignore-end

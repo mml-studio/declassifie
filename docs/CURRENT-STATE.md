@@ -5774,6 +5774,93 @@ national Sitadel do not remove a town from the current-board research queue.
 Toulouse is excluded by the command above, as requested. A service's member
 population is a research priority, not evidence that it publishes for every
 member. [Research and limits](research/population-first-permits-2026-10-03.md).
+**Twenty towns that post their permits on their own sites (2026-10-04).**
+Each was seen posting by the backlog survey of 2026-10-03 and had its permits
+only from Sitadel. Fourteen have a protocol of their own in
+`src/data/permitBoardsOwnSites.js`, registered in `permitBoardCities.js`: Les
+Sables-d'Olonne's Publik portal (`lessablesdolonneen1clic.fr`), whose «
+Urbanisme » card cell, searched for « LISTE », gives the two Cart@DS lists of
+each Tuesday, read by `cartds-report-*`; the download links need the anonymous
+session cookie the cell's own answer sets, which the protocol sends back (no
+login). Le Port posts two Operis lists a week on `file.ville-port.re`, linked
+from its legal page and read by the `grid` reader with each run's width
+capped; Caudry the register of the year its software prints, only the newest
+edition read; Montesson three HTML fragments of its OpenInfoLive site
+(filings, decisions, legal display; `Crawl-delay: 15`); Thorigny-sur-Marne,
+Morangis and Amilly sheets printed from Excel, each with a reader of its own;
+Saint-Germain-lès-Arpajon an Excel workbook shared from SharePoint
+(`download.aspx?share=`, `robots.txt` `Disallow: /` overridden), read through
+the boards' opt-in workbook path (`format: 'xlsx'` with the exact sheet name,
+« Demandes en cours d'instruction »); Dourdan its Creasit document library
+(`/wp-json/creasit/postsQuery`), its filing lists read by `dourdan-filings`
+and its orders, titled by number and site, by OCR. Sarreguemines (the
+WordPress REST API behind its town-hall kiosk, `asld2.fr/handon`: only the
+number of a title that also names the applicant), La Queue-en-Brie
+(affichage.legal's JSON, `X-Tenant-Id`, each post's `lgl.pub` link to a signed
+download), Clouange (its kiosk's tiles), Douvrin (WordPress Download Manager
+packages) and Maing (its legal-display table) post scanned orders, read by OCR
+in the sweep; until then the number stands as a signed decision. Hagondange
+(`source.sections`, `oldestFirst`, `limit`), Val de Briey, Kaysersberg
+Vignoble, Biesheim, Rurange-lès-Thionville (`source.noParcels`) and
+Émerainville link one PDF per act (`posted-acts`). The applicant's column is
+never read anywhere. Read live on 2026-10-04 (six files a commune; scans by
+OCR): Les Sables-d'Olonne 500 filings and 576 decisions in six weekly lists,
+Le Port 34 and 25 (lists to 31 August), Caudry
+36 and 113 (edition of 28 August), Montesson 62 filings and 37 decisions to 3
+October, Morangis 121 decisions, Amilly 46 filings and 74 decisions,
+Thorigny-sur-Marne 18 decisions, Saint-Germain-lès-Arpajon 18 filings, Dourdan
+22 filings and its orders, every row with its site but two; of the six scans
+read per commune, Sarreguemines, La Queue-en-Brie, Douvrin, Val de Briey and
+Biesheim gave six sites, Clouange and Rurange five, Hagondange one (its newest
+are filing receipts printing only the applicant's address, which give no row).
+Le Port's and Caudry's newest editions are older than the two months a
+visitor's reading asks for: the daily sweep's twelve months archive them.
+Maing (one order since 3 July, posted 29 July) and Émerainville (six documents
+on its page, the newest of 12 August) are thin. The act reader learnt what
+these towns print: it stops at an order's applicant column (where
+« Demandeur » opens a column of its own, not inside « Adresse du demandeur »)
+and at a cell border read as « | » — always in the works, in a site only
+within such a table, since elsewhere OCR's « | » is a misread « l' »
+(Lillers' « résidence fontaine | évêque »); the works of a justified line,
+whose words OCR spaces evenly 45 points apart, are not cut as columns;
+« retrait-gonflement des argiles » is no
+withdrawal; « … délivrée par le maire » under a bare « Déclaration préalable »
+is a decision; a signing day comes from « BIESHEIM, le … », « Le … » over « Le
+Maire », a stamp after the filing day or the télétransmission ID; a site line
+that gives only the commune (« 51110 POMACLE ») gives way to the street under
+it, and failing one the act is kept on its parcels with no address.
+`municipalDossier` reads « DP n° … », and mends a counter's zero written as
+the letter O only for a town that says so (`source.oForZero`: Rurange types
+it, OCR reads Biesheim's that way); elsewhere such a number stays unread, as
+Sélestat's register reader wants. Checked against main's readers on the same
+recorded answers, a visitor's window, four files a commune: of the 261
+communes main reads through posted acts and lists, WordPress media, the
+sieve, DematDOC, Digilor, IntraMuros, Docs2Web, Rochefort and A2Display, 248
+gave the same rows; the other 13 gained, none lost a row. Anor's « DP n° … »
+links give six more numbers; Crest's two orders « délivré par le Maire » are
+decisions with their verdict and signing day; Pomacle's two permits are
+placed on the street printed under « 51110 POMACLE », and its two orders get
+their signing day, as La Roche-sur-Foron's two do; Montech's and
+Joué-lès-Tours's sites replace a postcode and commune; Contz-les-Bains no
+longer reads a hazard map as a withdrawal; Châteaugay's and Taupont's works
+stop at the next column; Pollestres, Panazol and Rodemack get filing days
+(« déposée à la mairie le »); Tupin-et-Semons keeps a refusal on its parcel.
+On the same OCR of 110 orders of the twelve older posted-acts communes, 77
+read the same, 17 lost a junk address (« Cadastré : AY476 », « 62280 SAINT
+MARTIN BOULOGNE ») and keep their parcels, 6 Crespin orders gained a row
+(« Sur un terrain | »), 4 a signing day, 4 a works text that stops at the
+next cell, an Anor order is read as the decision it is, Dourges's takes its
+link's « M01 », Coulogne's no longer reads a hazard map as a withdrawal, and
+one Rouvroy order that names neither a street nor a parcel
+no longer gives a row. Left out: Annemasse and Thonon-les-Bains (their OVH
+hosts drop every connection from our address), Denain (HTTP 418 to the honest
+User-Agent), Créteil (PubliAct behind a Cloudflare challenge, an empty Cart@DS
+board), Colombes (an empty Cart@DS board, one urbanism act in its register),
+Fouquières-lès-Lens (titles with no site), Mutzig (no list), Aumetz (no
+posting day, nothing dated after 9 June), and Vénissieux, Huttenheim,
+Wittisheim and Vaujours (nothing posted since 3 July). Sélestat and
+Fleury-les-Aubrais, read by registers of their own since #426 and #429, are
+not in this batch. 253 479 inhabitants more.
 
 **Saint-Joseph, Matoury and Schiltigheim (2026-10-03).** Saint-Joseph (La
 Réunion) posts one PDF replaced in place, its « Registre des dossiers en

@@ -51,14 +51,21 @@ export function municipalDate(value) {
     return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso ? iso : null;
   };
   if (numeric) return valid(numeric.includes('/') ? numeric.split('/').reverse().join('-') : numeric);
-  const match = /\b(\d{1,2})(?:er)?\s+([a-zéûô.]+)\s+(20\d{2})/i.exec(value ?? '');
+  const match = /\b(\d{1,2})(?:er)?\s+([a-zéûô.]+),?\s+(20\d{2})/i.exec(value ?? '');
   const month = match ? MONTHS.findIndex((name) => fold(match[2]).toLowerCase().startsWith(name)) : -1;
   return month < 0 ? null : valid(`${match[3]}-${String(month + 1).padStart(2, '0')}-${match[1].padStart(2, '0')}`);
 }
 
 /** Full or municipal abbreviated dossier, retaining modifications and transfers. */
 export function municipalDossier(value, city) {
-  const words = fold(value);
+  // A « n° » between the type and the number is mended before the number is
+  // read (Émerainville's `DP n° 077 169 26 00024`); so is a counter's zero
+  // written as a letter O after its letter, for a town that says so
+  // (`source.oForZero`): Rurange types `DP05760226NO030` for `N0030`, and OCR
+  // reads Biesheim's « R0028 » as « RO028 ». Elsewhere such a number stays
+  // unread, as Sélestat's register reader wants of a garbled one.
+  let words = fold(value).replace(/\b(PC|DP|PA|PD|CU)\s*N\s*[°º]\s*(?=\d)/g, '$1 ');
+  if (city?.source?.oForZero) words = words.replace(/\b((?:PC|DP|PA|PD|CU)\s*[\d\s]{5,12}?[A-Z])O(\d{3})(?!\d)/g, (whole, head, tail) => `${head}0${tail}`);
   // Some overseas publishers use a six-digit local authority code in the
   // dossier (Sainte-Luce: 972 227), while coverage keeps the INSEE 97227.
   const localCode = /^\d{6}$/.test(city.source?.dossierCode ?? '') ? city.source.dossierCode : null;
@@ -98,7 +105,8 @@ function baseRow(city, board, dossier, address = null) {
 /** Only the verdict in the heading or operative article, never the recitals. */
 export function municipalVerdict(value) {
   const words = fold(value);
-  if (/RETRAIT|RETIRE|ANNULE/.test(words)) return verdicts.withdrawn.fr;
+  // « retrait-gonflement des argiles » is a hazard map, not a withdrawal.
+  if (/RETRAIT(?![-\s]+GONFLEMENT)|RETIRE|ANNULE/.test(words)) return verdicts.withdrawn.fr;
   if (/NON[- ]?OPPOSITION|PAS FAIT OPPOSITION/.test(words)) return verdicts.unopposed.fr;
   if (/REFUS|DEFAVORABLE|FAIT OPPOSITION|^OPPOSITION\b/.test(words)) return verdicts.refused.fr;
   if (/ACCORD|FAVORABLE|AUTORISE|PEUVENT ETRE EXECUTES/.test(words)) return /TACITE/.test(words) ? verdicts.tacit.fr : verdicts.granted.fr;

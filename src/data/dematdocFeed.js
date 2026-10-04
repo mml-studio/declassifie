@@ -143,7 +143,8 @@ const field = (doc, key) => clean(doc?.values?.[key]?.displayValue);
 
 // i18n-ignore-start — the headings acts open with
 const FILING_HEADING = /^(?:avis\s*de\s*d[ée]p[ôo]t(?!\s*affich[ée]e?\s*en\s*mairie)|r[ée]c[ée]piss[ée]|avis\s*d.affichage|accus[ée]\s*de\s*r[ée]ception)/i;
-const DECISION_HEADING = /^(?:arr[êe]t[ée]|d[ée]cision|accord|refus|opposition|non[- ]?opposition|certificat|retrait|transfert|prorogation|d[ée]claration\s*pr[ée]alable\s*ne\s*faisant|permis\s*de\s*(?:construire|d[ée]molir|d.am[ée]nager)\s*(?:modificatif\s*)?(?:d[ée]livr|accord))/i;
+// « … DÉLIVRÉE PAR LE MAIRE AU NOM DE LA COMMUNE » under a bare « DÉCLARATION PRÉALABLE » (Hagondange, Clouange).
+const DECISION_HEADING = /^(?:arr[êe]t[ée]|d[ée]cision|accord|refus|opposition|non[- ]?opposition|certificat|retrait|transfert|prorogation|d[ée]claration\s*pr[ée]alable\s*ne\s*faisant|permis\s*de\s*(?:construire|d[ée]molir|d.am[ée]nager)\s*(?:modificatif\s*)?(?:d[ée]livr|accord)|(?:d[ée]livr[ée]|prononc[ée])e?s?\s+par\s+le\s+maire)/i;
 // i18n-ignore-end
 
 /**
@@ -235,26 +236,53 @@ const SITE_LABELS = [
   /adresse\s*(?:du\s*|des\s*|de\s+la\s*)?(?:terrain|travaux|projet|construction)\s*[:|]?\s*/i,
   /sis\s*[àa]\s*l.adresse\s+suivante\s*:?\s*/i,
   /^(?:lieu|localisation(?:\s+du\s+terrain)?|situation\s+du\s+terrain|terrain)\s*(?::\s*|$)/i,
+  // Aumetz's decisions on declarations, « Sur un terrain : 19 rue d'Ottange à AUMETZ »; Maing's, « Sur un terrain | 9 RUE … » over « SIS : | 59233 MAING ».
+  /^sur\s+un\s+terrain\s*[:|]\s*/i,
   // « Terrain sis » read by OCR as « en sis » (Graveson).
   /^(?:\S{1,8}\s+)?sis\s*(?:[àa]\s*)?:?\s+(?=\d)/i,
 ];
 const PARCEL_LABEL = /(?:r[ée]f[ée]rences?(?:\s*\(s\))?\s*cadastrales?(?:\s*\(s\))?|cadastr[ée]e?s?|cadastre|parcelles?(?:\s+cadastrales?)?(?:\s+n°)?)\s*[:|]?\s*(\S.*)$/i;
-const FILED = /(?:date\s*d[eu]\s*d[ée]p[ôo]t|date\s*de\s*r[ée]ception|d[ée]pos[ée]e?\s*(?:complet\s*)?le|(?:demande|dossier)\s*d[ée]pos[ée]e?\s*(?:complet\s*)?le)\s*:?\s*\|?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}\s+\S+\s+20\d{2})/i;
+const FILED = /(?:date\s*d[eu]\s*d[ée]p[ôo]t|date\s*de\s*r[ée]ception|d[ée]pos[ée]e?\s*(?:complet\s*)?(?:[àa]\s+la\s+mairie\s+)?le|(?:demande|dossier)\s*d[ée]pos[ée]e?\s*(?:complet\s*)?le)\s*:?\s*\|?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}\s+\S+\s+20\d{2})/i;
 const SIGNED = /\bFait\s+[àa][\s\S]{0,60}?\ble\s*:?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}(?:er)?\s+\S+\s+20\d{2})/i;
 // Failing « Fait à », a line opening with the commune's name in capitals: « ETUPES, le 30 septembre 2026 ».
 const SIGNED_AT = /(?:^|\n)\s*[A-ZÀ-Ý][A-ZÀ-Ý'’ -]{2,40},\s*le\s+(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}(?:er)?\s+\S+\s+20\d{2})/;
-const PURPOSE = /^(?:nature\s*des\s*travaux|pour|objet\s*de\s*la\s*demande|concernant)\s*:\s*[|]?\s*(.+)$/i;
+// « BIESHEIM, le 22 septembre 2026 » alone on its line: the signing day of the orders that print no « Fait à ».
+const SIGNED_LINE = /^[\p{Lu}][\p{L}'’ .-]{2,40},\s*le\s+(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}(?:er)?\s+\S+\s+20\d{2})\s*$/mu;
+// The identifier the préfecture's télétransmission stamps on each page of an act
+// (« ID : 062-216202762-20260928-PC2026_00020-AU »): its third field is the act's
+// own day, read when the signature is a stamp the OCR sets apart from « Fait à … le » (Douvrin).
+const ACTES_ID = /\bID\s*:\s*\d{3}-\d{9}-(20\d{2})(\d{2})(\d{2})-/;
+// « Le 24 septembre 2026 » over « Le Maire » at the head of the last block of the order (Rurange).
+const SIGNED_BLOCK = /^Le\s+(\d{1,2}(?:er)?\s+\S+\s+20\d{2}|\d{2}\/\d{2}\/\d{4})\s*\n\s*Le\s+Maire\b/imu;
+// A rubber stamp alone on its line (« 2 9 SEP. 2026 », OCR spaces the digits): the day a mayor signs with
+// one over « CLOUANGE, le » (Clouange).
+const SIGNED_STAMP = /^\W{0,3}(\d)\s?(\d)\s+([A-ZÉÛ]{3,9})[.,]?\s+(20\d{2})\s*$/mu;
+const PURPOSE = /^(?:nature\s*des\s*travaux|pour|objet\s*de\s*la\s*demande|concernant)\s*:\s*[|]?\s*/i;
 // A value with one of these is an applicant's or an office's, never a site.
 const PERSON = /\b(?:M\.|MM\.|Mme|Mlle|Monsieur|Madame|Messieurs|SCI|SAS|SASU|SARL|EURL|SNC|SCCV|repr[ée]sent[ée]|demeurant|@)/i;
 const NOT_A_SITE = /^(?:\d{1,2}\/\d{2}\/\d{4}|superficie|surface|zone|destination|nature|travaux|le maire|vu\b|demandeur|par\s*:)/i;
+// A parcel reference where the site should be is no address, but the act's parcels place it when no label gives one
+// (Wasquehal prints « terrain sis : Cadastré : BD40, BD74 » under the address, which sits a line above its label;
+// Rouvroy, « 62320 ROUVROY » alone, the parcels on the next line).
+const PARCELS_FOR_SITE = /^(?:r[ée]f[ée]rences?\s+cadastrales?|cadastr|parcelles?\b|section\b)/i;
 // A site names a number or a kind of way; « Travaux sur construction existante » does not.
-const SITE_WORDS = /\d|\b(?:rue|chemin|che|avenue|av|all[ée]e|route|rte|impasse|imp|place|pl|boulevard|bd|quai|lotissement|lot|lieu[- ]?dit|cours|mont[ée]e|square|voie|cami|camin|hameau|zac|za|zi|parc|r[ée]sidence|domaine|clos|sentier|passage|faubourg|esplanade|traverse|rond[- ]point|chemin|mas|quartier|cité|cite|côte|cote|sente|venelle|ruelle|promenade|grande rue|grand rue)\b/i;
+const SITE_WORDS = /\d|\b(?:rue|chemin|che|avenue|av|all[ée]e|route|rte|impasse|imp|place|pl|boulevard|bd|quai|lotissement|lot|lieu[- ]?dit|cours|mont[ée]e|square|voie|cami|camin|hameau|zac|za|zi|parc|r[ée]sidence|domaine|clos|sentier|passage|faubourg|esplanade|traverse|rond[- ]point|chemin|mas|quartier|cité|cite|côte|cote|sente|venelle|ruelle|promenade|grande rue|grand rue|boucle|parvis|villa)\b/i;
+// A line that is a street and nothing else: a house number at most, then the kind of way.
+const WAY_FIRST = /^(?:\d{1,4}\s*(?:bis|ter|[a-d])?\s*,?\s+)?(?:rue|chemin|che|avenue|av|all[ée]e|route|rte|impasse|imp|place|boulevard|bd|quai|lotissement|lieu[- ]?dit|cours|mont[ée]e|square|voie|hameau|r[ée]sidence|domaine|clos|sentier|passage|faubourg|ruelle|grande?\s+(?:rue|place)|grand['’]\s*rue)\b/i;
 // A street cut at the end of its line: « 26 allée de », « Chemin de ».
-const CUT = /(?:\b(?:de|du|des|la|le|les|d'|l'|d’|l’|rue|chemin|impasse|all[ée]e|avenue|route|place|boulevard|lotissement|lieu[- ]dit)|[,-])\s*$/i;
+const CUT_END = /(?:\b(?:de|du|des|la|le|les|d'|l'|d’|l’|rue|chemin|impasse|all[ée]e|avenue|route|place|boulevard|lotissement|lieu[- ]dit)|[,-])\s*$/i;
+// … but « Grande Rue », « Grand'rue », « Haute Rue » end with their way's word: the name is whole.
+const WHOLE_WAY = /\b(?:grande?|petite|haute|basse|vieille|nouvelle|ancienne|belle|longue)\s*['’‘-]?\s*(?:rue|route|place|all[ée]e|avenue|impasse|chemin|ruelle)\s*$/i;
+const CUT = { test: (value) => CUT_END.test(value) && !WHOLE_WAY.test(value) };
 // i18n-ignore-end
 
-/** The text right of a label on its line, cut at a wide gap (a second column). */
-function valueAfter(line, label) {
+/**
+ * The text right of a label on its line, cut at a wide gap (a second column).
+ * `works`: the value is the works, whose words OCR may space evenly across a
+ * justified line — gaps all wide and alike are no column there (Bauvin's
+ * « Travaux   sur   construction », 45 points apart).
+ */
+function valueAfter(line, label, maxGap = 30, limitX = Infinity, works = false) {
   const at = label.exec(line.text);
   if (!at) return null;
   // Locate the run where the label ends, then read runs rightwards.
@@ -272,16 +300,26 @@ function valueAfter(line, label) {
     seen += clean(line.runs[i].text).length + 1;
     if (seen > at.index) { start = line.runs[i].x; break; }
   }
+  // The applicant's column bounds a label that stands left of it, not one in a form drawn in that column.
+  const cap = start < limitX - 20 ? limitX : Infinity;
   const runs = line.runs.slice(index);
   if (!runs.length) return { text: '', x: start };
   const first = runs[0];
   const offset = Math.max(0, end - consumed);
   const pieces = [clean(first.text).slice(offset)];
   let right = first.x1 ?? first.x;
+  const gaps = runs.slice(1).map((run, i) => run.x - (runs[i].x1 ?? runs[i].x));
+  const even = works && gaps.length >= 2 && Math.min(...gaps) > maxGap && Math.max(...gaps) < 1.5 * Math.min(...gaps);
+  // OCR reads a cell's border as « | »: it ends the works (Anor's « … 1340 m2 | Destination : Habitation »),
+  // and a site in a table that has an applicant's column. In any other site it is a letter OCR
+  // misread (Lillers' « résidence fontaine | évêque », for « l'Évêque »).
+  const bordered = works || Number.isFinite(limitX);
   // A gap of 30 pt is a second column: Montélimar prints the works right of
   // the site, on its own baseline.
   for (const run of runs.slice(1)) {
-    if (run.x - right > 30) break;
+    // The applicant's cell starts at `limitX`.
+    if ((!even && run.x - right > maxGap) || run.x >= cap
+      || (bordered && /^\|/.test(run.text) && clean(pieces.join(' ')).replace(/\|/g, '').trim())) break;
     pieces.push(run.text);
     right = run.x1 ?? run.x;
   }
@@ -297,6 +335,8 @@ const foldName = (value) => clean(value).normalize('NFD').replace(/[̀-ͯ]/g, ''
  */
 function trimSite(value, city) {
   let site = clean(value).replace(/^[\s:|;,[-]+/, '');
+  // « 57185 CLOUANGE » alone is a commune, not a site: the postcode goes, and so does what is left.
+  site = site.replace(/^\d{5}\s+(?=\p{L})/u, '');
   // Garchizy prints the parcels after the street: « 409 Avenue de la République - Cadastré: AK 385 ».
   site = site.replace(/\s*\(\s*\d{5}\s*\)/g, ' ').replace(/\s+\d{5}\b.*$/, '').replace(/\s+[-–]\s*cadastr[ée].*$/i, '');
   site = site.replace(/\s*[;.]\s*$/, '').replace(/,\s*zone\b.*$/i, '');
@@ -321,14 +361,26 @@ export function dematdocParcels(value, city) {
   const own = Number(String(city?.insee ?? '').slice(2));
   for (const match of String(value ?? '').toUpperCase().matchAll(/(?:\b(\d{1,3})\s+|\b0{0,3})0?([A-Z]{1,2})\s*[-\s]?\s*0*(\d{1,4})\b/g)) {
     if (/^(?:M|ME|N|NO|M2)$/.test(match[2])) continue;
+    // « Parcelles 0168 et 0169 » (Clouange): the conjunction between two numbers is no section « ET ».
+    if (match[2] === 'ET' && (match[1] || /\d\s*$/.test(String(value).slice(0, match.index)))) continue;
     const prefix = match[1] && Number(match[1]) && Number(match[1]) !== own ? `${match[1]} ` : '';
     out.push(`${prefix}${match[2]} ${match[3]}`);
   }
   return out.length ? [...new Set(out)].join(', ') : null;
 }
 
-/** The value under a label standing alone, in its column, across a cut line. */
+/**
+ * The value under a label standing alone, in its column, across a cut line —
+ * or on the line a skewed scan prints a few points above it (Biesheim's
+ * `Sur un terrain sis :` 3.6 points below its value).
+ */
 function valueBelow(lines, i, x) {
+  const above = lines[i - 1];
+  if (above && above.y - lines[i].y > 0 && above.y - lines[i].y < 6) {
+    const level = clean(above.runs.filter((run) => run.x >= x - 40 && run.x < x + 260).map((run) => run.text).join(' '));
+    // The label's own « à : » may sit on the value's line (Lançon-Provence's « Sur un terrain sis » under « à : 1150 Avenue … »).
+    if (/\d/.test(level) && above.runs[0].x > lines[i].runs.at(-1).x1 - 5) return level.replace(/^(?:[àa]|au)\s*[:|]\s*/i, '');
+  }
   const below = lines.slice(i + 1, i + 4).map((line) => clean(line.runs
     .filter((run) => run.x >= x - 40 && run.x < x + 260).map((run) => run.text).join(' '))).filter(Boolean);
   let text = below[0] ?? '';
@@ -354,12 +406,28 @@ export function readDematdocNotice(document, { city, file }) {
   const lines = pages.flat();
   if (front.length < 3) return [];
   const head = closeSpacedLetters(front.slice(0, 45).map((line) => line.text).join(' '));
-  const dossier = municipalDossier(head, city) ?? municipalDossier(file.title ?? '', city);
+  let dossier = municipalDossier(head, city) ?? municipalDossier(file.title ?? '', city);
   if (!dossier) return [];
+  // The amendment suffix a link types (`N0036M01`) wins over one OCR garbles (`T4`) or drops.
+  const linked = file.row?.dossier;
+  const suffixOf = (value) => /\s([MT]\d{1,2})$/.exec(value ?? '')?.[1];
+  if (linked && linked !== dossier && suffixOf(linked) && linked.replace(/\s[MT]\d{1,2}$/, '') === dossier.replace(/\s[MT]\d{1,2}$/, '')
+    && !/^[MT]\d{2}$/.test(suffixOf(dossier) ?? '')) dossier = linked;
+  // A table that prints « Demandeur : » at its right edge keeps the applicant's
+  // name and address there, level with the works (Val de Briey, 14 points right
+  // of them): nothing from that column is a site or a purpose. The word opens
+  // that column, a wide gap left of it; inside a label (Marseillan's « Adresse
+  // du demandeur : », its works on the next line) it bounds nothing.
+  const pageWidth = document?.pages?.[0]?.width ?? 595;
+  const applicantX = Math.min(Infinity, ...front.flatMap((line) => line.runs
+    .filter((run, i) => /^demandeurs?$/i.test(clean(run.text)) && run.x > pageWidth * 0.4
+      && (i === 0 || run.x - (line.runs[i - 1].x1 ?? line.runs[i - 1].x) > 30))
+    .map((run) => run.x - 4)));
   let site = null;
+  let unplaced = false;
   for (let i = 0; i < front.length && !site; i += 1) {
     for (const label of SITE_LABELS) {
-      const value = valueAfter(front[i], label);
+      const value = valueAfter(front[i], label, 30, applicantX);
       if (!value) continue;
       let text = value.text;
       if (!text || text.length < 3) text = valueBelow(front, i, value.x);
@@ -368,17 +436,35 @@ export function readDematdocNotice(document, { city, file }) {
         // Not a postcode line, nor the next label (« Parcelles : ZI313 »).
         if (next && !/^\d{5}\b/.test(next) && !/^[\p{L}'’() .]{2,40}:/u.test(next) && !PERSON.test(next)) text = `${text} ${next}`;
       }
+      // « 51110 POMACLE » over « Route de Bazancourt » (Pomacle's notices): the commune, then the site under it.
+      if (/^\d{5}\s+\p{L}[\p{L}'’ .-]*$/u.test(clean(text))) {
+        const below = valueBelow(front, i, value.x);
+        if (WAY_FIRST.test(below) && !PERSON.test(below)) text = below;
+      }
+      if (text && !PERSON.test(text) && PARCELS_FOR_SITE.test(text)) { unplaced = true; continue; }
       if (!text || PERSON.test(text) || NOT_A_SITE.test(text) || !/\p{L}{3}/u.test(text)) continue;
       const trimmed = trimSite(text, city);
+      // « 62320 ROUVROY »: the commune, not the site.
+      if (!trimmed.address || /^\d{5}\s+\p{L}[\p{L}'’ .-]*$/u.test(clean(text))) unplaced = true;
       if (!trimmed.address || !SITE_WORDS.test(trimmed.address) || !/\p{L}{3}/u.test(trimmed.address) || CUT.test(trimmed.address)) continue;
       site = trimmed;
       break;
     }
   }
-  if (!site) return [];
-  const body = lines.map((line) => line.text).join('\n');
-  const parcelLine = front.map((line) => PARCEL_LABEL.exec(line.text)?.[1]).find((value) => value && dematdocParcels(value, city));
-  const purpose = front.map((line) => PURPOSE.exec(line.text)?.[1]).find((value) => value && !PERSON.test(value));
+  // The first labelled line only: a later sentence that says « parcelles » is the order's own note (Hagondange's
+  // « sur les parcelles voisines … norme NF P 94-500 révisée le 30 novembre » is no parcel « P 94 » and « LE 30 »).
+  const parcelLine = front.map((line) => PARCEL_LABEL.exec(line.text)?.[1]).find(Boolean);
+  if (!site) {
+    const parcels = unplaced && !file.noParcels ? dematdocParcels(parcelLine, city) : null;
+    if (!parcels) return [];
+    site = { address: null, postcode: city.postcode ?? null, parcels };
+  }
+  // « 21 / 9 /2026 » (Rurange's « Date de dépôt ») as the numeric days the readers below expect.
+  const body = lines.map((line) => line.text).join('\n')
+    .replace(/\b(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(20\d{2})\b/g, (whole, day, month, year) => `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`);
+  // The works stop at the table's next cell: Val de Briey prints the applicant's
+  // address right of them, on the same baseline, 14 points on (`applicantX`).
+  const purpose = front.map((line) => valueAfter(line, PURPOSE, 30, applicantX, true)?.text).find((value) => value && !PERSON.test(value));
   const top = front.slice(0, 15).map((line) => line.text);
   const board = boardOfHeading(top) ?? boardOf(top.join(' ')) ?? boardOf(file.title ?? '') ?? file.board ?? 'decisions';
   const filedOn = municipalDate(FILED.exec(body)?.[1]);
@@ -388,7 +474,7 @@ export function readDematdocNotice(document, { city, file }) {
     applicant: null,
     address: site.address,
     postcode: site.postcode,
-    parcels: dematdocParcels(parcelLine, city) ?? site.parcels ?? null,
+    parcels: file.noParcels ? null : dematdocParcels(parcelLine, city) ?? site.parcels ?? null,
     purpose: purpose ? clean(purpose).replace(/^[|:\s]+/, '').slice(0, 200) : null,
     filedOn,
     postedOn: file.published ?? null,
@@ -405,8 +491,16 @@ export function readDematdocNotice(document, { city, file }) {
     // withdrawal the law allows (Coulogne: « … pas fait opposition … » then « retrait »).
     const said = article?.split(/(?<=[.;])\s/)[0];
     row.verdict = municipalVerdict(said) ?? municipalVerdict(article) ?? titled ?? municipalVerdict(file.title) ?? verdicts.signed.fr;
-    const signed = municipalDate((SIGNED.exec(body) ?? SIGNED_AT.exec(body))?.[1]);
-    row.decidedOn = file.decidedOn ?? (signed && (!filedOn || signed >= filedOn) ? signed : null);
+    const stamped = ACTES_ID.exec(body);
+    const stamp = SIGNED_STAMP.exec(body);
+    // A lone stamp of the filing day is the reception's, not the signature's (Wasquehal's « 15 SEP, 2026 »).
+    const stampDay = stamp ? municipalDate(`${stamp[1]}${stamp[2]} ${stamp[3]} ${stamp[4]}`) : null;
+    const signed = municipalDate(SIGNED.exec(body)?.[1] ?? SIGNED_AT.exec(body)?.[1] ?? SIGNED_LINE.exec(body)?.[1] ?? SIGNED_BLOCK.exec(body)?.[1])
+      ?? (stampDay && (!filedOn || stampDay > filedOn) ? stampDay : null)
+      ?? (stamped ? municipalDate(`${stamped[1]}-${stamped[2]}-${stamped[3]}`) : null);
+    // `file.signedBy`: the day the board posted the act, exact — an order cannot be signed after it
+    // (a handwritten « 2025 » OCR reads as « 2028 », Maing).
+    row.decidedOn = file.decidedOn ?? (signed && (!filedOn || signed >= filedOn) && (!file.signedBy || signed <= file.signedBy) ? signed : null);
   }
   return [row];
 }

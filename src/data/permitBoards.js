@@ -62,6 +62,7 @@ import { SIEVE_PAGE_PROTOCOLS, SIEVE_PAGE_READERS, SIEVE_PAGE_TEXT } from './per
 import { LEVALLOIS_BOARD_PROTOCOLS } from './permitBoardsLevallois.js';
 import { SELESTAT_BOARD_READERS } from './permitBoardsSelestat.js';
 import { FLEURY_BOARD_READERS } from './permitBoardsFleury.js';
+import { OWN_SITE_BOARD_PROTOCOLS, OWN_SITE_BOARD_READERS } from './permitBoardsOwnSites.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -77,6 +78,7 @@ export const BOARD_PROTOCOLS = Object.freeze({
   ...CALUIRE_BOARD_PROTOCOLS, ...LEVALLOIS_BOARD_PROTOCOLS,
   ...ROCHEFORT_BOARD_PROTOCOLS, ...A2DISPLAY_BOARD_PROTOCOLS,
   ...SIEVE_PAGE_PROTOCOLS,
+  ...OWN_SITE_BOARD_PROTOCOLS,
 });
 
 /** The PDF readers the boards' files name, by `layout`. */
@@ -94,6 +96,7 @@ export const BOARD_READERS = Object.freeze({
   ...SELESTAT_BOARD_READERS,
   ...FLEURY_BOARD_READERS,
   ...DOCS2WEB_BOARD_READERS,
+  ...OWN_SITE_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */
