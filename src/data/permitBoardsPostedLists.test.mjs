@@ -26,8 +26,15 @@ test('a list’s day is read from its name or its words, whatever order the town
   assert.equal(postedListDay('/x.pdf', 'Liste des décisions – 21/09/2026'), '2026-09-21');
   assert.equal(postedListDay('/view_document.php', 'Dépôts du 1er octobre 2026'), '2026-10-01');
   assert.equal(postedListDay('/2026-09-30-liste.pdf'), '2026-09-30');
+  assert.equal(postedListDay('/20261002_Liste-des-decisions.pdf'), '2026-10-02');
+  assert.equal(postedListDay('/Liste-affichage-depot-02_10_2026-11_30_22.xlsx'), '2026-10-02');
   assert.equal(postedListDay('/wp-content/uploads/2026/09/liste.pdf'), '2026-09-01', 'the upload month, failing a day');
   assert.equal(postedListDay('/documents/81097'), null);
+});
+
+test('workbook links require an explicit board sheet and leave other municipalities on PDFs', () => {
+  const html = link('/files/Liste-affichage-depot-02_10_2026.xlsx', 'Liste des avis de dépôt');
+  assert.equal(postedListFiles(city('barr'), html, city('barr').page), null);
 });
 
 test('an edition day never spans an upload directory and its numeric filename', () => {
@@ -208,7 +215,7 @@ test('the WordPress communes are in the permit registry, read by `wp-media`', ()
   for (const town of towns) {
     assert.equal(permitListFor(town.insee), town, town.key);
     assert.match(town.page, /^https:\/\/[^/]+\/$/, town.key);
-    assert.equal(town.source.ocr, true, 'their signed acts are scans');
+    assert.equal(town.source.ocr, town.insee !== '29075', 'Guipavas uses searchable lists; other signed acts may be scans');
   }
   assert.equal(BOARD_PROTOCOLS['wp-media'], POSTED_LIST_PROTOCOLS['wp-media']);
 });

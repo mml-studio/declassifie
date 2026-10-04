@@ -15,7 +15,8 @@
  * A city's `source` may name its own `lists` patterns (`{filings, decisions}`,
  * RegExp sources matched on the file name and the link's words, folded to
  * upper case without accents) and `layouts`; the defaults fit Cart@DS's file
- * names. Applicants: the readers keep an organisation at most.
+ * names. `workbookSheets` opts a board into XLSX with an exact sheet name;
+ * other workbooks are ignored. Applicants: the readers keep an organisation at most.
  */
 
 import { municipalDate, municipalDossier, municipalSite } from './municipalPermitsFeed.js';
@@ -54,7 +55,7 @@ function pageLinks(html, base) {
 
 /**
  * The day a link names, or null: `28_09_2026`, `28 09 2026`, `21/09/2026`,
- * `2026-10-01`, `26-10-01` (Saverne's year first), `au 22 septembre 2026`;
+ * `2026-10-01`, `20261002`, `26-10-01` (Saverne's year first), `au 22 septembre 2026`;
  * failing that, the upload month of a WordPress or Drupal path.
  */
 export function postedListDay(name, words = '') {
@@ -66,10 +67,14 @@ export function postedListDay(name, words = '') {
     if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31 || year < '2015' || year > '2099') return null;
     return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   };
-  let match = /(?:^|\D)(20\d{2})[ ./](\d{1,2})[ ./](\d{1,2})(?!\d)/.exec(text);
+  let match = /(?:^|\D)(20\d{2})(\d{2})(\d{2})(?!\d)/.exec(text);
   if (match) return iso(match[1], match[2], match[3]);
+  // A day-first filename can append a time after its year. Read the full
+  // day first, before interpreting that year and time as a second date.
   match = /(?:^|\D)(\d{1,2})[ ./](\d{1,2})[ ./](20\d{2})(?!\d)/.exec(text);
   if (match) return iso(match[3], match[2], match[1]);
+  match = /(?:^|\D)(20\d{2})[ ./](\d{1,2})[ ./](\d{1,2})(?!\d)/.exec(text);
+  if (match) return iso(match[1], match[2], match[3]);
   match = new RegExp(`(?:^|\\D)(\\d{1,2})(?:ER)? (${MONTHS.join('|')}) (20\\d{2})\\b`).exec(text);
   if (match) return iso(match[3], String(MONTHS.indexOf(match[2]) + 1), match[1]);
   // Two digits each: the one that reads as a recent year is the year.
@@ -102,16 +107,19 @@ function listFiles(city, links) {
   const rolling = new Set();
   for (const link of links) {
     const target = fold(`${link.name} ${link.words}`);
-    if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     const board = new RegExp(patterns.decisions).test(target) ? 'decisions'
       : new RegExp(patterns.filings).test(target) ? 'filings' : null;
     if (!board || files.some((file) => file.url === link.url)) continue;
+    const workbook = /\.xlsx$/i.test(link.name);
+    const sheet = city.source?.workbookSheets?.[board];
+    if (workbook ? !sheet : !/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     const published = postedListDay(link.name, link.words) ?? link.published ?? null;
     if (!published) {
       if (rolling.has(board)) continue;
       rolling.add(board);
     }
     files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }),
+      ...(workbook ? { format: 'xlsx', sheet } : {}),
       ...(city.source?.rolling ? { rolling: true } : {}),
       ...(city.source?.listOcr ? { ocr: true, ...(city.source.listOcr === 'scan' ? { scan: true } : {}),
         ...(city.source.ocrPsm ? { ocrPsm: city.source.ocrPsm } : {}) } : {}) });

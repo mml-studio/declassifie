@@ -8,6 +8,13 @@
  */
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 export const POSTED_LIST_CITIES = [
+  // The filing export is XLSX; the decision export is the same table as a PDF.
+  { key: 'fleury-les-aubrais', insee: '45147', postcode: '45400', label: 'Ville de Fleury-les-Aubrais — dépôts et décisions d’urbanisme',
+    page: 'https://www.fleurylesaubrais.fr/ma-mairie/vie-municipale/publications-des-actes-administratifs/?category=urbanisme',
+    source: { protocol: 'posted-lists', latestOnly: true,
+      lists: { filings: '\\bLISTE AFFICHAGE DEPOT\\b|\\bLISTE DES AVIS DE DEPOT\\b', decisions: '\\bLISTE AFFICHAGE \\d|\\bLISTE DES DECISIONS\\b' },
+      workbookSheets: { filings: 'Liste affichage dépôt' },
+      layouts: { filings: 'fleury-filings', decisions: 'fleury-decisions' } } },
   // Scanned tables: applicants and their residential addresses are never read.
   { key: 'selestat', insee: '67462', postcode: '67600', label: 'Ville de Sélestat — dépôts et décisions d’urbanisme',
     page: 'https://www.selestat.fr/mon-quotidien/logement-et-urbanisme/recepisses-et-autorisations',

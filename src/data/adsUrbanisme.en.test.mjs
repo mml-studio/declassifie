@@ -196,7 +196,7 @@ test('the key and the ramp answer in English, one plain name per colour', (t) =>
     emprises: [],
   });
   assert.deepEqual(controls.legend.map((row) => row.label), [
-    'Application under review',
+    'Application filed',
     'Permit granted',
     'Work started',
     'Work completed',

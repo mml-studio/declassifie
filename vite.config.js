@@ -28571,9 +28571,9 @@ function adsFranceProxy() {
    */
   const permitListsHttp = {
     // Limoges's files are served by content id, with no extension; a board
-    // city's reader asks for every file as `application/pdf`.
-    fetch: (url, init = {}) => (/\.pdf$|\/showFile\.jsp$|\/api\/entities\/content\//i.test(new URL(url).pathname)
-      || init.headers?.Accept === 'application/pdf'
+    // city's reader identifies PDFs and opted-in XLSX sheets with `Accept`.
+    fetch: (url, init = {}) => (/\.(?:pdf|xlsx)$|\/showFile\.jsp$|\/api\/entities\/content\//i.test(new URL(url).pathname)
+      || ['application/pdf', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].includes(init.headers?.Accept)
       ? permitListPdfFetch(url, init) : cartdsFetch(url, init)),
     text: cartdsText,
     bytes: async (response, maxBytes) => {

@@ -14,7 +14,8 @@
  * A REQUEST is `{url, as, method?, body?, headers?}`, `as` one of `html`,
  * `json` or `text`: how its answer is handed to `index` (JSON parsed).
  *
- * A FILE is a PDF to read: `{url, board, layout, published?, row?, rolling?,
+ * A FILE is a PDF to read, or an explicitly configured XLSX sheet:
+ * `{url, board, layout, published?, row?, rolling?, format?, sheet?,
  * ocr?, scan?, ocrPages?, ocrRotate?, ocrPsm?, requestUrl?, headers?}`. `layout` names its reader in
  * {@link BOARD_READERS} (or in `PERMIT_LIST_READERS`), called as
  * `reader(document, {city, file})`. `row` is what the index itself says of
@@ -29,6 +30,8 @@
  * `ocrPsm`: opt-in Tesseract page segmentation, 4 or 6; absent keeps 4.
  * `requestUrl`: a publisher's temporary signed download; `url` remains
  * the stable edition identity. The signed URL is never stored.
+ * `format: 'xlsx'` requires the exact publisher `sheet`; workbook cells are
+ * handed to the opt-in reader as `{sheet, rows}` and raw XML is never cached.
  *
  * A ROW is a reader's row (`PERMIT_LIST_FIELDS` and its `board`). Rows an
  * index reads from HTML go through the same scrub as a PDF's: no private
@@ -57,6 +60,7 @@ import { TOWN_LIST_READERS, TOWN_LIST_TEXT } from './permitBoardsTownLists.js';
 import { SIEVE_PAGE_PROTOCOLS, SIEVE_PAGE_READERS, SIEVE_PAGE_TEXT } from './permitBoardsSievePages.js';
 import { LEVALLOIS_BOARD_PROTOCOLS } from './permitBoardsLevallois.js';
 import { SELESTAT_BOARD_READERS } from './permitBoardsSelestat.js';
+import { FLEURY_BOARD_READERS } from './permitBoardsFleury.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -87,6 +91,7 @@ export const BOARD_READERS = Object.freeze({
   ...TOWN_LIST_READERS,
   ...SIEVE_PAGE_READERS,
   ...SELESTAT_BOARD_READERS,
+  ...FLEURY_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */

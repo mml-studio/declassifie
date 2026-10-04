@@ -545,8 +545,10 @@ export const LOCAL_ADS_PORTALS = Object.freeze([
     label: 'Brest métropole — Dossiers d’urbanisme accordés', // i18n-ignore-line — the portal's own dataset title
     licence: 'Licence Ouverte 2.0',
     communes: Object.freeze([
-      '29011', '29019', '29061', '29069', '29075', '29189', '29212', '29235',
+      '29011', '29019', '29061', '29069', '29189', '29212', '29235',
     ]),
+    // Guipavas reads its municipal filing and decision lists instead, including
+    // prior declarations and refusals this granted-permits service omits.
     // A point on every row (580 of 580 decided in the year to 2026-10-01),
     // asked for in WGS 84 (`outSR=4326`) and answered as GeoJSON.
     geoColumn: 'geometry',

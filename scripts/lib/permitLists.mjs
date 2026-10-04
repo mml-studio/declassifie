@@ -24,6 +24,7 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { permitPublicSession } from './permitPublicSession.mjs';
+import { readXlsxSheet } from './xlsx-sheet.mjs';
 import { extractPdfText } from '../../src/data/pdfText.js';
 import { robotsAllows } from '../../src/data/cartdsFeed.js';
 import { cartdsDay } from '../../src/data/cartdsArchive.js';
@@ -233,6 +234,20 @@ function rowsOfPdf(bytes, layout, board, context = {}) {
   }
   const rows = reader && document ? keptRows(reader(document, context), board) : [];
   return rows.length ? rows : null;
+}
+
+/** Opt-in workbooks use the same project readers and scrubbed edition cache. */
+function rowsOfWorkbook(bytes, file, context) {
+  const reader = BOARD_READERS[file.layout];
+  if (!reader || !file.sheet) return null;
+  try {
+    const document = { sheet: file.sheet, rows: readXlsxSheet(Buffer.from(bytes), file.sheet, {
+      maxUncompressedBytes: 8 * 1024 * 1024, maxRows: 5000, maxColumns: 64,
+      reject1904: true, rejectFormulas: true,
+    }) };
+    const rows = keptRows(reader(document, context), file.board);
+    return rows.length ? rows : null;
+  } catch { return null; }
 }
 
 /** A month's acts kept on disk once the month is over: it will not change. */
@@ -1050,7 +1065,8 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
       fetched += 1;
       // `Accept` tells the proxy a file is coming, whatever its address says
       // (`/download/55135`, `/file?filename=…`): it waits longer for one.
-      const headers = { Accept: 'application/pdf', ...(city.userAgent ? { 'User-Agent': city.userAgent } : {}), ...(file.headers ?? {}) };
+      const headers = { Accept: file.format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf',
+        ...(city.userAgent ? { 'User-Agent': city.userAgent } : {}), ...(file.headers ?? {}) };
       if (file.rolling && kept?.etag) headers['If-None-Match'] = kept.etag;
       if (file.rolling && kept?.modified) headers['If-Modified-Since'] = kept.modified;
       // Some publishers sign downloads anew on each visit. Keep the stable
@@ -1061,12 +1077,25 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
         answer = kept;
       } else {
         const bytes = response?.ok ? await http.bytes(response, PDF_MAX_BYTES) : null;
-        if (!bytes || !Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-')) {
+        const workbook = file.format === 'xlsx';
+        const valid = bytes && (workbook ? Buffer.from(bytes.subarray(0, 4)).equals(Buffer.from([0x50, 0x4b, 3, 4]))
+          : Buffer.from(bytes.subarray(0, 1024)).includes('%PDF-'));
+        if (!valid) {
           failed += 1;
           answer = kept ?? (file.row ? { rows: fallback(file) } : null);
         } else {
           const context = { city, file };
-          let rows = file.scan ? null : rowsOfPdf(bytes, file.layout, file.board, context);
+          let rows = workbook ? rowsOfWorkbook(bytes, file, context)
+            : file.scan ? null : rowsOfPdf(bytes, file.layout, file.board, context);
+          if (workbook && !rows) {
+            failed += 1;
+            answer = kept ?? null;
+            if (answer) {
+              for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
+              lists.push({ url: file.url, board: file.board, rows: answer.rows.length, reused: true });
+            }
+            continue;
+          }
           let awaitsOcr = false;
           if (!rows && (file.ocr || file.scan)) {
             let scanned = null;
