@@ -1151,6 +1151,20 @@ test('a board\'s scans are never downloaded for a visitor, and the sweep reads t
   assert.deepEqual(swept.boards.decisions.map((cells) => [cells[4], cells[8]]), [['12 rue Exemple', 'Non-opposition'], ['12 rue Exemple', 'Non-opposition']]);
 });
 
+test('an unread Vétraz table is incomplete and never caches an empty edition', async () => {
+  const dir = await tempDir();
+  const registered = PERMIT_LISTS.find((city) => city.key === 'vetraz-monthoux');
+  const city = { ...registered, source: { ...registered.source, pages: [] } };
+  const file = 'https://www.vetraz-monthoux.fr/29-09-2026-affichage-depot-PCPA.pdf';
+  const http = fakeHttp({ pages: { [city.page]: `<a href="${file}">Affichage depot</a>` },
+    files: { [file]: { bytes: noticePdf([[20, 700, 'Changed table layout']]) } } });
+  const result = await readPermitCity(city, http, { dir, day: '2026-10-04' });
+  assert.equal(result.failed, 1);
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.lists, []);
+  assert.deepEqual(await fsp.readdir(dir), []);
+});
+
 test('Sélestat scans pass their table OCR mode only to the sweep, then visitors reuse scrubbed rows', async () => {
   const dir = await tempDir();
   const city = PERMIT_LISTS.find((c) => c.key === 'selestat');

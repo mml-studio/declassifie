@@ -3271,7 +3271,7 @@ export function permitListVerdictState(verdict) {
   if (state) return state;
   const value = String(verdict ?? '').trim();
   // i18n-ignore-start — the publishers' own verdicts, matched on
-  if (/^retir[ée]|^rapport[ée]/i.test(value)) return 'annule';
+  if (/^retir[ée]|^rapport[ée]|^abrog/i.test(value)) return 'annule';
   if (/^d[ée]livr[ée]|^tacite$|^octroi\b/i.test(value)) return 'accorde';
   // i18n-ignore-end
   return null;

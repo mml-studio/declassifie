@@ -176,6 +176,7 @@ text. `src/i18n/glossary.test.mjs` fails when the two lists drift apart.
 | Autorisations d’urbanisme | Planning permits | Layer name. |
 | permis de construire / d’aménager / de démolir | building / development / demolition permit | |
 | déclaration préalable | prior declaration (minor works) | |
+| abrogation | repeal | Published decision outcome; closes the permit's active state. |
 | Sitadel | building permits (Sitadel) | |
 | Bâti 3D | 3D buildings | |
 | bâti, emprise au sol, hauteur | buildings, footprint, height | |

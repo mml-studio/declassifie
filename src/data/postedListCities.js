@@ -8,6 +8,17 @@
  */
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 export const POSTED_LIST_CITIES = [
+  // Each family has its own pair of snapshots; applicant and architect columns are excluded.
+  { key: 'vetraz-monthoux', insee: '74298', postcode: '74100', label: 'Ville de Vétraz-Monthoux — dépôts et décisions d’urbanisme',
+    page: 'https://www.vetraz-monthoux.fr/espace-documentaire/affichage_legal/urbanisme-permis-de-construire/',
+    source: { protocol: 'posted-lists', latestOnly: true, requiredRows: true,
+      pages: ['https://www.vetraz-monthoux.fr/espace-documentaire/affichage_legal/urbanisme-declarations-prealables/'],
+      lists: { filings: '\\bAFFICHAGE DEPOT\\b', decisions: '\\bAFFICHAGE DECISION\\b' },
+      layouts: { filings: 'vetraz-filings', decisions: 'vetraz-decisions' } } },
+  { key: 'ver-sur-mer', insee: '14739', postcode: '14114', label: 'Commune de Ver-sur-Mer — dépôts et décisions d’urbanisme',
+    page: 'https://www.versurmer.fr/infos-pratiques/urbanisme-etat-civil/avis-de-depot-d-autorisations-d-urbanisme/liste-des-avis-de-depot-13017',
+    source: { protocol: 'posted-lists', latestOnly: true,
+      pages: ['https://www.versurmer.fr/infos-pratiques/urbanisme-etat-civil/avis-de-depot-d-autorisations-d-urbanisme/liste-des-decisions-13018'] } },
   // The filing export is XLSX; the decision export is the same table as a PDF.
   { key: 'fleury-les-aubrais', insee: '45147', postcode: '45400', label: 'Ville de Fleury-les-Aubrais — dépôts et décisions d’urbanisme',
     page: 'https://www.fleurylesaubrais.fr/ma-mairie/vie-municipale/publications-des-actes-administratifs/?category=urbanisme',
