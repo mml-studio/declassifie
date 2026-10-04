@@ -6,6 +6,24 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Les Sables-d'Olonne, Le Port, Sarreguemines and seventeen more towns now
+  show their fresh permits**, 253,479 inhabitants. Fourteen post on boards of
+  their own, each read by a protocol of its own: Les Sables-d'Olonne's weekly
+  Cart@DS lists on its Publik portal, Le Port's weekly Operis lists, Caudry's
+  register of the year, Montesson's HTML tables, the sheets
+  Thorigny-sur-Marne, Morangis and Amilly print from Excel,
+  Saint-Germain-lès-Arpajon's SharePoint workbook (read through the opt-in
+  workbook path, by its sheet's exact name), Dourdan's document library, and
+  the scanned orders of Sarreguemines's kiosk, La Queue-en-Brie's
+  affichage.legal board, Clouange's kiosk, Douvrin's download packages and
+  Maing's legal-display table, read by OCR in the daily sweep. Hagondange,
+  Val de Briey, Kaysersberg Vignoble, Biesheim, Rurange-lès-Thionville and
+  Émerainville link one PDF per act. No applicant's column is read. The act
+  reader now stops at an order's applicant column, no longer reads
+  « retrait-gonflement des argiles » as a withdrawal, reads more signing and
+  filing days, takes the street printed under a site line that names only the
+  commune, and failing one keeps the act on its parcels. Of 261 towns already
+  read through the same readers, 248 give the same rows and 13 gain.
 - **Le Grand-Quevilly, La Valette-du-Var, Le Plessis-Trévise, Lattes and 32
   more towns now show the permits they post themselves**, 194,241
   inhabitants more (211,592 counting Lattes), bringing current-source

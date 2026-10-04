@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { POSTED_LIST_PROTOCOLS, postedActFiles, postedListDay, postedListFiles } from './permitBoardsPostedLists.js';
 import { BOARD_PERMIT_SOURCES, BOARD_PROTOCOLS, BOARD_READERS } from './permitBoards.js';
 import { PERMIT_LIST_READERS, permitListFor, normalisePermitListRow } from './permitListsFeed.js';
+import { municipalDossier } from './municipalPermitsFeed.js';
 
 const city = (key) => BOARD_PERMIT_SOURCES.find((source) => source.key === key);
 const KEYS = ['haguenau', 'saverne', 'barr', 'benfeld', 'offendorf', 'lauterbourg'];
@@ -122,7 +123,8 @@ test('a town that follows its links asks each one’s page for the PDF it links'
 
 // --- One PDF per act -----------------------------------------------------------
 
-const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor', 'montbeliard', 'villeneuve-sur-lot', 'wasquehal', 'mantes-la-ville'];
+const ACT_KEYS = ['saint-martin-boulogne', 'marquette-lez-lille', 'bauvin', 'rouvroy', 'coulogne', 'crespin', 'dourges', 'roost-warendin', 'anor', 'montbeliard', 'villeneuve-sur-lot', 'wasquehal', 'mantes-la-ville',
+  'val-de-briey', 'kaysersberg-vignoble', 'biesheim', 'rurange-les-thionville', 'hagondange', 'emerainville'];
 
 test('the communes that post one PDF per act are read by `posted-acts` and the DematDOC act reader', () => {
   for (const key of ACT_KEYS) {
@@ -368,4 +370,60 @@ test('a DOCman address names its act in the folder before `/file`', () => {
     ['PC 025228 26 00004', 'filings'],
   ], 'a pre-emption notice (DIA) and a municipal order name no dossier');
   assert.equal(files[0].url, `https://www.etupes.fr${base}/2087-avis-de-depot-dp-025-228-26-00050/file`);
+});
+
+// --- The backlog survey of 2026-10-03: communes whose own sites post one PDF per act -------
+
+test('Kaysersberg Vignoble names each file by its site, number and day, and says which board in its last word', () => {
+  const html = [
+    link('https://www.kaysersberg-vignoble.fr/wp-content/uploads/2026/10/ka_31_rue_exemple_DP0681622600086_avis_depot.pdf', ''),
+    link('https://www.kaysersberg-vignoble.fr/wp-content/uploads/2026/09/si_2_bis_rue_du_vallon_DP0681622600081_18_09_2026_avis_depot.pdf', ''),
+    link('https://www.kaysersberg-vignoble.fr/wp-content/uploads/2026/09/ka_6_rue_du_chateau_PC0681622600011_23_09_2026_arrete.pdf', ''),
+  ].join('');
+  const files = postedActFiles(city('kaysersberg-vignoble'), html, city('kaysersberg-vignoble').page, '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.row.dossier, file.board, file.published, file.row.address]), [
+    ['DP 068162 26 00086', 'filings', '2026-10-01', '31 rue exemple'],
+    ['DP 068162 26 00081', 'filings', '2026-09-18', '2 bis rue du vallon'],
+    ['PC 068162 26 00011', 'decisions', '2026-09-23', '6 rue du chateau'],
+  ]);
+});
+
+test('Rurange types the zero of its counters as a letter, and files named after an applicant keep no name', () => {
+  const rurange = city('rurange-les-thionville');
+  const html = '<a href="/pages/1/500/EXEMPLE%20arr%C3%AAt%C3%A9%20cl%C3%B4ture.pdf">DP05760226NO060</a>'
+    + `<a href="/pages/1/500/RENOV'EST%20arr%C3%AAt%C3%A9%20panneaux.pdf">DP05760226NO031</a>`
+    + '<a href=\'/pages/1/500/PC05760226No001.pdf\'>PC05760226NO001</a>';
+  const files = postedActFiles(rurange, html, rurange.page, '2026-08-01');
+  assert.deepEqual(files.map((file) => file.row.dossier), ['DP 057602 26 N0060', 'DP 057602 26 N0031', 'PC 057602 26 N0001']);
+  assert.equal(files[1].url, `https://rurange-les-thionville.fr/pages/1/500/RENOV'EST%20arr%C3%AAt%C3%A9%20panneaux.pdf`, 'an apostrophe in an address does not cut it');
+  assert.ok(files.every((file) => file.row.address === null && file.row.applicant === null));
+  assert.ok(files.every((file) => file.noParcels), 'its « S37 P0113 » is a section and a parcel, not two parcels');
+});
+
+test('the towns that write a counter’s zero as the letter O say so: Rurange types it, OCR reads Biesheim’s that way', () => {
+  assert.equal(municipalDossier('N° DP 068 036 26 RO028', city('biesheim')), 'DP 068036 26 R0028');
+  assert.equal(municipalDossier('DP05760226NO060', city('rurange-les-thionville')), 'DP 057602 26 N0060');
+  assert.equal(municipalDossier('N° DP 068 036 26 RO028', { ...city('biesheim'), source: { protocol: 'posted-acts' } }), null, 'nowhere else');
+});
+
+test('Hagondange’s tabs say the board, its filings keep no row of their own, and its newest acts are the last of the page', () => {
+  const hagondange = city('hagondange');
+  const tab = (id, title) => `<a class="card-header" href="#panel_${id}">${title}</a>`;
+  const act = (id, number) => `<a href="/view_document.php?id=${id}">${number} Télécharger</a>`;
+  const html = tab(122, 'Affichage des dépôts') + act(2967, 'DP 057 283 26 00093') + act(3182, 'DP 057 283 26 00141') + act(3033, 'AT 057 283 26 N0013')
+    + tab(123, 'Affichage des décisions') + act(2971, 'DP 057 283 26 00026') + act(3176, 'PC 057 283 21 N0006 T01') + act(3071, 'DP 057 283 26 0129');
+  const files = postedActFiles(hagondange, html, hagondange.page, '2026-08-01');
+  assert.deepEqual(files.map((file) => [file.url.split('=')[1], file.board, Boolean(file.row)]), [
+    ['3071', 'decisions', true], ['2971', 'decisions', true],
+    ['3182', 'filings', false], ['2967', 'filings', false],
+  ], 'the last of an oldest-first page comes first; an AT is no permit, a 2021 number is not of this year or the last');
+  assert.equal(files.find((file) => file.url.endsWith('3071')).row.dossier, 'DP 057283 26 00129', 'a counter typed with four digits');
+  const crowded = tab(123, 'Affichage des décisions') + Array.from({ length: 80 }, (_, i) => act(3000 + i, `DP 057 283 26 ${String(i + 1).padStart(5, '0')}`)).join('');
+  assert.equal(postedActFiles(hagondange, crowded, hagondange.page, '2026-08-01').length, 80, 'its limit is wider than forty');
+  assert.equal(postedActFiles({ ...hagondange, source: { protocol: 'posted-acts' } }, crowded, hagondange.page, '2026-08-01').length, 40);
+});
+
+test('an act of the whole page names its board in its words; an « avis dépôt » is a filing', () => {
+  const html = link('/wp-content/uploads/2026/10/si_2_rue_exemple_DP0681622600090_avis_depot.pdf', '');
+  assert.equal(postedActFiles(city('kaysersberg-vignoble'), html, 'https://www.kaysersberg-vignoble.fr/x/', '2026-08-01')[0].board, 'filings');
 });

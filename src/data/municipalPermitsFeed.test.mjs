@@ -11,6 +11,19 @@ const city = (key) => MUNICIPAL_PERMIT_SOURCES.find((c) => c.key === key);
 const run = (text, x, y, x1 = x + text.length * 4, clip = null) => ({ text, x, x1, y, size: 8, clip });
 const lines = (words) => ({ pages: [{ runs: words.map((word, i) => run(word, 30, 780 - i * 15)) }] });
 
+test('a counter’s zero typed as a letter O, a « n° » after the type, and the hazard map are not read as part of a dossier or a withdrawal', () => {
+  const rurange = { insee: '57602', postcode: '57310', source: { oForZero: true } };
+  assert.equal(municipalDossier('DP05760226NO030M01', rurange), 'DP 057602 26 N0030 M01');
+  assert.equal(municipalDossier('PC05760226No001', rurange), 'PC 057602 26 N0001');
+  assert.equal(municipalDossier('PC05760226No001', { insee: '57602' }), null, 'only a town that types it so: elsewhere the O is OCR’s');
+  assert.equal(municipalDossier('DP 06803626R0032', { insee: '68036' }), 'DP 068036 26 R0032');
+  assert.equal(municipalDossier('Avis de dépôt DP n° 077 169 26 00024', { insee: '77169' }), 'DP 077169 26 00024');
+  assert.equal(municipalDossier('N° DP 077 169 26 00024', { insee: '77169' }), 'DP 077169 26 00024');
+  assert.equal(municipalVerdict('Il n’est pas fait opposition. Aléa de retrait-gonflement des argiles'), 'Non-opposition');
+  assert.equal(municipalVerdict('retrait gonflement des sols argileux'), null);
+  assert.equal(municipalVerdict('Arrêté de retrait de la décision'), 'Retrait');
+});
+
 test('the six municipal boards are available through the existing commune lookup', () => {
   assert.equal(MUNICIPAL_PERMIT_SOURCES.length, 6);
   for (const source of MUNICIPAL_PERMIT_SOURCES) assert.equal(permitListFor(source.insee), source);

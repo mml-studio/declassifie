@@ -185,3 +185,258 @@ test('an order that recalls when its filing was posted is a decision, signed on 
   assert.deepEqual([notice[0].board, notice[0].address, notice[0].filedOn], ['filings', '7 rue du château', '2026-09-30'], 'an avis de dépôt is still a filing');
   assert.doesNotMatch(JSON.stringify(notice), /PRIVATE/);
 });
+
+// Word-level runs, as the sweep's OCR gives them: [x, x1, y, text].
+const words = (...runs) => ({ pages: [{ width: 595, runs: runs.map(([x, x1, y, text]) => ({ x, x1, y, text })) }] });
+
+test('a table that prints « Demandeur » at its right edge never lends its cell to the works or the site', () => {
+  const briey = { insee: '54099', postcode: '54150' };
+  const document = words(
+    [77, 134, 735, 'DÉCISION'], [138, 224, 735, 'D’OPPOSITION'], [228, 244, 735, 'DE'], [248, 335, 735, 'DÉCLARATION'], [338, 411, 735, 'PRÉALABLE'],
+    [73, 103, 617, 'Dossier'], [106, 107, 617, ':'], [111, 122, 617, 'DP'], [126, 154, 617, '054099'], [158, 167, 617, '26'], [171, 195, 617, '00127'],
+    [329, 375, 617, 'Demandeur'], [378, 379, 617, ':'],
+    [73, 103, 601, 'Déposé'], [107, 113, 601, 'le'], [117, 118, 601, ':'], [121, 165, 601, '29/08/2026'], [328, 359, 601, 'PRIVATE'], [363, 395, 601, 'PERSON'],
+    [72, 148, 586, 'Nature'], [101, 113, 586, 'des'], [117, 146, 586, 'travaux'], [151, 152, 586, ':'], [156, 226, 586, 'CHANGEMENTS'],
+    [229, 247, 586, 'DES'], [250, 284, 586, 'VITRES,'], [288, 299, 586, 'DE'], [303, 314, 586, 'LA'],
+    [328, 337, 586, '|32'], [341, 369, 586, 'ALLEE'], [373, 391, 586, 'DES'], [394, 452, 586, 'PRIVEES'],
+    [72, 153, 549, 'Adresse'], [106, 119, 549, 'des'], [123, 152, 549, 'travaux'], [157, 158, 549, ':'], [162, 166, 549, '5'], [170, 187, 549, 'RUE'],
+    [191, 202, 549, 'DE'], [206, 230, 549, 'METZ'], [233, 235, 549, '-'], [239, 266, 549, 'BRIEY'], [269, 292, 549, '54150'],
+    [329, 352, 549, '57650'], [356, 393, 549, 'EXEMPLE'],
+  );
+  const [row] = readDematdocNotice(document, { city: briey, file: { board: 'decisions', title: '' } });
+  assert.equal(row.purpose, 'CHANGEMENTS DES VITRES, DE LA');
+  assert.equal(row.address, '5 RUE DE METZ - BRIEY');
+  assert.equal(row.board, 'decisions');
+  assert.doesNotMatch(JSON.stringify(row), /PRIVATE|PRIVEES|57650|EXEMPLE/);
+  // The border OCR reads as « | » ends a value even when it touches the works.
+  const touching = words(...document.pages[0].runs.filter((r) => r.y !== 586).map((r) => [r.x, r.x1, r.y, r.text]),
+    [128, 326, 586, 'Nature des travaux : POSE DE PANNEAUX'], [333, 336, 586, '|!'], [340, 387, 586, 'QUARTIER'], [391, 402, 586, 'PRIVE']);
+  assert.equal(readDematdocNotice(touching, { city: briey, file: { board: 'decisions', title: '' } })[0].purpose, 'POSE DE PANNEAUX');
+});
+
+test('« demandeur » inside a label (« Adresse du demandeur : ») bounds no column: the works keep their words', () => {
+  const marseillan = { insee: '34150', postcode: '34340' };
+  const document = words(
+    [292, 400, 810, 'DOSSIER : N° PC 034 150 24 V0036'], [292, 380, 795, 'Déposé le : 20/07/2026'],
+    [292, 420, 781, 'Demandeur : EXEMPLE SAS'],
+    [291, 326, 752, 'Adresse'], [330, 340, 752, 'du'], [344, 395, 752, 'demandeur'], [400, 402, 752, ':'], [406, 470, 752, '1 RUE EXEMPLE'],
+    [291, 326, 723, 'Nature'], [330, 348, 723, 'des'], [352, 390, 723, 'travaux'], [394, 396, 723, ':'], [404, 466, 723, 'Modification'],
+    [470, 494, 723, 'd’un'], [498, 533, 723, 'permis'], [537, 548, 723, 'de'],
+    [290, 306, 680, 'Sur'], [310, 320, 680, 'un'], [324, 354, 680, 'terrain'], [358, 370, 680, 'sis'], [373, 380, 680, 'à'], [383, 386, 680, ':'],
+    [390, 395, 680, '1'], [399, 433, 680, 'Avenue'], [437, 449, 680, 'de'], [453, 461, 680, 'la'], [465, 500, 680, 'Lagune'],
+    [100, 200, 600, 'ARRÊTÉ ACCORDANT UN PERMIS DE CONSTRUIRE MODIFICATIF'],
+  );
+  const [row] = readDematdocNotice(document, { city: marseillan, file: { board: 'decisions', title: '' } });
+  assert.equal(row.purpose, 'Modification d’un permis de');
+  assert.equal(row.address, '1 Avenue de la Lagune');
+  assert.doesNotMatch(JSON.stringify(row), /EXEMPLE/);
+});
+
+test('a bare « DÉCLARATION PRÉALABLE » over « DÉLIVRÉE PAR LE MAIRE » is a decision, though its notice says « Avis de dépôt affiché le »', () => {
+  const hagondange = { insee: '57283', postcode: '57300' };
+  const document = page(
+    [200, 790, 'COMMUNE DE HAGONDANGE'], [200, 770, 'DÉCLARATION PRÉALABLE'], [200, 758, 'DÉLIVRÉE PAR LE MAIRE AU NOM DE LA COMMUNE'],
+    [200, 730, 'DP 057 283 2600095'], [60, 710, 'Avis de dépôt affiché le 13/07/2026'], [60, 698, 'Arrêté affiché le 05/08/2026'],
+    [60, 680, 'Par: PRIVATE PERSON'], [60, 668, 'Demeurant à : 43 rue Privée'],
+    [60, 640, 'Sur un terrain sis : 44 rue du Maréchal Foch'], [60, 628, '57300 HAGONDANGE'], [60, 616, 'Parcelle(s) : 13 0248'],
+    [60, 600, 'Vu la Déclaration Préalable susvisée déposée le 07.07.2026,'],
+  );
+  const [row] = readDematdocNotice(document, { city: hagondange, file: { board: 'filings', title: '' } });
+  assert.equal(row.board, 'decisions');
+  assert.equal(row.dossier, 'DP 057283 26 00095');
+  assert.equal(row.address, '44 rue du Maréchal Foch');
+  assert.equal(row.applicant, null);
+  assert.doesNotMatch(JSON.stringify(row), /PRIVATE|Privée/);
+});
+
+test('« Sur un terrain : » alone labels a site (Aumetz’s declarations)', () => {
+  const aumetz = { insee: '57041', postcode: '57710' };
+  const [row] = readDematdocNotice(page(
+    [30, 800, 'PRESCRIPTIONS À DÉCLARATION PRÉALABLE'], [30, 788, 'PRONONCEES PAR LE MAIRE AU NOM DE LA COMMUNE'], [60, 740, 'Déposé 09/09/2026 DP 057 041 26 00025'],
+    [60, 700, 'Par: Madame PRIVATE'], [60, 570, 'Sur un terrain : 19 rue d’Ottange à AUMETZ'],
+  ), { city: aumetz, file: { board: 'decisions', title: '' } });
+  assert.equal(row.address, '19 rue d’Ottange à AUMETZ');
+  assert.equal(row.postcode, '57710');
+});
+
+test('an amendment suffix typed in the link wins over one OCR garbles, never over a clear one', () => {
+  const rurange = { insee: '57602', postcode: '57310' };
+  const document = page([60, 780, 'ARRÊTÉ de non-opposition à une déclaration préalable'], [60, 760, 'Dossier n° DP05760226N0030T4'],
+    [60, 740, 'Adresse du terrain : 25 rue des Écoles'], [60, 720, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable']);
+  const read = (dossier, text = null) => readDematdocNotice(text ?? document, { city: rurange, file: { board: 'decisions', title: '', row: { dossier } } })[0].dossier;
+  assert.equal(read('DP 057602 26 N0030 M01'), 'DP 057602 26 N0030 M01');
+  assert.equal(read('DP 057602 26 N0031 M01'), 'DP 057602 26 N0030 T4', 'another counter is another dossier');
+  const clear = page([60, 780, 'ARRÊTÉ de non-opposition à une déclaration préalable'], [60, 760, 'Dossier n° DP05760226N0030M02'],
+    [60, 740, 'Adresse du terrain : 25 rue des Écoles']);
+  assert.equal(read('DP 057602 26 N0030 M01', clear), 'DP 057602 26 N0030 M02');
+});
+
+test('« retrait-gonflement des argiles » in an order’s note is no withdrawal', () => {
+  const hagondange = { insee: '57283', postcode: '57300' };
+  const [row] = readDematdocNotice(page(
+    [60, 780, 'ARRÊTÉ de non-opposition à une déclaration préalable'], [60, 760, 'Dossier n° DP 057 283 26 00095'],
+    [60, 740, 'Adresse du terrain : 44 rue du Maréchal Foch'], [60, 700, 'ARRÊTE'],
+    [60, 680, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable'], [60, 668, 'Nota :'],
+    [60, 656, 'Le terrain est situé en zone d’aléa fort vis-à-vis du risque naturel de retrait-gonflement des argiles.'],
+  ), { city: hagondange, file: { board: 'decisions', title: '' } });
+  assert.equal(row.verdict, 'Non-opposition');
+});
+
+test('the day of an order whose signature is a stamp is the one its télétransmission ID carries (Douvrin)', () => {
+  const douvrin = { insee: '62276', postcode: '62138' };
+  let stampDay = '20260928';
+  const read = (...extra) => readDematdocNotice(page(
+    [30, 800, `ID : 062-216202762-${stampDay}-PC2026_00020-AU`], [60, 780, 'OCTROI DE PERMIS DE CONSTRUIRE'],
+    [60, 760, 'N° PC 062 276 26 00020'], [60, 740, 'déposée le 24/07/2026'], [60, 720, 'sur un terrain sis LOT 69 RUE DES MARTYRS'],
+    [60, 700, 'ARTICLE 1'], [60, 688, 'Le permis de construire est accordé sous réserve de respecter les prescriptions.'],
+    [60, 660, 'Fait à DOUVRIN, le'], ...extra,
+  ), { city: douvrin, file: { board: 'decisions', title: '' } })[0];
+  assert.equal(read().decidedOn, '2026-09-28');
+  assert.equal(read([60, 650, 'Fait à DOUVRIN, le 29/09/2026']).decidedOn, '2026-09-29', 'a day the order prints is preferred to the stamp');
+  assert.equal(readDematdocNotice(page([60, 780, 'DÉCISION DE NON-OPPOSITION'], [60, 760, 'N° DP 062 276 26 00020'], [60, 740, 'Dossier déposé le 22/12/2025'],
+    [60, 720, 'Sur un terrain sis 4 rue des Marais'], [60, 700, 'ARTICLE UNIQUE : il n’est pas fait opposition'], [60, 680, 'Fait à DOUVRIN, le 29/12/2028']),
+  { city: douvrin, file: { board: 'decisions', title: '', signedBy: '2025-12-29' } })[0].decidedOn, null, 'an order is not signed after the day its board posted it');
+  stampDay = '20260101';
+  assert.equal(read().decidedOn, null, 'a day before the filing is no decision and is dropped');
+});
+
+test('a postcode and a commune alone are no site, and « et » between two parcel numbers is no section (Clouange)', () => {
+  const clouange = { insee: '57143', postcode: '57185' };
+  assert.equal(dematdocParcels('Section 03 Parcelles 0016, 0168 et 0169', clouange), null);
+  assert.equal(dematdocParcels('193 et 195', clouange), null);
+  assert.equal(dematdocParcels('AB 12, ET 169', clouange), 'AB 12, ET 169', 'a section « ET » after a comma stays one');
+  const order = (site) => readDematdocNotice(page(
+    [30, 800, 'PERMIS DE CONSTRUIRE MODIFICATIF'], [300, 780, 'N° PC 057 143 24P0004 M01'], [30, 760, 'Demande déposée le 30/06/2026'],
+    [30, 730, 'Sur un terrain sis à :'], [140, 730, site], [30, 700, 'Article 1 : Le présent Permis de Construire fait l’objet d’une décision favorable.'],
+  ), { city: clouange, file: { board: 'decisions', title: '' } });
+  assert.deepEqual(order('57185 CLOUANGE'), [], 'no street, no row');
+  const stamped = (...lines) => readDematdocNotice(page(
+    [30, 800, 'DÉCLARATION PRÉALABLE'], [300, 780, 'N° DP 057 143 2600034'], [30, 760, 'Demande déposée le 10/09/2026'], [30, 740, 'Sur un terrain sis à : 11 Rue du Ruisseau'],
+    [30, 700, 'Article 1 : La présente déclaration préalable fait l’objet d’une décision de non opposition.'], ...lines,
+  ), { city: clouange, file: { board: 'decisions', title: '' } })[0].decidedOn;
+  assert.equal(stamped([413, 190, '2 9 SEP. 2026'], [325, 170, 'CLOUANGE, le']), '2026-09-29', 'a stamp alone on its line, digits spaced by the OCR');
+  assert.equal(stamped([325, 170, 'CLOUANGE, le 15 SEP, 2026']), '2026-09-15', 'a comma after the month');
+  assert.equal(stamped([413, 190, '2 9 SEP, 20%'], [325, 170, 'CLOUANGE, le']), null, 'a year the OCR cannot read is no date');
+  assert.equal(order('11 Rue du Ruisseau 57185 Clouange')[0].address, '11 Rue du Ruisseau');
+});
+
+test('a commune alone over a street: the street under it is the site, a sentence under it is not (Pomacle)', () => {
+  const pomacle = { insee: '51439', postcode: '51110' };
+  const notice = (under) => readDematdocNotice(page(
+    [199, 725, 'PERMIS DE CONSTRUIRE'], [45, 686, 'Référence :'], [198, 686, 'Dossier n°: PC 051 439 26 00014'],
+    [45, 659, 'Date de dépôt :'], [198, 659, '23 septembre 2026'], [45, 604, 'Bénéficiaire :'], [201, 604, 'EXEMPLE SAS'],
+    [45, 578, 'Adresse des travaux :'], [201, 578, '51110 POMACLE'], [204, 564, under],
+    [45, 525, 'Nature des travaux :'], [201, 525, 'Construction d’un carport'],
+  ), { city: pomacle, file: { board: 'filings', title: '' } });
+  assert.equal(notice('Route de Bazancourt')[0].address, 'Route de Bazancourt');
+  assert.equal(notice('3 Grande Place')[0].address, '3 Grande Place');
+  assert.deepEqual(notice('Le dossier peut être consulté en mairie'), [], 'no street, no parcel: no row');
+});
+
+test('an order dated « 21 / 9 /2026 » and signed « Le 24 septembre 2026 » over « Le Maire » gives both days (Rurange)', () => {
+  const rurange = { insee: '57602', postcode: '57310', source: { oForZero: true } };
+  const [row] = readDematdocNotice({ pages: [
+    page([200, 800, 'Dossier n° DP05760226NO060'], [200, 780, 'Date de dépôt : 21 / 9 /2026'], [200, 760, 'Pour : installation d’une clôture'],
+      [200, 740, 'Adresse du terrain : 3 rue Jacques Prévert MONTREQUIENNE (57310)'], [60, 700, 'ARRÊTÉ de non-opposition à une déclaration préalable'],
+      [60, 680, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable']).pages[0],
+    page([300, 800, 'Le 24 septembre 2026'], [300, 788, 'Le Maire'], [300, 776, 'Prénom NOM']).pages[0],
+  ] }, { city: rurange, file: { board: 'decisions', title: '' } });
+  assert.equal(row.filedOn, '2026-09-21');
+  assert.equal(row.decidedOn, '2026-09-24');
+  const cadastral = page([200, 800, 'Dossier n° DP05760226NO060'], [200, 760, 'Adresse du terrain : 3 rue Jacques Prévert'], [200, 740, 'Références cadastrales : S37 P0113'],
+    [60, 700, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable']);
+  const parcelsOf = (file) => readDematdocNotice(cadastral, { city: rurange, file: { board: 'decisions', title: '', ...file } })[0].parcels;
+  assert.equal(parcelsOf({}), 'S 37, P 113', 'read as two parcels unless the board says otherwise');
+  assert.equal(parcelsOf({ noParcels: true }), null);
+  assert.equal(row.address, '3 rue Jacques Prévert MONTREQUIENNE');
+});
+
+test('a later sentence that says « parcelles » is no parcel reference: the first labelled line decides (Hagondange)', () => {
+  const hagondange = { insee: '57283', postcode: '57300' };
+  const read = (parcels) => readDematdocNotice(page(
+    [200, 800, 'DP 057 283 2600108'], [60, 760, 'Sur un terrain sis : 2-4 rue de la liberté'], [60, 740, parcels],
+    [60, 700, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable'],
+    [60, 660, 'sur les parcelles voisines (Zone d’influence Géotechnique décrite dans la norme NF P 94-500 révisée le 30 novembre 2013)'],
+  ), { city: hagondange, file: { board: 'decisions', title: '' } })[0].parcels;
+  assert.equal(read('Parcelle(s) : 14 0070, 14 0110'), null, 'numeric sections are not read, the note is not either');
+  assert.equal(read('Parcelle(s) : AB 12, C 138'), 'AB 12, C 138');
+});
+
+test('a parcel reference where the site should be places the act on its parcels, with no address (Wasquehal)', () => {
+  const wasquehal = { insee: '59646', postcode: '59290' };
+  const read = (...lines) => readDematdocNotice(page(
+    [60, 780, 'ARRÊTÉ de non-opposition à une déclaration préalable'], [60, 760, 'N° DP 059 646 26 00175'], [60, 740, 'Demande déposée le 07/08/2026'],
+    ...lines, [60, 680, 'ARTICLE UNIQUE : il n’est pas fait opposition à la déclaration préalable'],
+  ), { city: wasquehal, file: { board: 'decisions', title: '' } });
+  const [row] = read([74, 712, 'Sur un 92 RUE EXEMPLE à WASQUEHAL'], [74, 700, 'terrain sis : Cadastré : BD40, BD74']);
+  assert.deepEqual([row.dossier, row.address, row.postcode, row.parcels, row.verdict], ['DP 059646 26 00175', null, '59290', 'BD 40, BD 74', 'Non-opposition']);
+  assert.equal(read([74, 700, 'Sur un terrain sis : Cadastré : BD40'], [74, 690, 'Adresse du terrain : 3 rue Exemple'])[0].address, '3 rue Exemple',
+    'a label that gives an address wins over the parcels');
+  assert.deepEqual(read([74, 700, 'Sur un terrain sis : Cadastré : néant']), [], 'no parcel read, no row');
+});
+
+test('a commune alone where the site should be keeps the act on its parcels; a lone stamp of the filing day signs nothing (Rouvroy, Wasquehal)', () => {
+  const rouvroy = { insee: '62724', postcode: '62320' };
+  const read = (...lines) => readDematdocNotice(page(
+    [60, 780, 'ARRÊTÉ de non-opposition à une déclaration préalable'], [60, 760, 'N° DP 062 724 26 00026'], [60, 740, 'Dossier déposé le 26/05/2026'],
+    ...lines, [60, 680, 'ARTICLE 1 : il n’est pas fait opposition à la déclaration préalable'],
+  ), { city: rouvroy, file: { board: 'decisions', title: '' } })[0];
+  const row = read([60, 712, 'Sur un terrain sis : 62320 ROUVROY'], [60, 700, 'Cadastré : AO 316']);
+  assert.deepEqual([row.address, row.parcels], [null, 'AO 316']);
+  assert.equal(read([60, 712, 'Sur un terrain sis : 62320 ROUVROY']), undefined, 'neither an address nor a parcel: no row');
+  assert.equal(read([60, 712, 'Adresse du terrain : 2 rue Exemple'], [238, 120, '26 MAI 2026']).decidedOn, null, 'the filing day’s stamp');
+  assert.equal(read([60, 712, 'Adresse du terrain : 2 rue Exemple'], [238, 120, '0 2 JUIN 2026']).decidedOn, '2026-06-02');
+});
+
+test('a label’s « à : » printed on its value’s line, a few points above it, is not the site (Lançon-Provence)', () => {
+  const lancon = { insee: '13051', postcode: '13680' };
+  const document = { pages: [{ runs: [
+    { x: 304, x1: 347, y: 790.1, text: 'DOSSIER :' }, { x: 351, x1: 458, y: 790.8, text: 'N° DP 013 051 26 00134' },
+    { x: 304, x1: 408, y: 776.2, text: 'Déposé le : 07/09/2026' },
+    { x: 305, x1: 393, y: 718.4, text: 'Nature des travaux :' }, { x: 397, x1: 436, y: 718.5, text: 'PORTAIL' },
+    { x: 382, x1: 386, y: 704.0, text: 'à' }, { x: 390, x1: 391, y: 704.1, text: ':' },
+    { x: 395, x1: 489, y: 704.2, text: '12 Avenue du général' }, { x: 493, x1: 531, y: 705.7, text: 'Exemple à' },
+    { x: 304, x1: 378, y: 702.8, text: 'Sur un terrain sis' },
+    { x: 305, x1: 432, y: 689.4, text: 'LANCON-PROVENCE (13680)' },
+    { x: 285, x1: 354, y: 593, text: 'DECISION' },
+  ] }] };
+  const [row] = readDematdocNotice(document, { city: lancon, file: { board: 'decisions', title: '' } });
+  assert.equal(row.address, '12 Avenue du général Exemple');
+});
+
+test('a « | » ends the works; in a site it is a misread letter where no applicant’s column bounds the table (Anor, Lillers)', () => {
+  const lillers = { insee: '62516', postcode: '62190' };
+  const document = words(
+    [372, 404, 555, 'AVIS'], [410, 428, 555, 'DE'], [433, 481, 555, 'DÉPÔT'],
+    [118, 158, 474, 'Dossier'], [162, 202, 474, 'numéro'], [207, 208, 474, ':'], [221, 237, 474, 'DP'], [241, 260, 474, '062'],
+    [265, 284, 474, '516'], [288, 301, 474, '26'], [305, 337, 474, '00121'],
+    [140, 202, 423, 'Demandeur'], [207, 208, 423, ':'], [221, 267, 423, 'PRIVATE'], [271, 307, 423, 'PERSON'],
+    [106, 151, 367, 'Adresse'], [155, 167, 367, 'du'], [171, 205, 367, 'terrain'], [221, 232, 367, '12'], [236, 254, 367, 'rue'],
+    [258, 270, 367, 'de'], [274, 275, 367, '|'], [279, 318, 367, 'Église'],
+    [220, 253, 351, '62190'], [258, 305, 351, 'LILLERS'],
+    [102, 131, 311, 'Pour'], [135, 137, 311, ':'], [141, 160, 311, '|'], [221, 290, 311, 'Détachement'], [293, 306, 311, 'de'],
+    [311, 340, 311, 'terrains'], [345, 347, 311, '|'], [351, 410, 311, 'Destination'], [414, 416, 311, ':'], [420, 470, 311, 'Habitation'],
+  );
+  const [row] = readDematdocNotice(document, { city: lillers, file: { board: 'filings', title: '' } });
+  assert.equal(row.address, '12 rue de | Église', 'the misread « l\' » stays, and so does the rest of the street');
+  assert.equal(row.purpose, 'Détachement de terrains');
+});
+
+test('the works of a justified line keep their words, however wide OCR spaces them (Bauvin)', () => {
+  const bauvin = { insee: '59052', postcode: '59221' };
+  const document = words(
+    [289, 359, 801, 'ANNULATION'], [364, 396, 801, 'D’UNE'], [401, 478, 801, 'DECLARATION'], [482, 545, 801, 'PREALABLE'],
+    [419, 527, 728, 'N° DP 059 052 26 00040'],
+    [39, 61, 486, 'Pour'], [64, 66, 486, ':'], [189, 227, 486, 'Travaux'], [272, 288, 486, 'sur'], [332, 392, 486, 'construction'],
+    [39, 55, 440, 'Sur'], [58, 68, 440, 'un'], [72, 100, 440, 'terrain'], [103, 115, 440, 'sis'], [118, 120, 440, ':'],
+    [189, 218, 440, '04Bis,'], [222, 240, 440, 'Rue'], [243, 268, 440, 'Exemple'],
+    [27, 59, 224, 'Article'], [63, 95, 224, 'unique'], [99, 99, 224, ':'], [104, 114, 224, 'La'], [117, 165, 224, 'déclaration'], [271, 309, 224, 'annulée.'],
+  );
+  const [row] = readDematdocNotice(document, { city: bauvin, file: { board: 'decisions', title: '' } });
+  assert.equal(row.purpose, 'Travaux sur construction');
+  // A single wide gap is still a second column.
+  const two = words(...document.pages[0].runs.filter((r) => r.y !== 486).map((r) => [r.x, r.x1, r.y, r.text]),
+    [39, 61, 486, 'Pour'], [64, 66, 486, ':'], [189, 227, 486, 'Clôture'], [232, 240, 486, 'en'], [244, 270, 486, 'bois'],
+    [330, 380, 486, 'Destination'], [384, 386, 486, ':'], [390, 440, 486, 'Habitation']);
+  assert.equal(readDematdocNotice(two, { city: bauvin, file: { board: 'decisions', title: '' } })[0].purpose, 'Clôture en bois');
+});
