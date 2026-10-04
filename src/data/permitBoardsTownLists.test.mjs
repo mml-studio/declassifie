@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOWN_LIST_READERS, readAytreFilings, readCimDecisions, readDecidedUntilList, readFiledBeforeList, readLabelledCards } from './permitBoardsTownLists.js';
+import { TOWN_LIST_READERS, readAytreFilings, readCimDecisions, readDecidedUntilList, readFiledBeforeList, readLabelledCards, readQuarterTurnDecisions, readQuarterTurnFilings } from './permitBoardsTownLists.js';
 import { BOARD_PERMIT_SOURCES, BOARD_READERS } from './permitBoards.js';
 import { POSTED_LIST_PROTOCOLS, postedActFiles } from './permitBoardsPostedLists.js';
 import { permitListFor, scrubPermitListRow } from './permitListsFeed.js';
@@ -9,6 +9,47 @@ const city = (key) => BOARD_PERMIT_SOURCES.find((source) => source.key === key);
 const run = (text, x, y, size = 8) => ({ text, x, x1: x + text.length * 4, y, size });
 const page = (...runs) => ({ pages: [{ runs }] });
 const PRIVATE = /PRIVATE|PERSON/;
+
+// Raw coordinates of PDF24's /Rotate 90 export, derived from the displayed runs.
+const rotated = (document) => ({ pages: document.pages.map((p) => ({ runs: p.runs.map((r) => ({
+  ...r, x: 842 - r.y, x1: 842 - r.y, y: r.x,
+})) })) });
+
+test('Quimperlé rotates every page before reading multiline rows and excludes other municipalities', () => {
+  const source = city('quimperle');
+  assert.equal(permitListFor('29233'), source);
+  const header = [run('Date de dépôt', 28, 700), run('Numéro de', 120, 700), run('dossier', 120, 688),
+    run('Pétitionnaire', 211, 700), run('Adresse du projet', 312, 700), run('Description du projet', 455, 700)];
+  const document = { pages: [{ runs: [...header,
+    run('23/09/2026', 28, 650), run('DP 29233 26 00222', 120, 650), run('PRIVATE PERSON', 211, 650),
+    run('58 Rue Exemple', 312, 650), run('29300 Quimperlé', 312, 638), run('Renovation', 455, 650),
+  ] }, { runs: [...header,
+    run('Roof', 455, 665),
+    run('22/09/2026', 28, 640), run('DP 29233 26 00221', 120, 640), run('PRIVATE PERSON', 211, 640),
+    run('6 Rue Autre', 312, 640), run('Facade', 455, 640),
+    run('21/09/2026', 28, 600), run('DP 29150 26 00221', 120, 600), run('PRIVATE PERSON', 211, 600),
+    run('99 Rue Excluded', 312, 600), run('Excluded', 455, 600),
+  ] }] };
+  const rows = readQuarterTurnFilings(rotated(document), { city: source, file: { published: '2026-09-24' } });
+  assert.deepEqual(rows.map((r) => [r.dossier, r.address, r.filedOn, r.purpose]), [
+    ['DP 029233 26 00222', '58 Rue Exemple', '2026-09-23', 'Renovation Roof'],
+    ['DP 029233 26 00221', '6 Rue Autre', '2026-09-22', 'Facade'],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+  assert.deepEqual(readQuarterTurnFilings(document, { city: source, file: {} }), [], 'changed orientation is withheld');
+});
+
+test('Quimperlé decisions preserve refusals, signing dates and their own project sites', () => {
+  const document = page(run('Numéro de dossier', 28, 700), run('Pétitionnaire', 139, 700), run('Décision', 259, 700),
+    run('Date de', 334, 700), run('signature', 334, 688), run('Nature des travaux', 414, 700),
+    run('Adresse des travaux', 594, 700), run('Surface', 769, 700),
+    run('DP 29233 26 00201', 28, 640), run('PRIVATE PERSON', 139, 640), run('Refus', 259, 640),
+    run('21/09/2026', 334, 640), run('New window', 414, 640), run('8 Rue Exemple', 594, 640), run('29300 Quimperlé', 594, 628));
+  const [row] = readQuarterTurnDecisions(rotated(document), { city: city('quimperle'), file: { published: '2026-09-24' } });
+  assert.deepEqual([row.dossier, row.address, row.decidedOn, row.postedOn, row.verdict],
+    ['DP 029233 26 00201', '8 Rue Exemple', '2026-09-21', '2026-09-24', 'Refus']);
+  assert.doesNotMatch(JSON.stringify(scrubPermitListRow(row)), PRIVATE);
+});
 
 test('the town list readers are registered, and the communes that use them read by their protocol', () => {
   for (const layout of Object.keys(TOWN_LIST_READERS)) assert.equal(BOARD_READERS[layout], TOWN_LIST_READERS[layout], layout);

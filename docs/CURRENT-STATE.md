@@ -5542,6 +5542,27 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Osny and Quimperlé whole-register snapshots (2026-10-04).**
+Both municipal pages join `postedListCities.js` through `posted-lists`.
+`source.latestOnly` keeps the newest snapshot of each board, so departed
+filings from an older edition never become current on the same sweep.
+Both sources mark retained filings as under review; the existing archive
+keeps departed dossiers as filings without that current status.
+Osny's dated URLs are replaced in place and use `source.rolling` for HTTP
+revalidation. Quimperlé's A3 `/Rotate 90` exports use the header-checked
+`town-quarter-turn-filings` and `town-quarter-turn-decisions` readers,
+which normalize every page's coordinates before the existing table readers.
+`postedListDay` no longer combines upload directories with numeric filenames
+into an invented edition day. The latest four PDFs retain 104 filings and
+130 decisions, all distinct dossiers; 231 have an extracted project address
+and 223 are geocoded. Eleven remain unplaced. No file failed or awaits OCR.
+The source gain against the preceding Levallois batch, after rebasing on
+main at `22e42803`, is 30,423 residents: 4,290 to 4,292 municipalities and
+33.2319% to 33.2764% of the same
+68,350,798-resident snapshot. Private applicant columns are excluded.
+Both pages and files honor robots rules; no new override or account is needed.
+[Research and validation](research/osny-quimperle-permits-2026-10-04.md).
+
 **Levallois-Perret and persistent research history (2026-10-03).**
 The city's public Webdelib urbanism tab joins `permitBoardCities.js` through
 `permitBoardsLevallois.js`. Monthly indexes select the newest PC, DP and PD

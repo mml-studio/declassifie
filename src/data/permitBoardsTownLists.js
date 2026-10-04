@@ -308,6 +308,32 @@ export function readLabelledCards(document, { city, file }) {
   return rows;
 }
 
+/**
+ * Quimperlé's PDF24 A3 lists have /Rotate 90: the text extractor's x runs
+ * down the displayed page and its y runs across it. Rotate the coordinates
+ * only after the table headers confirm that orientation. No page height is
+ * needed: the existing readers use relative row positions. Page-coordinate
+ * clipping boxes are discarded; absent advances use the table's width fallback.
+ */
+function quarterTurnList(document, context, reader, labels) {
+  const first = document?.pages?.[0]?.runs ?? [];
+  const headers = labels.map((label) => first.find((run) => clean(run.text) === label));
+  if (headers.some((header) => !header)
+    || headers.some((header) => Math.abs(header.x - headers[0].x) > 2)
+    || headers.some((header, i) => i > 0 && header.y <= headers[i - 1].y)) return [];
+  const pages = document.pages.map((page) => ({ runs: (page.runs ?? []).map((run) => ({
+    ...run, x: run.y, x1: run.y, y: -run.x, clip: null,
+  })) }));
+  return reader({ pages }, context);
+}
+
+// i18n-ignore-start — the printed headers that confirm the rotated table
+export const readQuarterTurnFilings = (document, context) => quarterTurnList(document, context, readFiledBeforeList,
+  ['Date de dépôt', 'Numéro de', 'Pétitionnaire', 'Adresse du projet', 'Description du projet']);
+export const readQuarterTurnDecisions = (document, context) => quarterTurnList(document, context, readDecidedUntilList,
+  ['Numéro de dossier', 'Pétitionnaire', 'Décision', 'Date de', 'Nature des travaux', 'Adresse des travaux', 'Surface']);
+// i18n-ignore-end
+
 export const TOWN_LIST_READERS = Object.freeze({
   'town-labelled-cards': readLabelledCards,
   'town-romagnat-filings': (document, context) => readRomagnatBoard(document, context, 'filings'),
@@ -318,5 +344,7 @@ export const TOWN_LIST_READERS = Object.freeze({
   'town-cim-decisions': readCimDecisions,
   'town-filed-before': readFiledBeforeList,
   'town-decided-until': readDecidedUntilList,
+  'town-quarter-turn-filings': readQuarterTurnFilings,
+  'town-quarter-turn-decisions': readQuarterTurnDecisions,
 });
 export const TOWN_LIST_TEXT = Object.freeze({});

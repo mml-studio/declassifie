@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { POSTED_LIST_PROTOCOLS, postedActFiles, postedListDay, postedListFiles } from './permitBoardsPostedLists.js';
 import { BOARD_PERMIT_SOURCES, BOARD_PROTOCOLS, BOARD_READERS } from './permitBoards.js';
-import { PERMIT_LIST_READERS, permitListFor } from './permitListsFeed.js';
+import { PERMIT_LIST_READERS, permitListFor, normalisePermitListRow } from './permitListsFeed.js';
 
 const city = (key) => BOARD_PERMIT_SOURCES.find((source) => source.key === key);
 const KEYS = ['haguenau', 'saverne', 'barr', 'benfeld', 'offendorf', 'lauterbourg'];
@@ -28,6 +28,42 @@ test('a list’s day is read from its name or its words, whatever order the town
   assert.equal(postedListDay('/2026-09-30-liste.pdf'), '2026-09-30');
   assert.equal(postedListDay('/wp-content/uploads/2026/09/liste.pdf'), '2026-09-01', 'the upload month, failing a day');
   assert.equal(postedListDay('/documents/81097'), null);
+});
+
+test('an edition day never spans an upload directory and its numeric filename', () => {
+  const path = '/wp-content/uploads/2026/09/09-24-Affichage-des-Depots.pdf';
+  assert.equal(postedListDay(path, 'Dossiers déposés avant le 24 septembre 2026'), '2026-09-24');
+  assert.equal(postedListDay(path), '2026-09-01', 'no full day in the filename: only the known upload month');
+  const files = postedListFiles(city('quimperle'), link(path, 'Dossiers déposés avant le 24 septembre 2026'), city('quimperle').page);
+  assert.equal(files[0].layout, 'town-quarter-turn-filings');
+  assert.equal(files[0].published, '2026-09-24');
+});
+
+test('Osny revalidates dated lists that its publisher replaces in place', () => {
+  const source = city('osny');
+  assert.equal(permitListFor('95476'), source);
+  const files = postedListFiles(source, link('/sites/osny/files/document/affichage-decision-du-28.09.2026.pdf',
+    'Affichage décision jusqu’au 28.09.2026'), source.page);
+  assert.deepEqual(files.map(({ board, published, rolling, layout }) => ({ board, published, rolling, layout })),
+    [{ board: 'decisions', published: '2026-09-28', rolling: true, layout: 'town-decided-until' }]);
+});
+
+test('whole-register snapshots retain each board’s newest edition, not departed pending filings', () => {
+  const source = city('quimperle');
+  const html = link('/wp-content/uploads/2026/09/09-17-Affichage-des-Depots.pdf', 'Dossiers déposés avant le 17 septembre 2026')
+    + link('/wp-content/uploads/2026/09/09-24-Affichage-des-Depots.pdf', 'Dossiers déposés avant le 24 septembre 2026')
+    + link('/wp-content/uploads/2026/09/09-24-Affichage-des-Decisions.pdf', 'Autorisations délivrées jusqu’au 24 septembre 2026');
+  assert.deepEqual(postedListFiles(source, html, source.page).map(({ board, published }) => [board, published]),
+    [['filings', '2026-09-24'], ['decisions', '2026-09-24']]);
+});
+
+test('current Osny and Quimperlé filings are under review only while their newest snapshot retains them', () => {
+  for (const key of ['osny', 'quimperle']) {
+    const source = city(key);
+    const row = { dossier: `DP ${source.insee} 26 00222`, address: '8 Rue Exemple', filedOn: '2026-09-21' };
+    assert.equal(normalisePermitListRow(source, 'filings', row, { current: true }).state, 'instruction');
+    assert.equal(normalisePermitListRow(source, 'filings', row, { current: false }).state, 'depose');
+  }
 });
 
 test('a page gives each list newest first, a list with no day as the board refreshed in place', () => {
