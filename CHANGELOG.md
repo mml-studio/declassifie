@@ -6,6 +6,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Mantes-la-Ville and Saint-Cyr-l'École now show their fresh permits**,
+  43,600 inhabitants. Saint-Cyr-l'École posts the same Word tables as
+  Limeil-Brévannes, read by its readers through the posted-list protocol; Mantes-la-Ville links one PDF per decision, some
+  numbered without the commune's code (« DP 2600099 »), which the posted-acts
+  protocol now spells out.
 - **Moëlan-sur-Mer, Saint-Jean-d'Angély, Vif, Saint-Rémy, Bouillargues,
   Trèbes, Courseulles-sur-Mer, Champhol, Rozay-en-Brie and Dargnies now show
   their fresh permits**, 51,849 inhabitants. Moëlan, Saint-Rémy, Champhol and
