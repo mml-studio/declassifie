@@ -67,6 +67,22 @@ export const POSTED_LIST_CITIES = [
     page: 'https://ville-vif.fr/vivre-a-vif/la-mairie/actes-administratifs/', source: { protocol: 'posted-acts' } },
   { key: 'trebes', insee: '11397', postcode: '11800', label: 'Ville de Trèbes — avis de dépôt des demandes d’urbanisme',
     page: 'https://ville-trebes.com/urbanisme/avis-de-depot-des-demandes-durbanisme/', source: { protocol: 'posted-acts' } },
+  // The document library lists every paper, newest first; the avis de dépôt are among the first three pages.
+  { key: 'mauges-sur-loire', insee: '49244', postcode: '49290', label: 'Mauges-sur-Loire — avis de dépôt et décisions d’urbanisme',
+    page: 'https://www.mauges-sur-loire.fr/systeme/documentheque/', source: { protocol: 'posted-acts', pages: [
+      'https://www.mauges-sur-loire.fr/systeme/documentheque/page/2/', 'https://www.mauges-sur-loire.fr/systeme/documentheque/page/3/',
+    ] } },
+  // One page a family; the files name the number glued and short (`Avis_de_depot_pc2600023_….pdf`).
+  { key: 'coursan', insee: '11106', postcode: '11110', label: 'Ville de Coursan — affichage légal des autorisations d’urbanisme',
+    page: 'https://www.coursan.fr/demarches/urbanisme/affichage-legal-des-autorisations-doccupation-du-sol/permis-de-construire-1/avis-de-depot',
+    source: { protocol: 'posted-acts', pages: ['permis-de-construire-1/decisions', 'declarations-prealables-dp', 'permis-damenager-pa', 'permis-de-demolir-pd']
+      .map((path) => `https://www.coursan.fr/demarches/urbanisme/affichage-legal-des-autorisations-doccupation-du-sol/${path}`) } },
+  { key: 'cordemais', insee: '44045', postcode: '44360', label: 'Commune de Cordemais — décisions d’urbanisme',
+    page: 'https://www.cordemais.fr/urbanisme/', source: { protocol: 'posted-acts' } },
+  // A month's granted permits, « Permis de construire accordés septembre 2026 », exported from its software.
+  { key: 'cesson-sevigne', insee: '35051', postcode: '35510', label: 'Ville de Cesson-Sévigné — permis de construire accordés',
+    page: 'https://www.ville-cesson-sevigne.fr/consulter-les-documents-durbanisme/',
+    source: { protocol: 'posted-lists', lists: { decisions: '\\bPERMIS DE CONSTRUIRE ACCORDES\\b' }, layouts: { decisions: 'town-cim-decisions' } } },
   // Names its acts by their site (`Avis-depot-DP-rue-Lachevalle-au-n°-64.pdf`) and prints each avis de dépôt as a one-row list.
   { key: 'saint-jean-d-angely', insee: '17347', postcode: '17400', label: 'Ville de Saint-Jean-d’Angély — affichage légal d’urbanisme',
     page: 'https://www.angely.net/ma-mairie/affichage-legal/urbanisme/',

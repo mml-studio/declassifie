@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOWN_LIST_READERS, readDecidedUntilList, readFiledBeforeList } from './permitBoardsTownLists.js';
+import { TOWN_LIST_READERS, readAytreFilings, readCimDecisions, readDecidedUntilList, readFiledBeforeList, readLabelledCards } from './permitBoardsTownLists.js';
 import { BOARD_PERMIT_SOURCES, BOARD_READERS } from './permitBoards.js';
 import { POSTED_LIST_PROTOCOLS, postedActFiles } from './permitBoardsPostedLists.js';
 import { permitListFor, scrubPermitListRow } from './permitListsFeed.js';
@@ -71,4 +71,96 @@ test('Saint-Jean-d’Angély names its acts by their site: street first, then «
     ['decisions', 'dematdoc-notice', null, null],
   ], 'an « Avis depot » is a filing, read as the one-row list it is');
   assert.equal(postedActFiles(angely, '<a href="/x/PC173472600007-au-revoir.pdf">x</a>', angely.page, '2026-08-01')[0].row.address, null);
+});
+
+test('Cesson-Sévigné’s monthly export: no applicant column, the site cut at its slash', () => {
+  const rows = readCimDecisions(page(
+    run('Extraction CIM', 91, 553),
+    run('Numéro', 57, 503), run('Date décision', 132, 503), run('Natrue de la Décision', 205, 503), run('DOSSIER.DECISIO', 303, 503),
+    run('DOSSIER.DECISIO', 375, 503), run('DOSSIER.DECISIO', 448, 503), run('Nature du projet', 545, 503), run('Adresse Projet', 661, 503),
+    run('DOSS_PCR.TRAV_', 747, 503), run('N_NATURE', 315, 489), run('N_NATURE', 387, 489), run('N_NATURE_LONG', 448, 489), run('DESCRIPTION', 754, 489),
+    run('PC 035 051 26 00049', 17, 472), run('21/09/2026', 138, 472), run('5', 187, 472), run('5', 301, 472), run('5', 373, 472),
+    run('Octroi avec', 446, 472), run('24 rue du Parc 35510', 632, 472), run('Construction d’un', 745, 472),
+    run('prescriptions', 446, 462), run('CESSON-SEVIGNE', 632, 462), run('carport', 745, 462),
+    run('PC 035 051 24 A0082 M01', 17, 375), run('11/09/2026', 138, 375), run('Octroi', 446, 375), run('1C rue du chêne Germain Lot B / SAS EXEMPLE', 632, 375),
+    run('Edité le 01/10/2026', 16, 16), run('Page 1/4', 785, 16),
+  ), { city: city('cesson-sevigne'), file: { board: 'decisions', published: '2026-10-01' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.decidedOn, row.purpose]), [
+    ['PC 035051 26 00049', '24 rue du Parc', '2026-09-21', 'Construction d’un carport'],
+    ['PC 035051 24 A0082 M01', '1C rue du chêne Germain Lot B', '2026-09-11', null],
+  ]);
+  assert.match(rows[0].verdict, /prescriptions/i);
+});
+
+test('Aytré’s spreadsheet: the number rebuilt from four cells, the street cell as the site, the applicant never read', () => {
+  const rows = readAytreFilings(page(
+    run('URBANISME - AVIS DE DEPOT', 285, 1108), run('Numéro', 112, 1053), run('Dépôt', 56, 1052), run('Demandeur', 211, 1052),
+    run('Lieux des Travaux', 333, 1052), run('Nature', 484, 1052),
+    run('1-avr.-26', 53, 990), run('DP', 89, 990), run('17028', 104, 990), run('26', 128, 990), run('59', 146, 990),
+    run('PRIVATE PERSON', 160, 990), run('10 rue du Champ de Tir', 296, 990), run('Clôture', 422, 990),
+    run('Chemin de la Gigas', 296, 960), run('6-mai-26', 53, 959), run('DP', 89, 959), run('17028', 104, 959), run('26', 128, 959),
+    run('72', 146, 959), run('PERSON SAS', 160, 959),
+    run('20-juil.-26', 52, 835), run('DP', 89, 835), run('17028', 104, 835), run('25', 128, 835), run('177M1PRIVATE Person', 140, 835),
+    run('20 rue des Marguerites', 296, 836),
+    run('19-juin-26', 51, 700), run('AT', 89, 700), run('17028', 104, 700), run('26', 128, 700), run('5', 147, 700), run('16 rue Exemple', 296, 700),
+  ), { city: city('wp-media-17028'), file: { board: 'filings', published: '2026-10-02' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.filedOn, row.purpose]), [
+    ['DP 017028 26 00059', '10 rue du Champ de Tir', '2026-04-01', 'Clôture'],
+    ['DP 017028 26 00072', 'Chemin de la Gigas', '2026-05-06', null],
+    ['DP 017028 25 00177 M01', '20 rue des Marguerites', '2026-07-20', null],
+  ], 'a works authorisation (AT) is no permit');
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+});
+
+test('Margny-lès-Compiègne’s decisions: a row is the cells within a few points of its number, rows eight points apart', () => {
+  const rows = TOWN_LIST_READERS['town-margny-decisions'](page(
+    run('N° de Dossier', 67, 505), run('Date dépôt', 125, 505), run('Demandeur', 221, 505), run('Lieux des travaux', 332, 505),
+    run('Nature des Travaux', 448, 505), run('Décision', 569, 505),
+    run('DP 060 382 26 00076', 59, 443), run('Madame PRIVATE PERSON', 202, 443), run('961 avenue Octave Butin', 321, 443),
+    run('Mur de clôture', 451, 443), run('FAVORABLE', 565, 443), run('10/08/2026', 125, 441),
+    run('DP 060 382 26 00067', 59, 426), run('PRIVATE Person', 217, 426), run('FAVORABLE', 565, 426),
+    run('487 rue de Verdun', 328, 425), run('28/07/2026', 125, 424),
+    run('DP 060 382 26 00068', 59, 415), run('PERSON Claire', 215, 415), run('46 rue de Verdun', 330, 415),
+    run('28/07/2026', 125, 411), run('FAVORABLE AVEC PRESCRIPTIONS', 543, 411),
+  ), { city: city('wp-media-60382'), file: { board: 'decisions', published: '2026-09-17' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.filedOn, Boolean(row.verdict)]), [
+    ['DP 060382 26 00076', '961 avenue Octave Butin', '2026-08-10', true],
+    ['DP 060382 26 00067', '487 rue de Verdun', '2026-07-28', true],
+    ['DP 060382 26 00068', '46 rue de Verdun', '2026-07-28', true],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+});
+
+test('Romagnat’s orders: no header, the street cell as the site, one wrapped on two lines read in the sites’ column', () => {
+  const rows = TOWN_LIST_READERS['town-romagnat-decisions'](page(
+    run('ARRETES DOSSIERS D’URBANISME', 301, 1095),
+    run('PC 0633072600004@', 38, 1062), run('09/03/2026', 140, 1062), run('PRIVATE Person', 229, 1062), run('13 chemin de la Bouteille', 492, 1062),
+    run('AZ 73-74-77', 608, 1062), run('01/07/2026', 675, 1062), run('ACCORDE', 756, 1062),
+    run('1 impasse des Mésanges', 493, 899), run('DP 0633072600086', 41, 893), run('05/06/2026', 140, 893), run('PERSON Cyril', 229, 893),
+    run('AM 377 - 641', 606, 893), run('16/07/2026', 675, 893), run('NON-OPPOSITION', 741, 893), run('Saulzet-le-Chaud', 507, 887),
+    run('DP 0633072600100', 41, 870), run('10/07/2026', 140, 870), run('84 boulevard du Chauffour', 489, 870), run('AY 179', 618, 870),
+    run('16/07/2026', 675, 870), run('NON-OPPOSITION', 741, 870),
+  ), { city: city('wp-media-63307'), file: { board: 'decisions', published: '2026-10-01' } });
+  assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.filedOn, row.decidedOn, Boolean(row.verdict)]), [
+    ['PC 063307 26 00004', '13 chemin de la Bouteille', '2026-03-09', '2026-07-01', true],
+    ['DP 063307 26 00086', '1 impasse des Mésanges Saulzet-le-Chaud', '2026-06-05', '2026-07-16', true],
+    ['DP 063307 26 00100', '84 boulevard du Chauffour', '2026-07-10', '2026-07-16', true],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
+});
+
+test('La Salvetat-Saint-Gilles’s cards: the values of their labels, a decision when one is said', () => {
+  const rows = readLabelledCards(page(
+    run('Dossier', 73, 504), run('Demandeur', 190, 504), run('Décision', 774, 504),
+    run('Accord,', 780, 480), run('Référence', 19, 475), run(': DP0315262600122', 60, 475), run('PRIVATE', 173, 471), run('le 16/09/2026', 769, 471),
+    run('Déposé le', 19, 466), run(': 28/08/2026', 59, 466), run('Adresse', 547, 466), run(': 24 Avenue Léonard de Vinci', 580, 466),
+    run('PERSON', 173, 452), run('16/09/2026', 774, 452),
+    run('Référence', 19, 338), run(': DP0315262600086', 60, 339), run('Adresse', 547, 338), run(': 2 Impasse Henri Bergson', 580, 339),
+    run('Déposé le', 19, 329), run(': 15/06/2026', 59, 329),
+  ), { city: city('wp-media-31526'), file: { board: 'decisions', published: '2026-09-18' } });
+  assert.deepEqual(rows.map((row) => [row.board, row.dossier, row.address, row.filedOn, row.verdict, row.decidedOn]), [
+    ['decisions', 'DP 031526 26 00122', '24 Avenue Léonard de Vinci', '2026-08-28', 'Accord', '2026-09-16'],
+    ['filings', 'DP 031526 26 00086', '2 Impasse Henri Bergson', '2026-06-15', null, null],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows.map(scrubPermitListRow)), PRIVATE);
 });
