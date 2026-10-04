@@ -268,8 +268,8 @@ test('the five towns of 4 October 2026 read their own file names, lists only', (
   assert.deepEqual(read('wp-media-30060', [
     ['2026-09-28', '20260924-090945-etat-registre_dossiers_affichage_reglementaire.pdf'], ['2026-09-21', 'registre-17-09-26.pdf'],
     ['2026-09-21', 'registre-du-02-09-26.pdf'], ['2026-09-22', 'LISTE-DES-DELIBERATIONS-DU-CONSEIL-MUNICIPAL-DU-JEUDI-17-SEPTEMBRE-2026.pdf'],
-  ]), [['filings', 'register', '2026-09-28', false], ['filings', 'register', '2026-09-17', false], ['filings', 'register', '2026-09-02', false]],
-  'the register holds both boards: each row says which');
+  ]), [['filings', 'register', '2026-09-24', false], ['filings', 'register', '2026-09-17', false], ['filings', 'register', '2026-09-02', false]],
+  'the filename supplies the edition day before the upload day; each register row says its board');
   assert.deepEqual(read('wp-media-74143', [
     ['2026-10-02', '2026/10/Decisions-autorisations-durbanisme_02.10.2026.pdf'], ['2026-10-02', '2026/10/Avis-de-depot_demandes-durbanisme_02.10.2026.pdf'],
     ['2026-09-28', '2026/09/Liste-deliberations-cs-260910.pdf'], ['2026-09-18', '2026/09/cerfa_13410-13_CUa-et-CUb.pdf'],

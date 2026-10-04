@@ -1,0 +1,334 @@
+[
+  {
+    "code": "62193",
+    "name": "Calais",
+    "url": "https://www.calais.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "97414",
+    "name": "Saint-Louis",
+    "url": "https://saintlouis.re/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "97311",
+    "name": "Saint-Laurent-du-Maroni",
+    "url": "https://www.saintlaurentdumaroni.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  },
+  {
+    "code": "94033",
+    "name": "Fontenay-sous-Bois",
+    "url": "https://www.fontenay.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "2A004",
+    "name": "Ajaccio",
+    "url": "https://ajaccio.corsica/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "97302",
+    "name": "Cayenne",
+    "url": "https://ville-cayenne.fr/",
+    "pagesChecked": 3,
+    "statuses": [
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "02691",
+    "name": "Saint-Quentin",
+    "url": "https://www.saint-quentin.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      403
+    ]
+  },
+  {
+    "code": "81004",
+    "name": "Albi",
+    "url": "https://www.mairie-albi.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "97101",
+    "name": "Les Abymes",
+    "url": "https://www.ville-abymes.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  },
+  {
+    "code": "93071",
+    "name": "Sevran",
+    "url": "https://www.ville-sevran.fr/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "92036",
+    "name": "Gennevilliers",
+    "url": "https://www.ville-gennevilliers.fr/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "97611",
+    "name": "Mamoudzou",
+    "url": "https://www.mamoudzou.yt/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  },
+  {
+    "code": "69256",
+    "name": "Vaulx-en-Velin",
+    "url": "https://vaulx-en-velin.net/bien-vivre/cadre-de-vie/urbanisme-plu-pluh-autorisation-permis-construire-amenager-travaux/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      404,
+      404
+    ]
+  },
+  {
+    "code": "06069",
+    "name": "Grasse",
+    "url": "https://www.ville-grasse.fr/",
+    "pagesChecked": 5,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "92073",
+    "name": "Suresnes",
+    "url": "https://www.suresnes.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "59378",
+    "name": "Marcq-en-Barœul",
+    "url": "https://www.marcq-en-baroeul.org/",
+    "pagesChecked": 2,
+    "statuses": [
+      200,
+      200
+    ]
+  },
+  {
+    "code": "69282",
+    "name": "Meyzieu",
+    "url": "https://www.meyzieu.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "86066",
+    "name": "Châtellerault",
+    "url": "https://www.ville-chatellerault.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      200
+    ]
+  },
+  {
+    "code": "69029",
+    "name": "Bron",
+    "url": "https://www.ville-bron.fr/ma-ville-au-quotidien/urbanisme-logement/urbanisme/vos-demarches-durbanisme",
+    "pagesChecked": 7,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "13117",
+    "name": "Vitrolles",
+    "url": "https://www.vitrolles13.fr/",
+    "pagesChecked": 7,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "17415",
+    "name": "Saintes",
+    "url": "https://www.ville-saintes.fr/",
+    "pagesChecked": 4,
+    "statuses": [
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "03310",
+    "name": "Vichy",
+    "url": "https://www.ville-vichy.fr/",
+    "pagesChecked": 2,
+    "statuses": [
+      200,
+      200
+    ]
+  },
+  {
+    "code": "92048",
+    "name": "Meudon",
+    "url": "https://www.meudon.fr/mon-quotidien/urbanisme/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  },
+  {
+    "code": "40088",
+    "name": "Dax",
+    "url": "https://dax.dematdoc.eu/public/22",
+    "pagesChecked": 7,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "67267",
+    "name": "Lingolsheim",
+    "url": "https://www.lingolsheim.fr/",
+    "pagesChecked": 7,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "69286",
+    "name": "Rillieux-la-Pape",
+    "url": "https://www.rillieuxlapape.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  },
+  {
+    "code": "49023",
+    "name": "Beaupréau-en-Mauges",
+    "url": "https://www.beaupreauenmauges.fr/",
+    "pagesChecked": 2,
+    "statuses": [
+      200,
+      200
+    ]
+  },
+  {
+    "code": "33243",
+    "name": "Libourne",
+    "url": "https://www.libourne.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      "The operation was aborted due to timeout"
+    ]
+  },
+  {
+    "code": "49301",
+    "name": "Sèvremoine",
+    "url": "https://www.sevremoine.fr/",
+    "pagesChecked": 7,
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ]
+  },
+  {
+    "code": "94071",
+    "name": "Sucy-en-Brie",
+    "url": "https://www.ville-sucy.fr/",
+    "pagesChecked": 1,
+    "statuses": [
+      "fetch failed"
+    ]
+  }
+]

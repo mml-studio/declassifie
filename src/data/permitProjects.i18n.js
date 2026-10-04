@@ -17,9 +17,9 @@ export default defineMessages({
   /** One name per colour of the key, in the order the key prints them. */
   classes: {
     filed: {
-      fr: 'Demande en cours d’examen',
-      en: 'Application under review',
-      note: 'Only Paris, Bordeaux and Nantes publish files still at the counter.',
+      fr: 'Demande déposée',
+      en: 'Application filed',
+      note: 'The teal class includes filings and explicitly pending applications; a filing alone does not establish current review.',
     },
     granted: { fr: 'Permis accordé', en: 'Permit granted' },
     started: { fr: 'Travaux commencés', en: 'Work started' },

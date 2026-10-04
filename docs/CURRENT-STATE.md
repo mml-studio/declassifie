@@ -5626,6 +5626,42 @@ reads as an organisation, never a person, never two lines joined — so
 Limeil-Brévannes and Saint-Cyr-l'École, whose readers never looked at that
 column, now show the companies that file there.
 
+**Fleury-les-Aubrais and Guipavas registers (2026-10-04).**
+Fleury (`45147`) joins `postedListCities.js` with the newest XLSX filings and
+PDF decisions. `source.workbookSheets` explicitly enables the exact filing
+sheet; `permitBoardsFleury.js` verifies six spreadsheet or eight PDF headers,
+complete dossier identities and the printed municipality before reading
+project columns. Applicant cells are never retained, and conflicting project
+postcodes remain unplaced. The existing ZIP/XML reader bounds expanded
+archives, rows and sparse columns; unsupported 1904 date systems are rejected,
+formula cells are withheld, and Windows serial dates convert in UTC. Broken
+workbooks mark the collection incomplete without writing false empty editions.
+PDF and XLSX downloads share the capped-body and extended-timeout path.
+Guipavas (`29075`) joins `wpMediaCities.js`: its media API discovers the newest
+pair of Cart@DS PDF lists, read by existing report readers with project parcel
+references. Older snapshots and unrelated acts are excluded. The publisher's
+compact `YYYYMMDD` names retain their exact publication day; a time appended
+to a day-first filename is never read as another date. Guipavas leaves the
+Brest granted-only portal's municipality list, avoiding duplicate collection
+and adding prior declarations and refusal outcomes. Brest keeps its other
+seven municipalities. The municipal snapshots replace that portal's wider
+historical series for Guipavas; the daily archive grows from collection day
+and national Sitadel remains available. Neither new source asserts current
+instruction status from a filing notice alone. The shared teal project class
+now reads “Application filed” / “Demande déposée” in cards and the map key,
+instead of implying current review; explicit pending states and counts
+retain their existing data semantics.
+The 2 October lists retain 39 filings and 38 decisions at Fleury (64 distinct
+dossiers, 62 BAN-geocoded, two unplaced) and 130 filings and 78 decisions at
+Guipavas (208 distinct, 202 on cadastral parcels, four BAN-geocoded, two
+unplaced). Robots rules allow the pages, API and files; no account or OCR is
+needed. Source coverage rises from 4,315 to 4,316 municipalities, 22,939,530
+to 22,961,334 residents, or 33.5615% to 33.5934% of the same 68,350,798-resident
+snapshot. Fleury adds 21,804 residents; Guipavas's 15,538 were already counted
+through Brest. Thirty bounded additional screenings are recorded for later
+revisit without claiming an absence of publication.
+[Research and validation](research/fleury-guipavas-permits-2026-10-04.md).
+
 **Sélestat's scanned registers (2026-10-04).**
 The municipality (`67462`, 19,589 residents) joins `postedListCities.js`
 through `posted-lists`, keeping the newest filing and decision list with

@@ -6,6 +6,17 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Fleury-les-Aubrais and Guipavas now show their current municipal filing
+  and decision registers.** The 2 October lists retain 272 distinct dossiers,
+  with 268 placed and four unplaced. Fleury adds 21,804 previously uncovered
+  residents, bringing current-source coverage to 33.5934%; Guipavas replaces
+  the granted-only Brest source without counting its residents again.
+  Opt-in XLSX collection verifies the sheet and date system, excludes
+  applicant columns and keeps corrupt workbooks from becoming empty editions.
+  Filed-project cards and the map key now describe an application as filed
+  in both locales, without implying that every filing is still under review.
+  [Research and limits](docs/research/fleury-guipavas-permits-2026-10-04.md).
+
 - **Ten more towns now show their fresh permits**, 38,959 inhabitants:
   Pomponne, Neuville-de-Poitou, Nueil-les-Aubiers, Étupes, Garchizy,
   Lissieu, Caissargues, Les Houches, La Flotte and Lion-sur-Mer. New readers

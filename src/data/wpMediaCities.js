@@ -16,6 +16,7 @@
  */
 // i18n-ignore-start — publishers' names
 const COMMUNES = [
+  ['29075', '29490', 'Guipavas', 'https://guipavas.bzh/', { acts: false, latestOnly: true, ocr: false }],
   ['06012', '06240', 'Beausoleil', 'https://www.villedebeausoleil.fr/'],
   ['08480', '08000', 'Villers-Semeuse', 'https://www.villers-semeuse.fr/'],
   ['13021', '13620', 'Carry-le-Rouet', 'https://mairie-carrylerouet.fr/'],

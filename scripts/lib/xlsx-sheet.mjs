@@ -20,8 +20,8 @@
  *
  * What it does NOT do, deliberately: styles, number formats, dates, formulas,
  * merged cells. A cell comes back as the string the file stores. Dates would
- * come back as Excel serial numbers, and the caller has to know that — no
- * caller here needs one.
+ * come back as Excel serial numbers; callers needing dates must verify the
+ * workbook's date system and convert them explicitly.
  */
 
 import zlib from 'node:zlib';
@@ -38,7 +38,7 @@ const LOCAL_SIGNATURE = 0x04034b50;
  * after the payload — which is exactly what a streaming writer emits, and it
  * cannot be parsed forwards. The central directory always has the true sizes.
  */
-function unzip(buffer) {
+function unzip(buffer, { maxUncompressedBytes = Infinity } = {}) {
   let eocd = -1;
   // The EOCD sits at the very end unless a ZIP comment follows it; 64 KB is the
   // maximum a comment can be, so scanning back that far always finds it.
@@ -50,6 +50,7 @@ function unzip(buffer) {
   const entryCount = buffer.readUInt16LE(eocd + 10);
   let offset = buffer.readUInt32LE(eocd + 16);
   const files = new Map();
+  let expanded = 0;
 
   for (let entry = 0; entry < entryCount; entry += 1) {
     if (buffer.readUInt32LE(offset) !== CENTRAL_SIGNATURE) {
@@ -57,6 +58,8 @@ function unzip(buffer) {
     }
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    if (expanded + uncompressedSize > maxUncompressedBytes) throw new Error('XLSX exceeds the uncompressed byte limit');
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
@@ -73,10 +76,16 @@ function unzip(buffer) {
     const localExtraLength = buffer.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLength + localExtraLength;
     const payload = buffer.subarray(start, start + compressedSize);
+    if (start + compressedSize > buffer.length) throw new Error(`corrupt ZIP: ${name} is truncated`);
 
-    if (method === 0) files.set(name, payload);
-    else if (method === 8) files.set(name, zlib.inflateRawSync(payload));
+    let bytes;
+    if (method === 0) bytes = payload;
+    else if (method === 8) bytes = zlib.inflateRawSync(payload, Number.isFinite(maxUncompressedBytes)
+      ? { maxOutputLength: Math.max(1, maxUncompressedBytes - expanded) } : {});
     else throw new Error(`unsupported ZIP compression method ${method} for ${name}`);
+    expanded += bytes.length;
+    if (expanded > maxUncompressedBytes || bytes.length !== uncompressedSize) throw new Error('XLSX member size mismatch or byte limit exceeded');
+    files.set(name, bytes);
 
     offset += 46 + nameLength + extraLength + commentLength;
   }
@@ -158,10 +167,17 @@ export function listXlsxSheets(buffer) {
 /**
  * @param {Buffer} buffer  the `.xlsx` file
  * @param {string} sheetName  exact sheet name, as the tab shows it
+ * @param {object} options  optional archive, row and column limits; callers
+ * may reject the 1904 date system and withhold formula cells
  * @returns {string[][]}  rows of cells, `''` for empty, ragged rows padded
  */
-export function readXlsxSheet(buffer, sheetName) {
-  const files = unzip(buffer);
+export function readXlsxSheet(buffer, sheetName, options = {}) {
+  const files = unzip(buffer, options);
+  // Permit registers use Windows date serials. Reject another date system
+  // instead of silently shifting every filing day by four years.
+  if (options.reject1904 && /\bdate1904="(?:1|true)"/.test(files.get('xl/workbook.xml')?.toString('utf8') ?? '')) {
+    throw new Error('XLSX uses the unsupported 1904 date system');
+  }
   const path = sheetPathByName(files).get(sheetName);
   if (!path) {
     throw new Error(`sheet "${sheetName}" not found — have: ${[...sheetPathByName(files).keys()].join(', ')}`);
@@ -172,6 +188,7 @@ export function readXlsxSheet(buffer, sheetName) {
 
   const rows = [];
   for (const [, row] of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    if (rows.length >= (options.maxRows ?? Infinity)) throw new Error('XLSX exceeds the row limit');
     const cells = [];
     for (const cell of row.matchAll(/<c\s([^>]*?)\/?>(?:([\s\S]*?)<\/c>)?/g)) {
       const attributes = cell[1];
@@ -181,7 +198,8 @@ export function readXlsxSheet(buffer, sheetName) {
       const raw = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1];
 
       let value = '';
-      if (type === 's' && raw !== undefined) value = strings[Number.parseInt(raw, 10)] ?? '';
+      if (options.rejectFormulas && /<f(?:\s|>)/.test(body)) value = '';
+      else if (type === 's' && raw !== undefined) value = strings[Number.parseInt(raw, 10)] ?? '';
       else if (type === 'inlineStr') {
         for (const [, run] of body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) value += run;
         value = decodeXml(value);
@@ -191,6 +209,7 @@ export function readXlsxSheet(buffer, sheetName) {
       // empty cells entirely, so column C of a row whose A and B are blank
       // arrives first and would land in column A without this.
       const index = reference ? columnIndex(reference) : cells.length;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= (options.maxColumns ?? Infinity)) throw new Error('XLSX exceeds the column limit');
       while (cells.length < index) cells.push('');
       cells[index] = value;
     }

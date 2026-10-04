@@ -78,9 +78,10 @@ test('Tours and Brest are gated by the communes they publish, and by nothing els
   assert.deepEqual(portalsForCommune('37261').map((portal) => portal.key), ['tours']);
   // The métropole's other communes publish no file.
   assert.deepEqual(portalsForCommune('37122'), []);
-  for (const code of ['29011', '29019', '29061', '29069', '29075', '29189', '29212', '29235']) {
+  for (const code of ['29011', '29019', '29061', '29069', '29189', '29212', '29235']) {
     assert.deepEqual(portalsForCommune(code).map((portal) => portal.key), ['brest'], code);
   }
+  assert.deepEqual(portalsForCommune('29075'), [], 'Guipavas uses its municipal registers');
   // No commune is claimed twice across the portals.
   const seen = new Set();
   for (const portal of LOCAL_ADS_PORTALS) {
