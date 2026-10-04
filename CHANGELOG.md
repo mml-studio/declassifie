@@ -6,6 +6,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Bourg-en-Bresse, Enghien-les-Bains, Pont-du-Château, Gerzat and 15 more
+  communes now show the permits their instruction boards post**, 129,293
+  inhabitants, bringing current-source coverage from 34.41% to 34.60%. A new
+  reading of every Cart@DS and Sirap board found Clermont Auvergne
+  Métropole's board and the SIEA's Sirap portal, and Enghien-les-Bains and
+  Samsons-Lion posting on Sirap's shared portal since 3 October. Ten small
+  communes that posted nothing in 92 days leave. The scan no longer lets a
+  board put a commune already read from its own lists, such as
+  Clermont-Ferrand, in a second register.
 - **Maizières-lès-Metz, Bayeux, Beynost and 35 more towns now show the
   permits they post**, 81,111 inhabitants, bringing current-source coverage
   from 34.29% to 34.41%. They were found without walking any site: in the

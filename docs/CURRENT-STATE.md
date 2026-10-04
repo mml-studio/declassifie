@@ -5891,6 +5891,22 @@ Wittisheim and Vaujours (nothing posted since 3 July). Sélestat and
 Fleury-les-Aubrais, read by registers of their own since #426 and #429, are
 not in this batch. 253 479 inhabitants more.
 
+**The board rescan of 2026-10-04.** `npm run permits:scan`, read again on
+every Cart@DS host (381, 319 with a board) and every Sirap host, keeps 19
+communes more, 129 293 inhabitants. Clermont Auvergne Métropole's board
+(`clermontmetropole.geosphere.fr`, new to the scan) posts for thirteen of its
+communes — Pont-du-Château, Gerzat, Cébazat, Lempdes, Ceyrat, Le Cendre,
+Aulnat and six smaller — with filings and decisions to 2 October;
+Clermont-Ferrand, also on its menu, stays on the PDF lists `PERMIT_LISTS`
+reads. The scan now claims every commune a municipal list or board protocol
+reads, so a board's menu can no longer put a commune in two registers.
+Bourg-en-Bresse posts on the SIEA's Sirap portal (`puu.siea-sig.fr`, 261 rows
+to 1 October). Enghien-les-Bains (50 rows to 1 October) and Samsons-Lion, read
+with no row on Sirap's shared portal on 3 October, post since; Murasson on the
+SMICA's portal and Galiax and Cazaux-Villecomtal on the Val d'Adour board
+likewise. Ten communes of fewer than 650 inhabitants posted nothing in the
+last 92 days and leave. Coverage 34.41 % → 34.60 %.
+
 **Thirty-eight towns found without walking their sites (2026-10-04).**
 The sieve of 2026-10-03 walked each commune's site from its home page and
 missed most pages that post permits (recall 0.10-0.14 on labelled communes).
