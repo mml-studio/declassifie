@@ -6,6 +6,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Vétraz-Monthoux and Ver-sur-Mer now show their municipal filing and
+  decision registers.** Six September PDF tables retain 171 distinct
+  dossiers, all placed: 150 on cadastral parcels and 21 by address. They add
+  12,530 previously uncovered residents, bringing current-source coverage
+  from 34.2738% to 34.2921%. Vétraz's guarded reader excludes beneficiary
+  and architect columns; unread layouts remain incomplete rather than empty.
+  Repealed decisions are closed, and filing notices do not imply current
+  review. [Research and limits](docs/research/vetraz-ver-permits-2026-10-04.md).
 - **Les Sables-d'Olonne, Le Port, Sarreguemines and seventeen more towns now
   show their fresh permits**, 253,479 inhabitants. Fourteen post on boards of
   their own, each read by a protocol of its own: Les Sables-d'Olonne's weekly

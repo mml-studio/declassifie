@@ -121,6 +121,7 @@ function listFiles(city, links) {
     }
     files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }),
       ...(workbook ? { format: 'xlsx', sheet } : {}),
+      ...(city.source?.requiredRows ? { requiredRows: true } : {}),
       ...(city.source?.rolling ? { rolling: true } : {}),
       ...(city.source?.listOcr ? { ocr: true, ...(city.source.listOcr === 'scan' ? { scan: true } : {}),
         ...(city.source.ocrPsm ? { ocrPsm: city.source.ocrPsm } : {}) } : {}) });

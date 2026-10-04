@@ -63,6 +63,7 @@ import { LEVALLOIS_BOARD_PROTOCOLS } from './permitBoardsLevallois.js';
 import { SELESTAT_BOARD_READERS } from './permitBoardsSelestat.js';
 import { FLEURY_BOARD_READERS } from './permitBoardsFleury.js';
 import { OWN_SITE_BOARD_PROTOCOLS, OWN_SITE_BOARD_READERS } from './permitBoardsOwnSites.js';
+import { VETRAZ_BOARD_READERS } from './permitBoardsVetraz.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -95,6 +96,7 @@ export const BOARD_READERS = Object.freeze({
   ...SIEVE_PAGE_READERS,
   ...SELESTAT_BOARD_READERS,
   ...FLEURY_BOARD_READERS,
+  ...VETRAZ_BOARD_READERS,
   ...DOCS2WEB_BOARD_READERS,
   ...OWN_SITE_BOARD_READERS,
 });

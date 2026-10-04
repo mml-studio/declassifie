@@ -10,6 +10,27 @@ const KEYS = ['haguenau', 'saverne', 'barr', 'benfeld', 'offendorf', 'lauterbour
 const protocol = POSTED_LIST_PROTOCOLS['posted-lists'];
 const link = (href, words = 'Télécharger') => `<li><a href="${href}">${words}</a></li>`;
 
+test('the new municipal snapshots retain the newest edition of both boards and all Vétraz families', () => {
+  for (const [key, insee] of [['ver-sur-mer', '14739'], ['vetraz-monthoux', '74298']]) {
+    assert.equal(permitListFor(insee), city(key));
+    assert.equal(city(key).source.latestOnly, true);
+    assert.notEqual(city(key).underReview, true);
+  }
+  const ver = city('ver-sur-mer');
+  const files = postedListFiles(ver, link('/liste-des-avis-de-depot-31_08_2026.pdf')
+    + link('/liste-des-avis-de-depot-11_09_2026.pdf'), ver.page);
+  assert.deepEqual(files.map((file) => file.published), ['2026-09-11']);
+  assert.equal(protocol.start(ver).length, 2);
+  const vetraz = city('vetraz-monthoux');
+  assert.equal(protocol.start(vetraz).length, 2);
+  for (const family of ['PCPA', 'DP']) {
+    const found = postedListFiles(vetraz, link(`/29-09-2026-affichage-depot-${family}.pdf`)
+      + link(`/29-09-2026-affichage-decision-${family}.pdf`), vetraz.page);
+    assert.deepEqual(found.map((file) => [file.board, file.layout, file.published]),
+      [['filings', 'vetraz-filings', '2026-09-29'], ['decisions', 'vetraz-decisions', '2026-09-29']]);
+  }
+});
+
 test('the posted-list communes are in the permit registry, read by one protocol and the report readers', () => {
   for (const key of KEYS) {
     assert.equal(permitListFor(city(key).insee), city(key), key);

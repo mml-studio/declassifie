@@ -5627,6 +5627,35 @@ reads as an organisation, never a person, never two lines joined — so
 Limeil-Brévannes and Saint-Cyr-l'École, whose readers never looked at that
 column, now show the companies that file there.
 
+**Vétraz-Monthoux and Ver-sur-Mer registers (2026-10-04).**
+Vétraz-Monthoux (`74298`) and Ver-sur-Mer (`14739`) join `postedListCities.js`
+through `posted-lists`, keeping the newest snapshot of each board on each
+source page. Vétraz publishes PC/PA and DP families on separate pages, four
+PDF tables dated 29 September. `permitBoardsVetraz.js` verifies the municipality,
+exact column headers and measured geometry of all four tables before reading
+project fields. Beneficiary names, architect names and architect addresses
+are excluded entirely. Service letters and modification suffixes retain the
+full dossier identity; invalid or future dates and partial parcel references
+are withheld. `source.requiredRows` propagates to each file: an unread table
+marks collection incomplete and is never cached as an empty edition. Even a
+genuinely empty replacement therefore requires verification before the archive
+can be cleared. The shared verdict ladder treats a published repeal as closed.
+Ver-sur-Mer's 11 September Cart@DS reports use existing report readers and
+exclude older snapshots from the initial collection. Existing applicant
+scrubbing removes private beneficiaries. Neither publisher establishes that
+every filing is still under review, and some retained filings date from earlier
+years. Their daily archives grow from collection day; source availability does
+not imply exhaustive extraction or a complete historical series.
+The production route retains 57 filings and 34 decisions at Vétraz (91 distinct
+dossiers, 77 on cadastral parcels and 14 BAN-geocoded), and 69 filings and 11
+decisions at Ver-sur-Mer (80 distinct, 73 on parcels and seven BAN-geocoded).
+All 171 dossiers are placed. Robots rules allow the pages and files; no account,
+OCR or override is needed. Current-source coverage rises from 4,372 to 4,374
+municipalities, 23,426,405 to 23,438,935 residents, or 34.2738% to 34.2921% of
+the same 68,350,798-resident snapshot. Fontaine-lès-Dijon's verified lists are
+not added because the existing Dijon portal already covers that municipality.
+[Research and validation](research/vetraz-ver-permits-2026-10-04.md).
+
 **Fleury-les-Aubrais and Guipavas registers (2026-10-04).**
 Fleury (`45147`) joins `postedListCities.js` with the newest XLSX filings and
 PDF decisions. `source.workbookSheets` explicitly enables the exact filing

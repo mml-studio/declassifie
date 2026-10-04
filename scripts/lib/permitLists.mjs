@@ -1089,7 +1089,8 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
           const context = { city, file };
           let rows = workbook ? rowsOfWorkbook(bytes, file, context)
             : file.scan ? null : rowsOfPdf(bytes, file.layout, file.board, context);
-          if (workbook && !rows) {
+          // Guarded tables must not turn a changed layout into an empty edition.
+          if ((workbook || file.requiredRows) && !rows) {
             failed += 1;
             answer = kept ?? null;
             if (answer) {
