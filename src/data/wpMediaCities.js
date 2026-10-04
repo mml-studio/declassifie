@@ -132,7 +132,57 @@ const LISTED = [
 ];
 // i18n-ignore-end
 
-export const WP_MEDIA_CITIES = [...COMMUNES, ...LISTED].map(([insee, postcode, name, page, extras = {}]) => ({
+// i18n-ignore-start — publishers' names
+/**
+ * Found on 2026-10-04 without walking any site: the URLs Common Crawl saw on
+ * `.fr` hosts from June to September 2026, and each uncovered commune's own
+ * WordPress search (`/wp-json/wp/v2/search` and the media API) asked for its
+ * 2026 dossier numbers. Kept: the communes whose uploads read live that day
+ * with a site on at least half their rows and a posting since August, most of
+ * them scanned acts read by OCR.
+ */
+const FOUND_1004 = [
+  ['01043', '01700', 'Beynost', 'https://www.beynost.fr/'],
+  ['04130', '04230', 'Montlaux', 'https://montlaux.fr/'],
+  ['05075', '05400', 'Manteyer', 'https://manteyer-mairie.fr/'],
+  ['05135', '05700', 'Sainte-Colombe', 'https://mairie-saintecolombe-hautesalpes.fr/'],
+  ['09166', '09300', 'Leychert', 'https://leychert.fr/'],
+  ['11259', '11170', 'Moussoulens', 'https://www.moussoulens.fr/'],
+  ['14752', '14310', 'Villers-Bocage', 'https://www.villersbocage14.fr/'],
+  ['16359', '16130', 'Salles-d’Angles', 'https://sallesdangles.com/'],
+  ['17194', '17220', 'La Jarrie', 'https://lajarrie.fr/'],
+  ['17466', '17540', 'Vérines', 'https://www.verines.fr/'],
+  ['18223', '18110', 'Saint-Martin-d’Auxigny', 'https://www.stmartin-auxigny.fr/'],
+  ['22376', '22600', 'Trévé', 'https://treve.fr/'],
+  ['25196', '25230', 'Dasle', 'https://www.ville-dasle.fr/'],
+  ['25367', '25350', 'Mandeure', 'https://villemandeure.fr/'],
+  ['33441', '33390', 'Saint-Martin-Lacaussade', 'https://saintmartinlacaussade.fr/'],
+  ['35016', '35580', 'Baulon', 'https://www.baulon.fr/'],
+  ['38075', '38530', 'Chapareillan', 'https://www.chapareillan.fr/'],
+  ['38456', '38710', 'Châtel-en-Trièves', 'https://chatel-en-trieves.fr/'],
+  ['42168', '42410', 'Pélussin', 'https://www.pelussin.fr/'],
+  ['47025', '47470', 'Beauville', 'https://beauville-47.fr/'],
+  ['47238', '47310', 'Sainte-Colombe-en-Bruilhois', 'https://ville-saintecolombeenbruilhois.fr/'],
+  ['50481', '50430', 'Saint-Germain-sur-Ay', 'https://saintgermainsuray.eu/'],
+  ['57232', '57670', 'Francaltroff', 'https://mairie-francaltroff.fr/'],
+  ['57319', '57580', 'Herny', 'https://herny.fr/'],
+  ['57433', '57280', 'Maizières-lès-Metz', 'https://www.ville-maizieres-les-metz.fr/'],
+  ['57712', '57630', 'Vic-sur-Seille', 'https://www.vic-sur-seille.fr/'],
+  ['60387', '60690', 'Marseille-en-Beauvaisis', 'https://www.communemarseillebvs.com/'],
+  ['60540', '60126', 'Rivecourt', 'https://www.rivecourt.fr/'],
+  ['61255', '61400', 'Mauves-sur-Huisne', 'https://mauves-sur-huisne.fr/'],
+  ['66230', '66320', 'Vinça', 'https://mairiedevinca.fr/'],
+  ['68109', '68140', 'Griesbach-au-Val', 'https://griesbachauval.fr/'],
+  ['76106', '76160', 'Bois-d’Ennebourg', 'https://boisdennebourg.fr/'],
+  ['81136', '81140', 'Larroque', 'https://larroque81.org/'],
+  ['84082', '84570', 'Mormoiron', 'https://mormoiron.fr/'],
+  ['88369', '88160', 'Ramonchamp', 'https://www.ramonchamp.fr/'],
+  ['95445', '95590', 'Nerville-la-Forêt', 'https://nervillelaforet.fr/'],
+  ['95580', '95470', 'Saint-Witz', 'https://www.saint-witz.fr/'],
+];
+// i18n-ignore-end
+
+export const WP_MEDIA_CITIES = [...COMMUNES, ...LISTED, ...FOUND_1004].map(([insee, postcode, name, page, extras = {}]) => ({
   key: `wp-media-${insee}`, insee, postcode,
   label: `${name} — affichage légal d’urbanisme`, // i18n-ignore-line — the commune's name and its board's title
   page,

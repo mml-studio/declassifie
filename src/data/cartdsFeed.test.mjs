@@ -72,10 +72,11 @@ test('the registry is a gate that cannot half-cover or double-cover a commune', 
   // are on top, then 146 municipalities below the top 400 on nine public
   // intercommunal boards, then Saint-Maurice, Bayonne and 18 path tenants of
   // guichetunique.geosphere.fr, then eleven on the Pays Voironnais board,
-  // then eighteen on seven boards of hosts of their own on 2026-10-03.
+  // then eighteen on seven boards of hosts of their own on 2026-10-03, then
+  // Bayeux on Bayeux Intercom's board on 2026-10-04.
   // The loop above already refused any shared code.
   const scanned = CARTDS_SCANNED_INSTANCES.reduce((sum, instance) => sum + instance.communes.length, 0);
-  assert.equal(seen.size - scanned, 397);
+  assert.equal(seen.size - scanned, 398);
   assert.equal(cartdsInstanceFor('68118').base, 'https://ilenapoleon.geosphere.fr/guichet-scin');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('97421'), '97421'), '421');
   assert.equal(cartdsCommuneValue(cartdsInstanceFor('39397'), '39397'), '39397');
