@@ -76,5 +76,25 @@ export const SIEVE_PAGE_CITIES = [
     page: 'https://www.lachausseesaintvictor.fr/ma-commune/vie-municipale/actes-administratifs/', source: { protocol: 'posted-acts' } },
   { key: 'les-martres-de-veyre', insee: '63214', postcode: '63730', label: 'Commune des Martres-de-Veyre — avis de dépôt et décisions d’urbanisme',
     page: 'https://www.mairie-lesmartresdeveyre.fr/avis_de_depot_et_decisions.html', source: { protocol: 'posted-acts' } },
+  // Two Excel tables a week, every dossier since May (« Tableau d'affichage des dépôts – semaine 38 »), days without their year.
+  { key: 'pomponne', insee: '77372', postcode: '77400', label: 'Ville de Pomponne — dépôts et décisions d’urbanisme',
+    page: 'https://pomponne.fr/mes-demarches/urbanisme/demande-dautorisation-durbanisme/',
+    source: { protocol: 'posted-lists', lists: { filings: '\\bTABLEAU D.?AFFICHAGE DES DEPOTS\\b', decisions: '\\bTABLEAU D.?AFFICHAGE DES DECISIONS\\b' },
+      layouts: { filings: 'pomponne-filings', decisions: 'pomponne-decisions' } } },
+  // One file refreshed in place, its registers of dossiers under review and of decisions.
+  { key: 'neuville-de-poitou', insee: '86177', postcode: '86170', label: 'Ville de Neuville-de-Poitou — registre des autorisations d’urbanisme',
+    page: 'https://www.neuville-de-poitou.com/mes-demarches/urbanisme',
+    source: { protocol: 'posted-lists', lists: { filings: '\\bREGISTRE DES AUTORISATIONS\\b' }, layouts: { filings: 'neuville-de-poitou-register' } } },
+  // Scanned orders, the number short in the link (« Décision DP 26 00097 »); demolitions on a page of their own.
+  { key: 'nueil-les-aubiers', insee: '79195', postcode: '79250', label: 'Ville de Nueil-les-Aubiers — décisions d’urbanisme',
+    page: 'https://www.ville-nueil-les-aubiers.fr/la-ville/la-mairie/actes-administratifs/urbanisme/',
+    source: { protocol: 'posted-acts', pages: ['https://www.ville-nueil-les-aubiers.fr/la-ville/la-mairie/actes-administratifs/permis-de-demolir/'] } },
+  // Scanned notices and orders served by DOCman (`…/2087-avis-de-depot-dp-025-228-26-00050/file`).
+  { key: 'etupes', insee: '25228', postcode: '25460', label: 'Ville d’Étupes — recueil des actes d’urbanisme',
+    page: 'https://www.etupes.fr/la-mairie-a-votre-service/vie-municipale/recueil-des-actes-administratifs/urbanisme', source: { protocol: 'posted-acts' } },
+  // Scanned orders, numbers misprinted in the link and the file name (« DP-058-12126-N0010 », `DPC_058_121_26_N0010_…`),
+  // posted months after they are signed (the newest of 12 May 2026); its robots.txt refuses /images/, where they are.
+  { key: 'garchizy', insee: '58121', postcode: '58600', label: 'Ville de Garchizy — autorisations d’urbanisme',
+    page: 'https://www.garchizy.fr/travaux-urbanisme/autorisations-d-urbanisme-81.html', robots: 'overridden', source: { protocol: 'sieve-acts' } },
 ];
 // i18n-ignore-end

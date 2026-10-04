@@ -62,13 +62,20 @@ const rightOf = (run) => (Number.isFinite(run.x1) && run.x1 > run.x ? run.x1 : r
 
 /**
  * A page's header: each column's label found, in page order, each run used
- * once — Pertuis prints `Date de` over both its filing and its signing day.
+ * once — Pertuis prints `Date de` over both its filing and its signing day,
+ * the left one first. Of a label's runs on several heights, the highest: a
+ * page may print a family under a header of its own, two or three to a page
+ * (Lissieu's and Saint-Genis-Laval's BIRT reports), and a cell may print a
+ * label's word alone (Saint-Genis-Laval's `surface`, a wrapped line of its
+ * works, under `Objet des travaux`).
  */
 function reportHeader(runs, columns) {
   const used = new Set();
   const found = [];
   for (const [field, label, options] of columns) {
-    const run = runs.filter((item) => !used.has(item) && fold(item.text) === label).sort((a, b) => a.x - b.x)[0];
+    const named = runs.filter((item) => !used.has(item) && fold(item.text) === label);
+    const top = Math.max(...named.map((item) => item.y));
+    const run = named.filter((item) => top - item.y < 1).sort((a, b) => a.x - b.x)[0];
     if (!run) {
       if (options?.optional) continue;
       return null;
@@ -109,11 +116,15 @@ function rowHeader(runs, spec) {
  * run starts (left-aligned cells, headers left-aligned or not); `centre`, the
  * header centred nearest the run's centre (cells and headers both centred);
  * `right`, the first header starting right of the run, or nearly (left-aligned
- * cells under centred headers, every cell starting left of its header).
+ * cells under centred headers, every cell starting left of its header);
+ * `left`, the last header starting left of the run, or nearly (each cell
+ * starting where its header does, so that a wrapped line's second run, far
+ * into its column, stays in it).
  */
 function columnOf(run, header, rule) {
   // Pertuis's second page sets its headers 6 points left of the first's.
   if (rule === 'right') return (header.columns.find((column) => column.x > run.x - 3) ?? header.columns.at(-1)).field;
+  if (rule === 'left') return (header.columns.findLast((column) => column.x < run.x + 3) ?? header.columns[0]).field;
   const at = rule === 'centre' ? (run.x + rightOf(run)) / 2 : run.x;
   let best = header.columns[0];
   for (const column of header.columns) {
@@ -244,7 +255,7 @@ function bandRows(band, header, spec) {
  *
  * @param {?{pages: Array<{runs: Array<object>}>}} document
  * @param {{columns?: Array<[string, string, {optional?: boolean}?]>, derive?: Array<string>, extra?: Array<string>,
- *   rule: 'nearest'|'centre'|'right', place: 'centre'|'top'|'bottom', gap?: number,
+ *   rule: 'nearest'|'centre'|'right'|'left', place: 'centre'|'top'|'bottom', gap?: number,
  *   head: RegExp, anchor: (text: string) => ?string, section?: (text: string) => ?object,
  *   field?: (run: object) => ?string, noise?: RegExp, build: (cells: Record<string, Array<string>>, section: ?object, dossier: string) => ?object}} spec
  * @returns {Array<object>}
@@ -450,15 +461,20 @@ const SGL_NOISE = /^(?:PC|DP|PA|PD|CU)$|^Page \d+|^\d+\s*\/\s*\d+$/i;
 // i18n-ignore-end
 
 /**
- * BIRT left-aligns each cell under a header that is not (`Demandeur` 40
- * points right of its names), centres the row on its tallest cell, and
- * prints days in words (`8 nov. 2024`). Its fonts carry no widths: a column
- * is the header starting nearest the run. The editions of 24 September 2026:
- * 61 filings, 79 decisions.
+ * BIRT left-aligns each cell, centres the row on its tallest cell, and
+ * prints days in words (`8 nov. 2024`). Its fonts carry no widths. The list
+ * of decisions sets its headers right of their cells (`Demandeur` 40 points
+ * right of its names): a column is the header starting nearest the run. The
+ * list of filings starts each header where its cells start, and a wrapped
+ * line's second run may start 65 points into its column (Lissieu's `SAS
+ * ENTREPOTS` / `FROGORIFIQUES` | `DES MONTS`), nearer the next header: a
+ * column is the last header starting left of the run, so that no name lands
+ * in the site. The editions of 24 September 2026: 61 filings, 79 decisions.
+ * Lissieu prints the same two reports, a family to a header, two to a page.
  */
 function sglSpec(city, board) {
   return {
-    columns: SGL_COLUMNS[board], extra: SGL_EXTRA, rule: 'nearest', place: 'centre', gap: 1.6,
+    columns: SGL_COLUMNS[board], extra: SGL_EXTRA, rule: board === 'filings' ? 'left' : 'nearest', place: 'centre', gap: 1.6,
     head: HEAD_RE, noise: SGL_NOISE, anchor: (text) => reportDossier(text, city),
     section: (text) => (SGL_FAMILY_RE.test(text) ? { title: text } : null),
     build: (cells, section, dossier) => {
@@ -474,6 +490,30 @@ function sglSpec(city, board) {
       });
     },
   };
+}
+
+/**
+ * BIRT's runs where their cells are. Some editions draw a row's cells as one
+ * string with offsets between them, and read without widths each cell lands
+ * a few points after the one before (Lissieu's filings of 4 September 2026:
+ * `Monsieur …` at 65 points, `2 Place des Tours` at 102, both under the
+ * number's column). A line whose runs start closer together than their text
+ * could fit, 0.3 em a character, keeps its first run alone: none of the
+ * others is in its column. Sixteen lines of that edition; none of the eight
+ * other editions of Lissieu and Saint-Genis-Laval read on 4 October 2026.
+ */
+function birtPlacedRuns(document) {
+  if (!document?.pages) return document;
+  return { ...document, pages: document.pages.map((page) => {
+    const runs = (page.runs ?? []).filter((run) => clean(run.text));
+    const dropped = new Set();
+    for (const run of runs) {
+      const line = runs.filter((item) => Math.abs(item.y - run.y) < 1.5).sort((a, b) => a.x - b.x);
+      const packed = line.some((item, i) => i > 0 && item.x - line[i - 1].x < 0.3 * (line[i - 1].size || 7) * clean(line[i - 1].text).length);
+      if (packed) line.slice(1).forEach((item) => dropped.add(item));
+    }
+    return { ...page, runs: runs.filter((run) => !dropped.has(run)) };
+  }) };
 }
 
 // --- Sceaux: a month of decisions --------------------------------------------
@@ -638,8 +678,8 @@ export const REPORT_BOARD_READERS = Object.freeze({
   'cartds-report-decisions': (document, context) => readReportTable(document, cartdsSpec(cityOf(context), 'decisions')),
   'arles-filings': (document, context) => readReportTable(document, arlesSpec(cityOf(context), 'filings')),
   'arles-decisions': (document, context) => readReportTable(document, arlesSpec(cityOf(context), 'decisions')),
-  'birt-filings': (document, context) => readReportTable(document, sglSpec(cityOf(context), 'filings')),
-  'birt-decisions': (document, context) => readReportTable(document, sglSpec(cityOf(context), 'decisions')),
+  'birt-filings': (document, context) => readReportTable(birtPlacedRuns(document), sglSpec(cityOf(context), 'filings')),
+  'birt-decisions': (document, context) => readReportTable(birtPlacedRuns(document), sglSpec(cityOf(context), 'decisions')),
   sceaux: (document, context) => readReportTable(document, sceauxSpec(cityOf(context))),
   'pertuis-filings': (document, context) => readReportTable(document, pertuisSpec(cityOf(context), 'filings')),
   'pertuis-decisions': (document, context) => readReportTable(document, pertuisSpec(cityOf(context), 'decisions')),

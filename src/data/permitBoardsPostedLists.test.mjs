@@ -347,3 +347,18 @@ test('posted acts with `follow`: a dossier’s own page is asked, its first PDF 
   assert.equal(acts.index(sarralbe, page('06/06/2026'), detail, { since: '2026-08-01' }), null, 'posted before the window');
   assert.equal(acts.index(sarralbe, '<p>Aucun document</p>', detail, { since: '2026-08-01' }), null);
 });
+
+test('a DOCman address names its act in the folder before `/file`', () => {
+  const base = '/la-mairie-a-votre-service/vie-municipale/recueil-des-actes-administratifs/urbanisme';
+  const button = (slug) => `<a class="btn docman_track_download docman_download__button" href="${base}/${slug}/file" target="_blank" data-title="x" type="application/pdf">
+    <span class="docman_download_label">Télécharger</span><span class="docman_download__info">(pdf, 33 KB)</span></a>`;
+  const html = ['2086-avis-de-depot-dia-025-228-26-00024', '2087-avis-de-depot-dp-025-228-26-00050', '2085-decision-dp-025-228-26-00049',
+    '2075-99-ar-025-212502280-20260922-2026-69-ar-1-1-1', '2059-avis-de-depot-pc-025-228-26-00004-1'].map(button).join('');
+  const files = postedActFiles(city('etupes'), html, city('etupes').page, '2026-08-04');
+  assert.deepEqual(files.map((file) => [file.row.dossier, file.board]), [
+    ['DP 025228 26 00050', 'filings'],
+    ['DP 025228 26 00049', 'decisions'],
+    ['PC 025228 26 00004', 'filings'],
+  ], 'a pre-emption notice (DIA) and a municipal order name no dossier');
+  assert.equal(files[0].url, `https://www.etupes.fr${base}/2087-avis-de-depot-dp-025-228-26-00050/file`);
+});

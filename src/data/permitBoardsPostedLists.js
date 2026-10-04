@@ -215,7 +215,8 @@ function bareDossier(city, words, published) {
 /**
  * The acts a page links, one PDF each: a link is an act when its words or its
  * file name name one of the commune's dossiers (`DP-062758-26-00149-Recepisse-de-Depot.pdf`,
- * « arrete DP 0593862600095 », « DP 059.052.26.00024 »). The act is read by
+ * « arrete DP 0593862600095 », « DP 059.052.26.00024 », a DOCman address's
+ * last folder `2087-avis-de-depot-dp-025-228-26-00050/file`). The act is read by
  * `dematdoc-notice`, which takes the number, the site and the board from the
  * act's own heading; meanwhile the link gives the number, a numbered street
  * when it names one, and the board its words say (`source.board`, else a
@@ -239,7 +240,8 @@ function actFiles(city, links, since = null) {
     if (!/\.pdf$/i.test(link.name) && !/download|document|fichier|file|telecharg/i.test(link.url)) continue;
     // A « Téléchargement » button names its file in its title (Rouvroy).
     const words = clean(`${link.words} ${(link.title ?? '').replace(/_+/g, ' ')}`);
-    const base = link.name.replace(/^.*\//, '').replace(/\.pdf$/i, '').replace(/[_.]+/g, ' ');
+    // DOCman serves an act at `…/2087-avis-de-depot-dp-025-228-26-00050/file` (Étupes): the segment before names it.
+    const base = link.name.replace(/\/file\/?$/i, '').replace(/^.*\//, '').replace(/\.pdf$/i, '').replace(/[_.]+/g, ' ');
     const text = clean(`${words} ${base.replace(/-/g, ' ')}`);
     const published = postedListDay(link.name, words) ?? link.published ?? null;
     const dossier = actDossier(words, city) ?? actDossier(base.replace(/-/g, ' '), city) ?? actDossier(text, city)

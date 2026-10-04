@@ -84,7 +84,8 @@ const COMMUNES = [
 const FILED_BEFORE = { filings: 'town-filed-before', decisions: 'town-decided-until' };
 /**
  * Communes whose lists carry names of their own, read by `permitBoardsTownLists.js`:
- * [INSEE, postcode, name, the site, source extras]. Added on 2026-10-03.
+ * [INSEE, postcode, name, the site, source extras]. Added on 2026-10-03
+ * and 2026-10-04.
  */
 const LISTED = [
   ['29150', '29350', 'Moëlan-sur-Mer', 'https://www.moelan-sur-mer.bzh/', { acts: false, layouts: FILED_BEFORE,
@@ -105,6 +106,25 @@ const LISTED = [
   // One card per dossier, the file renamed at each update: `Arretes_urbanisme_MAJ_18.09.2026-1.pdf`.
   ['31526', '31880', 'La Salvetat-Saint-Gilles', 'https://www.lasalvetat31.fr/', { acts: false,
     lists: { decisions: '^ARRETES URBANISME MAJ\\b' }, layouts: { decisions: 'town-labelled-cards' } }],
+  // The two BIRT reports Saint-Genis-Laval posts, every week: `2026_09_18_Liste-des-avis-de-depot.pdf`.
+  ['69117', '69380', 'Lissieu', 'https://www.lissieu.fr/', { acts: false,
+    layouts: { filings: 'birt-filings', decisions: 'birt-decisions' } }],
+  // Nîmes's register of dossiers under review and decided, exported every week or so:
+  // `20260924-090945-etat-registre_dossiers_affichage_reglementaire.pdf`, `registre-17-09-26.pdf`.
+  ['30060', '30132', 'Caissargues', 'https://www.caissargues.fr/', { acts: false,
+    lists: { filings: '\\bETAT REGISTRE DOSSIERS\\b|^REGISTRE (?:DU )?\\d{2} \\d{2} \\d{2}\\b' }, layouts: { filings: 'register' } }],
+  // Two files every Friday, a table to a family: `Avis-de-depot_demandes-durbanisme_02.10.2026.pdf`.
+  ['74143', '74310', 'Les Houches', 'https://www.leshouches.fr/', { acts: false,
+    lists: { filings: '^AVIS DE DEPOT DEMANDES D', decisions: '^DECISIONS AUTORISATIONS D' },
+    layouts: { filings: 'town-houches-filings', decisions: 'town-houches-decisions' } }],
+  // A fortnight's filings, scanned most weeks: `avis-de-depot-25-08-au-25-09.pdf`.
+  ['17161', '17630', 'La Flotte', 'https://laflotte.fr/', { acts: false, listOcr: true,
+    lists: { filings: '\\bAVIS (?:DE )?DEPOTS?\\b' }, layouts: { filings: 'town-laflotte-filings' } }],
+  // Its pending filings and the decisions signed since August, first posted on 2 October 2026:
+  // `avis-de-depot-02-10-2026.pdf`, `AU-02-10-2026.pdf`.
+  ['14365', '14780', 'Lion-sur-Mer', 'https://www.lionsurmer.com/', { acts: false,
+    lists: { filings: '^AVIS DE DEPOT \\d', decisions: '^AU \\d{2} \\d{2} \\d{4}\\b' },
+    layouts: { filings: 'town-lion-filings', decisions: 'town-lion-decisions' } }],
   // Acts named by their site alone: `DP-15-FAUBOURG-DE-GIRONDE.pdf`, `Avis-de-depot.pdf`.
   ['77393', '77540', 'Rozay-en-Brie', 'https://www.rozay-en-brie.fr/', { unnumbered: true }],
   ['80235', '80570', 'Dargnies', 'https://www.dargnies.fr/', { unnumbered: true }],
