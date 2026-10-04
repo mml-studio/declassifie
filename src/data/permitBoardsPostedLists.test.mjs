@@ -213,6 +213,21 @@ test('the WordPress communes are in the permit registry, read by `wp-media`', ()
   assert.equal(BOARD_PROTOCOLS['wp-media'], POSTED_LIST_PROTOCOLS['wp-media']);
 });
 
+test('a WordPress commune’s text lists are read as text: `source.ocr` concerns its acts, `source.listOcr` its lists', () => {
+  const wp = POSTED_LIST_PROTOCOLS['wp-media'];
+  const moelan = city('wp-media-29150');
+  assert.equal(moelan.source.ocr, true, 'its acts are scans');
+  const [start] = wp.start(moelan, { since: '2026-08-01', day: '2026-10-04' });
+  const body = [{ date: '2026-09-23T10:00:00', source_url: 'https://www.moelan-sur-mer.bzh/wp-content/uploads/2026/09/Dossiers-deposes-avant-le-23-septembre-2026.pdf', title: { rendered: '' } }];
+  const [list] = wp.index(moelan, body, start, { since: '2026-08-01', day: '2026-10-04' }).files;
+  assert.deepEqual([list.layout, list.scan ?? false, list.ocr ?? false], ['town-filed-before', false, false],
+    'a visitor’s reading downloads it and its text is read');
+  const html = '<a href="/l.pdf">Liste des avis de dépôt au 22 septembre 2026</a>';
+  const scanned = (listOcr) => postedListFiles({ ...moelan, source: { protocol: 'posted-lists', listOcr } }, html, 'https://example.fr/')[0];
+  assert.deepEqual([scanned(true).ocr, scanned(true).scan ?? false], [true, false], 'text first, OCR when it has none');
+  assert.deepEqual([scanned('scan').ocr, scanned('scan').scan], [true, true], 'every edition a scan');
+});
+
 test('the media API gives a town’s lists and acts, newest first, and leaves its other PDFs', () => {
   const wp = POSTED_LIST_PROTOCOLS['wp-media'];
   const royat = city('wp-media-63308');

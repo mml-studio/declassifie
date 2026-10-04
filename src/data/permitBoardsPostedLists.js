@@ -85,7 +85,10 @@ export function postedListDay(name, words = '') {
  * The lists a page links, as files: each board's links, newest first. A link
  * that names no day is the board refreshed in place (`rolling`): only the
  * first such link of a board is kept. A page that links neither list is not
- * the board.
+ * the board. `source.listOcr` sends a list with no text to the sweep's OCR
+ * (`true`), or straight to it when every edition is a scan (`'scan'`,
+ * Sélestat), with `source.ocrPsm`; `source.ocr` concerns acts, which every
+ * WordPress commune posts as scans while its lists are text.
  */
 export function postedListFiles(city, html, pageUrl) {
   return listFiles(city, pageLinks(html, pageUrl));
@@ -110,7 +113,7 @@ function listFiles(city, links) {
     }
     files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }),
       ...(city.source?.rolling ? { rolling: true } : {}),
-      ...(city.source?.ocr ? { ocr: true, scan: true,
+      ...(city.source?.listOcr ? { ocr: true, ...(city.source.listOcr === 'scan' ? { scan: true } : {}),
         ...(city.source.ocrPsm ? { ocrPsm: city.source.ocrPsm } : {}) } : {}) });
   }
   if (!files.length) return null;

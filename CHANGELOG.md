@@ -854,6 +854,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **The lists of seventy WordPress communes are read as text again.** Since
+  Sélestat joined, a commune marked for OCR had its lists marked as scans:
+  every WordPress commune is, for its scanned acts, so Moëlan-sur-Mer's or
+  Romagnat's text lists waited for the sweep's OCR instead of being read.
+  Lists now have a flag of their own, `source.listOcr`, which Sélestat sets.
 - **The « Dossiers déposés avant le … » lists no longer place a dossier at
   the town's centre.** Three readers of that one template become one per
   board: the filings reader that finds columns from the rows themselves
