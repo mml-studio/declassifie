@@ -6,6 +6,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Maizières-lès-Metz, Bayeux, Beynost and 35 more towns now show the
+  permits they post**, 81,111 inhabitants, bringing current-source coverage
+  from 34.29% to 34.41%. They were found without walking any site: in the
+  URLs Common Crawl saw on `.fr` hosts from June to September 2026, and in
+  each uncovered commune's own WordPress search, asked for its 2026 dossier
+  numbers. Thirty-seven upload their acts or lists to WordPress and are read
+  by `wp-media`, most of them scanned and read by OCR in the daily sweep;
+  Bayeux posts its avis de dépôt, site and parcel included, on Bayeux
+  Intercom's Cart@DS board.
 - **Vétraz-Monthoux and Ver-sur-Mer now show their municipal filing and
   decision registers.** Six September PDF tables retain 171 distinct
   dossiers, all placed: 150 on cadastral parcels and 21 by address. They add

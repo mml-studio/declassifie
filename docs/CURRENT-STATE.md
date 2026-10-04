@@ -5891,6 +5891,33 @@ Wittisheim and Vaujours (nothing posted since 3 July). Sélestat and
 Fleury-les-Aubrais, read by registers of their own since #426 and #429, are
 not in this batch. 253 479 inhabitants more.
 
+**Thirty-eight towns found without walking their sites (2026-10-04).**
+The sieve of 2026-10-03 walked each commune's site from its home page and
+missed most pages that post permits (recall 0.10-0.14 on labelled communes).
+Two searches that need no walk replaced it. Common Crawl's columnar URL index
+(`cc-index/table/cc-main/warc`, the `.fr` slice of the crawls of June to
+September 2026, 42.6 M URLs each, read with DuckDB in seconds) was searched
+for dossier numbers and permit words in URL paths; and each of the 19 001
+uncovered communes with a site in the service-public directory was asked its
+WordPress search (`/wp-json/wp/v2/search`, which covers posts, pages and
+every public custom type) and its media API for its own `<commune> 26`
+numbers. Together they named 174 uncovered communes posting numbered permits,
+376 k inhabitants, almost all under 10 000. Read live on 2026-10-04 through
+`wp-media`, scans by OCR: 37 kept in `wpMediaCities.js` (`FOUND_1004`,
+68 452 inhabitants: Maizières-lès-Metz, Beynost, Mandeure, Pélussin, La Jarrie,
+Villers-Bocage, Vérines' 15 decisions of 28-29 September all with their site,
+Mormoiron's 22 rows…), each with a site on at least half its rows and a
+posting since August. Bayeux, in the menu of Bayeux Intercom's Cart@DS board
+(`urba-demat.ter-bessin.fr`, found by the same URL index), posts its avis de
+dépôt with site and parcel the day after filing and joins `cartdsFeed.js` by
+hand. Left out: 46 whose files were older than August, named a bare number
+the act reader does not take (`047-069-26-00040.pdf`), sat in a download
+plugin outside the media library, were JPEG scans (Peynier) or one post per
+dossier (Lacanau, Gargas); Innenheim, whose site has no
+HTTPS. The same URL index lists boards that are installed but post for no
+commune — 232 Cart@DS hosts with an empty « Affichage réglementaire » menu —
+the population the daily sweep would gain if their services switched them on.
+
 **Saint-Joseph, Matoury and Schiltigheim (2026-10-03).** Saint-Joseph (La
 Réunion) posts one PDF replaced in place, its « Registre des dossiers en
 cours » followed by its « Registre des décisions », the export Marseille and

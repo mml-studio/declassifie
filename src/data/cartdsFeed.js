@@ -233,6 +233,14 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     codes: 'number',
     communes: Object.freeze(['92020']),
   }),
+  // Bayeux Intercom's board, found in a web crawl's URLs (2026-10-04): Bayeux alone in its menu.
+  Object.freeze({
+    key: 'ter-bessin',
+    base: 'https://urba-demat.ter-bessin.fr/guichet-unique',
+    label: 'Bayeux Intercom — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['14047']),
+  }),
   Object.freeze({
     key: 'atd24',
     base: 'https://atd24.geosphere.fr/guichet-unique',
