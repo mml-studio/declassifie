@@ -6,6 +6,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Ten more towns now show their fresh permits**, 38,959 inhabitants:
+  Pomponne, Neuville-de-Poitou, Nueil-les-Aubiers, Étupes, Garchizy,
+  Lissieu, Caissargues, Les Houches, La Flotte and Lion-sur-Mer. New readers
+  take Pomponne's weekly Excel tables, Neuville-de-Poitou's register, Les
+  Houches's tables (never the applicant's own address beside the site), La
+  Flotte's scanned lists and Lion-sur-Mer's stacked rows and cards; Lissieu
+  prints Saint-Genis-Laval's BIRT reports, whose reader no longer lets a
+  wrapped applicant name into the site; Garchizy's misprinted numbers are
+  spelled out. The act reader no longer takes an order recalling its avis de
+  dépôt for a filing.
 - **Dompierre-sur-Mer and Sarralbe now show their fresh permits**, 10,679
   inhabitants. Their `robots.txt` refuses every PDF; the acts they post by
   law are read anyway, one at a time, the exception marked on each town. Both

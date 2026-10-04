@@ -134,14 +134,15 @@ export function dematdocLazyRequest(city, ids) {
 const PERMIT_WORDS = /permis de constru|permis d.am[ée]nag|permis de d[ée]mol|d[ée]claration pr[ée]alable|certificat d.urbanisme|avis de d[ée]p[ôo]t|r[ée]c[ée]piss[ée]|non[- ]?opposition|autorisation d.urbanisme|\b(?:PC|DP|PA|PD|CU)\s*\d/i;
 // Aggregate registers and acts that are not a dossier's: road, pre-emption, plan.
 const NOT_A_DOSSIER = /pr[ée]emption|stationnement|voirie|circulation|\bPLUi?\b|plan local|enqu[êe]te publique|alignement|num[ée]rotage|conservation cadastrale|d[ée]l[ée]gation|registre des dossiers|liste des|d[ée]pos[ée]e?s au \d|d[ée]cisions urbanisme \d/i;
-const FILING_WORDS = /avis de d[ée]p[ôo]t|avis d.affichage|r[ée]c[ée]piss[ée]|d[ée]p[ôo]t de (?:la )?demande|accus[ée] de r[ée]ception|\bAD\b/i;
+// « Avis de dépôt affiché en mairie le … » is how Garchizy's orders recall their filing's posting.
+const FILING_WORDS = /avis de d[ée]p[ôo]t(?! affich[ée]e? en mairie)|avis d.affichage|r[ée]c[ée]piss[ée]|d[ée]p[ôo]t de (?:la )?demande|accus[ée] de r[ée]ception|\bAD\b/i;
 const DECISION_WORDS = /arr[êe]t[ée]|d[ée]cision|accord|refus|opposition|certificat de|retrait|transfert|prorogation|classement sans suite/i;
 // i18n-ignore-end
 
 const field = (doc, key) => clean(doc?.values?.[key]?.displayValue);
 
 // i18n-ignore-start — the headings acts open with
-const FILING_HEADING = /^(?:avis\s*de\s*d[ée]p[ôo]t|r[ée]c[ée]piss[ée]|avis\s*d.affichage|accus[ée]\s*de\s*r[ée]ception)/i;
+const FILING_HEADING = /^(?:avis\s*de\s*d[ée]p[ôo]t(?!\s*affich[ée]e?\s*en\s*mairie)|r[ée]c[ée]piss[ée]|avis\s*d.affichage|accus[ée]\s*de\s*r[ée]ception)/i;
 const DECISION_HEADING = /^(?:arr[êe]t[ée]|d[ée]cision|accord|refus|opposition|non[- ]?opposition|certificat|retrait|transfert|prorogation|d[ée]claration\s*pr[ée]alable\s*ne\s*faisant|permis\s*de\s*(?:construire|d[ée]molir|d.am[ée]nager)\s*(?:modificatif\s*)?(?:d[ée]livr|accord))/i;
 // i18n-ignore-end
 
@@ -238,8 +239,10 @@ const SITE_LABELS = [
   /^(?:\S{1,8}\s+)?sis\s*(?:[àa]\s*)?:?\s+(?=\d)/i,
 ];
 const PARCEL_LABEL = /(?:r[ée]f[ée]rences?(?:\s*\(s\))?\s*cadastrales?(?:\s*\(s\))?|cadastr[ée]e?s?|cadastre|parcelles?(?:\s+cadastrales?)?(?:\s+n°)?)\s*[:|]?\s*(\S.*)$/i;
-const FILED = /(?:date\s*de\s*d[ée]p[ôo]t|date\s*de\s*r[ée]ception|d[ée]pos[ée]e?\s*(?:complet\s*)?le|(?:demande|dossier)\s*d[ée]pos[ée]e?\s*(?:complet\s*)?le)\s*:?\s*\|?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}\s+\S+\s+20\d{2})/i;
+const FILED = /(?:date\s*d[eu]\s*d[ée]p[ôo]t|date\s*de\s*r[ée]ception|d[ée]pos[ée]e?\s*(?:complet\s*)?le|(?:demande|dossier)\s*d[ée]pos[ée]e?\s*(?:complet\s*)?le)\s*:?\s*\|?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}\s+\S+\s+20\d{2})/i;
 const SIGNED = /\bFait\s+[àa][\s\S]{0,60}?\ble\s*:?\s*(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}(?:er)?\s+\S+\s+20\d{2})/i;
+// Failing « Fait à », a line opening with the commune's name in capitals: « ETUPES, le 30 septembre 2026 ».
+const SIGNED_AT = /(?:^|\n)\s*[A-ZÀ-Ý][A-ZÀ-Ý'’ -]{2,40},\s*le\s+(\d{1,2}\/\d{2}\/\d{4}|\d{1,2}(?:er)?\s+\S+\s+20\d{2})/;
 const PURPOSE = /^(?:nature\s*des\s*travaux|pour|objet\s*de\s*la\s*demande|concernant)\s*:\s*[|]?\s*(.+)$/i;
 // A value with one of these is an applicant's or an office's, never a site.
 const PERSON = /\b(?:M\.|MM\.|Mme|Mlle|Monsieur|Madame|Messieurs|SCI|SAS|SASU|SARL|EURL|SNC|SCCV|repr[ée]sent[ée]|demeurant|@)/i;
@@ -293,8 +296,9 @@ const foldName = (value) => clean(value).normalize('NFD').replace(/[̀-ͯ]/g, ''
  * street that holds « à » keeps it (« Impasse du Moulin à Vent »).
  */
 function trimSite(value, city) {
-  let site = clean(value).replace(/^[\s:|;,-]+/, '');
-  site = site.replace(/\s*\(\s*\d{5}\s*\)/g, ' ').replace(/\s+\d{5}\b.*$/, '');
+  let site = clean(value).replace(/^[\s:|;,[-]+/, '');
+  // Garchizy prints the parcels after the street: « 409 Avenue de la République - Cadastré: AK 385 ».
+  site = site.replace(/\s*\(\s*\d{5}\s*\)/g, ' ').replace(/\s+\d{5}\b.*$/, '').replace(/\s+[-–]\s*cadastr[ée].*$/i, '');
   site = site.replace(/\s*[;.]\s*$/, '').replace(/,\s*zone\b.*$/i, '');
   const name = foldName(city.name ?? '');
   const at = /^(.*\S)\s+[àa]\s+(.+)$/i.exec(site);
@@ -391,7 +395,8 @@ export function readDematdocNotice(document, { city, file }) {
   };
   if (board === 'decisions') {
     // The operative article opens a line; « Vu … l'article 1 de la loi » does not.
-    const opening = /(?:^|\n)\s*ARTICLE\s*(?:1(?:er)?|UNIQUE|PREMIER)\b\s*[:.\-–]?/i.exec(body);
+    // OCR reads « 1er » as « ler » (Garchizy).
+    const opening = /(?:^|\n)\s*ARTICLE\s*(?:1(?:er)?|[lI]er|UNIQUE|PREMIER)\b\s*[:.\-–]?/i.exec(body);
     const article = opening ? body.slice(opening.index + opening[0].length, opening.index + opening[0].length + 500)
       .split(/\n\s*ARTICLE\s*\d/i)[0] : null;
     // The heading's verdict line by line, so that « OPPOSITION À DÉCLARATION » starts one.
@@ -400,7 +405,7 @@ export function readDematdocNotice(document, { city, file }) {
     // withdrawal the law allows (Coulogne: « … pas fait opposition … » then « retrait »).
     const said = article?.split(/(?<=[.;])\s/)[0];
     row.verdict = municipalVerdict(said) ?? municipalVerdict(article) ?? titled ?? municipalVerdict(file.title) ?? verdicts.signed.fr;
-    const signed = municipalDate(SIGNED.exec(body)?.[1]);
+    const signed = municipalDate((SIGNED.exec(body) ?? SIGNED_AT.exec(body))?.[1]);
     row.decidedOn = file.decidedOn ?? (signed && (!filedOn || signed >= filedOn) ? signed : null);
   }
   return [row];

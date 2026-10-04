@@ -160,3 +160,28 @@ test('a scan waits for OCR with its number and a street from its title, never a 
   assert.equal(dematdocTitleRow(city('01047'), { board: 'filings',
     title: 'Urba - Avis de Dépôt Demande DP 00104726A0038 du 2026-09-24 — PRIVATE Person' }), null);
 });
+
+test('an order that recalls when its filing was posted is a decision, signed on the line its commune opens', () => {
+  const garchizy = { key: 'garchizy', insee: '58121', postcode: '58600', label: 'Ville de Garchizy', source: { kind: 'board' } };
+  // As OCR reads Garchizy's scanned orders: « 1er » as « ler », no « Fait à ».
+  const document = page(
+    [40, 822, '2026-034-URBA'], [200, 801, 'DECLARATION PREALABLE'], [40, 786, 'MAIRIE DE GARCHIZY DELIVREE PAR LE MAIRE'],
+    [40, 744, 'Demande déposée le : 27/04/2026'], [40, 732, 'Avis de dépôt affiché en mairie le : 27/04/2026'], [400, 732, 'DP 058121 26 N0022'],
+    [40, 702, 'Par :| PRIVATE COMPANY'], [40, 681, 'Demeurant :| 1 rue Privée 58600 GARCHIZY'],
+    [40, 636, 'Pour :| construction d\'un mur de séparation'], [40, 615, 'Sur un terrain sis :| 409 Avenue de la République - Cadastré: AK 385'],
+    [40, 585, 'LE MAIRE,'], [40, 573, 'Vu la demande de Déclaration Préalable susvisée ;'],
+    [40, 447, 'Article ler : Il n’est pas fait opposition au projet décrit dans la demande sous réserve du respect des'],
+    [40, 378, 'Article 2 : Le Maire de GARCHIZY est chargé de l’exécution du présent arrêté.'], [40, 315, 'GARCHIZY, le 12 mai 2026'],
+  );
+  const [row] = readDematdocNotice(document, { city: garchizy, file: { board: 'decisions', title: '' } });
+  assert.deepEqual([row.board, row.dossier, row.address, row.parcels, row.filedOn, row.verdict, row.decidedOn, row.purpose],
+    ['decisions', 'DP 058121 26 N0022', '409 Avenue de la République', 'AK 385', '2026-04-27', 'Non-opposition', '2026-05-12', 'construction d\'un mur de séparation']);
+  assert.doesNotMatch(JSON.stringify(row), /PRIVATE|Privée/);
+  // Étupes's notices: « Date du dépôt ».
+  const notice = readDematdocNotice(page(
+    [40, 762, 'AVIS DE DEPOT : Déclaration préalable'], [40, 723, 'Dossier numéro : DP 058121 26 N0023'], [40, 696, 'Date du dépôt : 30/09/2026'],
+    [40, 672, 'Demandeur : MME PRIVATE Person'], [40, 621, 'Adresse du terrain : 7 rue du château'], [40, 456, 'AVIS AFFICHÉ LE : 01 octobre 2026'],
+  ), { city: garchizy, file: { board: 'decisions', title: '' } });
+  assert.deepEqual([notice[0].board, notice[0].address, notice[0].filedOn], ['filings', '7 rue du château', '2026-09-30'], 'an avis de dépôt is still a filing');
+  assert.doesNotMatch(JSON.stringify(notice), /PRIVATE/);
+});

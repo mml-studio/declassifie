@@ -18,11 +18,13 @@
  * names mistype the day (`source.dayFromWords`) has it from the link's words.
  *
  * The list readers below are named by a town's `source.layouts`: Word and
- * Excel tables typed by the town itself, read by `readReportTable`.
+ * Excel tables typed by the town itself, read by `readReportTable` — or row
+ * by row where its blocks do not hold, a cell's lines as far apart as two
+ * rows' (Pomponne) or a row's number printed last (Neuville-de-Poitou).
  * Applicants: an organisation at most, never a person; never the applicant's
- * own address, which two of these tables print.
+ * own address, which four of these tables print.
  */
-import { municipalDossier, municipalSite } from './municipalPermitsFeed.js';
+import { municipalDate, municipalDossier, municipalSite } from './municipalPermitsFeed.js';
 import messages from './municipalPermitsFeed.i18n.js';
 import { listParcelCell, listVerdict, verdictCell } from './permitBoardsLists.js';
 import { POSTED_LIST_PROTOCOLS, postedListDay } from './permitBoardsPostedLists.js';
@@ -36,6 +38,7 @@ const decode = (value) => String(value ?? '').replace(/&(#\d+|#x[\da-f]+|\w+);/g
   return ENTITIES[name.toLowerCase()] ?? whole;
 });
 const plain = (html) => clean(decode(String(html ?? '').replace(/<[^>]*>/g, ' ')));
+const fold = (value) => clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’‘]/g, "'").toUpperCase();
 const joined = (lines) => clean((lines ?? []).join(' ')) || null;
 const area = (value) => /(\d[\d\s]*(?:[.,]\d+)?)/.exec(clean(value))?.[1]?.replace(/\s/g, '') ?? null;
 
@@ -46,12 +49,19 @@ const area = (value) => /(\d[\d\s]*(?:[.,]\d+)?)/.exec(clean(value))?.[1]?.repla
  * a dot between digits as a space (`076.057.26.00090.M01`), a counter split
  * after its first zero joined (La Frette-sur-Seine's `PC 095 257 26 0 0009`),
  * a day written as eight digits apart (`20261002`) as `2026 10 02`.
+ * Garchizy names its declarations `DPC` (`DPC_058_121_26_N0010_…_arrete.pdf`)
+ * and drops a digit of its lettered counter now and then (« DP 05812126
+ * N007 »): the family is read as `DP`, a letter and three digits as the
+ * letter and four, as `municipalDossier` keeps them (`N0007`, like Bégard's
+ * `P0048`).
  */
 export function spelledNumber(text) {
   return clean(String(text ?? '')
     .replace(/[_-]+/g, ' ')
     .replace(/(\d)\.(?=[\dMT])/g, '$1 ')
     .replace(/\b(PC|DP|PA|PD)((?:\s+\d{3}){2}\s+\d{2})\s+0\s+(\d{4})\b/gi, '$1$2 0$3')
+    .replace(/\bDPC(?=\s*\d)/gi, 'DP')
+    .replace(/\b(PC|DP|PA|PD)(\s*\d{3}\s*\d{3}\s*\d{2})\s*([A-Z])(\d{3})(?!\d)/gi, '$1$2 $30$4')
     .replace(/\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/g, '$1 $2 $3'));
 }
 
@@ -303,6 +313,234 @@ export function readLabelledNotice(document, context) {
   })];
 }
 
+// --- Tables read row by row ----------------------------------------------------
+
+/** A run's centre: its glyphs' advances, or a guess where the font has none. */
+const centreOf = (run) => (run.x + (Number.isFinite(run.x1) && run.x1 > run.x ? run.x1 : run.x + 0.5 * (run.size || 7) * clean(run.text).length)) / 2;
+
+/** A page's header labels (`[field, label, {optional}?]`, folded), each run used once; null when one is missing. */
+function labelledHeader(runs, columns) {
+  const used = new Set();
+  const found = [];
+  for (const [field, label, options] of columns) {
+    const run = runs.filter((item) => !used.has(item) && fold(item.text) === label).sort((a, b) => a.x - b.x)[0];
+    if (!run) {
+      if (options?.optional) continue;
+      return null;
+    }
+    used.add(run);
+    found.push({ field, x: run.x, centre: centreOf(run), y: run.y });
+  }
+  return { bottom: Math.min(...found.map((column) => column.y)), columns: found.sort((a, b) => a.x - b.x) };
+}
+
+/** Runs as lines top to bottom, runs of one height joined left to right. */
+function runLines(runs) {
+  const lines = [];
+  for (const run of [...runs].sort((a, b) => (b.y - a.y) || (a.x - b.x))) {
+    const line = lines.at(-1);
+    if (line && Math.abs(line.y - run.y) < 1.5) line.runs.push(run);
+    else lines.push({ y: run.y, runs: [run] });
+  }
+  return lines.map((line) => clean(line.runs.sort((a, b) => a.x - b.x).map((run) => run.text).join(' ')));
+}
+
+// i18n-ignore-start — Pomponne's headers and the months its days print
+const POMPONNE_COLUMNS = [
+  ['filedOn', 'DATE DE'], ['dossier', 'NUMERO DOSSIER'], ['applicant', 'DEMANDEUR'],
+  // The applicant's own address: placed so that it is no other cell, never read.
+  ['home', 'ADRESSE DU DEMANDEUR'], ['site', 'ADRESSE DES TRAVAUX'],
+  ['parcels', 'REFERENCE CADASTRE', { optional: true }], ['parcels', 'REFERENCE', { optional: true }],
+  ['land', 'SURFACE DU'], ['purpose', 'NATURE DES TRAVAUX'], ['verdict', 'DECISION', { optional: true }], ['postedOn', 'AFFICHAGE'],
+];
+const POMPONNE_HEAD_RE = /^(?:PC|DP|PA|PD|CUB?|AT|AP)\s*\d/i;
+const SHORT_MONTHS = ['JAN', 'FEV', 'MAR', 'AVR', 'MAI', 'JUIN', 'JUIL', 'AOU', 'SEP', 'OCT', 'NOV', 'DEC'];
+const DECIDED_RE = /^(.*?)\s+le\s+(\d{1,2}\/\d{1,2}\/\d{4})$/i;
+// i18n-ignore-end
+
+/** `4-mai`, `2-juil.`, `31-déc.`: a day and month without their year, `{month, day}`. */
+function monthDay(value) {
+  const match = /^(\d{1,2})\s*-\s*([A-Z]+)\.?$/.exec(fold(value));
+  const month = match ? SHORT_MONTHS.findIndex((stem) => match[2].startsWith(stem)) + 1 : 0;
+  return month ? { month, day: Number(match[1]) } : null;
+}
+
+const dayIn = (md, year) => (md ? municipalDate(`${year}-${String(md.month).padStart(2, '0')}-${String(md.day).padStart(2, '0')}`) : null);
+/** The day and month on the reference day or the last before it. */
+function onOrBefore(md, reference) {
+  if (!md || !reference) return null;
+  const year = Number(reference.slice(0, 4));
+  const day = dayIn(md, year);
+  return day && day <= reference ? day : dayIn(md, year - 1);
+}
+/** The day and month on the reference day or the first after it. */
+function onOrAfter(md, reference) {
+  if (!md || !reference) return null;
+  const year = Number(reference.slice(0, 4));
+  const day = dayIn(md, year);
+  return day && day >= reference ? day : dayIn(md, year + 1);
+}
+
+/**
+ * Pomponne posts two Excel tables every week, « Tableau d'affichage des
+ * dépôts » and « … des décisions – semaine 38 », each every dossier since
+ * May under one header: the filing day, the number (a modification on a
+ * line below it), the applicant, THE APPLICANT'S OWN ADDRESS, the site, its
+ * parcels, the land's area, the works, the decision and its day
+ * (« NON-OPPOSITION le 27/07/2026 »), and the day it was posted. Cells are
+ * centred both ways, and a cell's lines sit as far apart as two rows' do:
+ * a row is the box its number's run is clipped to, and a run goes to the
+ * header centred nearest it. Neither the applicant nor his address is read.
+ *
+ * The filing and posting days print without their year (« 4-mai »,
+ * « 31-déc. »): a filing is of its number's year, or the last before the
+ * decision; a posting the first on or after the decision or the filing; a
+ * modification's filing the last before the newest day the table names.
+ * The tables of week 38 of 2026: 14 filings and 10 decisions read, a number
+ * mistyped (« PC 077 3372 24 00006 ») and a certificate left out.
+ */
+export function readPomponneTable(document, context, board) {
+  const city = context?.city;
+  let header = null;
+  const anchors = [];
+  for (const page of document?.pages ?? []) {
+    const runs = (page.runs ?? []).filter((run) => clean(run.text));
+    const found = labelledHeader(runs, POMPONNE_COLUMNS);
+    if (found) header = found;
+    if (!header) continue;
+    const columns = header.columns;
+    const fieldOf = (run) => columns.reduce((best, column) => (Math.abs(column.centre - centreOf(run)) < Math.abs(best.centre - centreOf(run)) ? column : best)).field;
+    const body = runs.filter((run) => !found || run.y < found.bottom - 1);
+    const heads = body.filter((run) => fieldOf(run) === 'dossier' && POMPONNE_HEAD_RE.test(clean(run.text))).sort((a, b) => b.y - a.y);
+    const rows = heads.map((run, i) => {
+      // A row's box is its number's clip; failing one, halfway to its neighbours.
+      const clip = run.clip && run.clip.y1 - run.clip.y0 < 150 ? run.clip : null;
+      const top = clip ? clip.y1 : i ? (heads[i - 1].y + run.y) / 2 : Infinity;
+      const bottom = clip ? clip.y0 : i < heads.length - 1 ? (heads[i + 1].y + run.y) / 2 : -Infinity;
+      return { top, bottom, cells: {} };
+    });
+    for (const run of body) {
+      const row = rows.find((item) => run.y <= item.top && run.y >= item.bottom);
+      if (row) (row.cells[fieldOf(run)] ??= []).push(run);
+    }
+    anchors.push(...rows);
+  }
+  const read = anchors.map(({ cells }) => {
+    const lines = Object.fromEntries(Object.entries(cells).map(([field, runs]) => [field, runLines(runs)]));
+    const dossier = reportDossier(joined(lines.dossier), city);
+    if (!dossier) return null;
+    const decision = joined(lines.verdict);
+    const said = DECIDED_RE.exec(decision ?? '');
+    const land = joined(lines.land);
+    return {
+      dossier, decidedOn: board === 'decisions' ? paddedDay(said?.[2]) : null,
+      verdict: board === 'decisions' ? listVerdict(verdictCell([said ? said[1] : decision])) ?? verdicts.signed.fr : null,
+      filed: monthDay(joined(lines.filedOn)), posted: monthDay(joined(lines.postedOn)),
+      fields: { site: joined(lines.site), purpose: joined(lines.purpose), parcels: listParcelCell(joined(lines.parcels)),
+        landArea: /^\d+$/.test(land ?? '') ? land : null },
+    };
+  }).filter(Boolean);
+  // The filing's year: the decision's, else the number's; a modification's, the table's newest day's.
+  for (const row of read) {
+    const modified = / [MT]\d{2}$/.test(row.dossier);
+    if (row.decidedOn) row.filedOn = onOrBefore(row.filed, row.decidedOn);
+    else if (!modified) row.filedOn = dayIn(row.filed, 2000 + Number(row.dossier.split(' ')[2]));
+    if (row.filedOn !== undefined || row.decidedOn) row.postedOn = onOrAfter(row.posted, row.decidedOn ?? row.filedOn);
+  }
+  const newest = context?.file?.published ?? read.map((row) => row.postedOn ?? row.decidedOn).filter(Boolean).sort().at(-1) ?? null;
+  for (const row of read.filter((item) => item.filedOn === undefined && !item.decidedOn)) {
+    row.filedOn = onOrBefore(row.filed, newest);
+    row.postedOn = onOrAfter(row.posted, row.filedOn);
+  }
+  return read.map((row) => listRow(city, board, {
+    dossier: row.dossier, ...row.fields, filedOn: row.filedOn ?? null, postedOn: row.postedOn ?? null,
+    verdict: row.verdict, decidedOn: row.decidedOn,
+  }));
+}
+
+// i18n-ignore-start — Neuville-de-Poitou's register: its headers, labels and footer
+const NEUVILLE_COLUMNS = [
+  ['dossier', 'DOSSIER'], ['dates', 'DATES'], ['applicant', 'DEMANDEUR'], ['site', 'TERRAIN'],
+  // The register of dossiers under review ends on their deadline, the register of decisions on the decision.
+  ['details', 'INFORMATIONS'], ['deadline', 'LIMITE', { optional: true }], ['verdict', 'DECISION', { optional: true }],
+];
+const NEUVILLE_FILED_RE = /^D[ée]pos[ée] le\s+(\d{1,2}\/\d{1,2}\/\d{4})/i;
+const NEUVILLE_NUMBER_RE = /^(?:PC|DP|PA|PD|CU|AT)\s*\d/i;
+const NEUVILLE_LAND_RE = /^superficie\s*:\s*(\d[\d\s]*(?:[.,]\d+)?)\s*m/i;
+const NEUVILLE_WORKS_RE = /^Nature des travaux\s*:\s*(.*)$/i;
+const NEUVILLE_HOUSING_RE = /^nombre de logements\s*:\s*(\d+)/i;
+const NEUVILLE_FLOOR_RE = /^Surface de plancher totale [àa] construire\s*:\s*(\d[\d\s]*(?:[.,]\d+)?)\s*m/i;
+const NEUVILLE_LABEL_RE = /^(?:nombre de logements|Surfaces? (?:de plancher|totales)|destination ou)\b/i;
+const NEUVILLE_NOISE_RE = /^Page \d+\s*\/\s*\d+$/i;
+// i18n-ignore-end
+
+/**
+ * Neuville-de-Poitou posts one file its software prints (TCPDF), refreshed in
+ * place: the « Registre des dossiers en cours », every dossier under review
+ * however old, then the « Registre des décisions », in six columns whose
+ * headers are centred over left-aligned cells. A row hangs from its « Déposé
+ * le » line: the family over the number in one cell (`DÉCLARATION PRÉALABLE`
+ * / `CONSTRUCTION (Initiale)` / `DP 086177 26 N0062`, the number last), the
+ * days, the applicant over HIS OWN ADDRESS, the site over its postcode and
+ * the land's area, the works, dwellings and floor areas, and the deadline —
+ * or, in the second register, the decision and its day (« Favorable le
+ * 06/07/2026 »). A run goes to the first header starting right of it; the
+ * applicant's cell is never read. A page whose header ends on « Décision »
+ * holds decisions, any other filings. The edition of 4 September 2026:
+ * 7 pages, 17 filings and 23 decisions read, works on ERP (`AT …`) left out.
+ */
+export function readNeuvilleRegister(document, context) {
+  const city = context?.city;
+  let header = null;
+  const rows = [];
+  for (const page of document?.pages ?? []) {
+    const runs = (page.runs ?? []).filter((run) => clean(run.text) && !NEUVILLE_NOISE_RE.test(clean(run.text)));
+    const found = labelledHeader(runs, NEUVILLE_COLUMNS);
+    if (found) header = found;
+    if (!header) continue;
+    const columns = header.columns;
+    const board = columns.some((column) => column.field === 'verdict') ? 'decisions' : 'filings';
+    const fieldOf = (run) => (columns.find((column) => column.x > run.x - 3) ?? columns.at(-1)).field;
+    const body = runs.filter((run) => !found || run.y < found.bottom - 1);
+    const tops = body.filter((run) => fieldOf(run) === 'dates' && NEUVILLE_FILED_RE.test(clean(run.text))).map((run) => run.y + 2).sort((a, b) => b - a);
+    const bands = tops.map((top) => ({ top, board, runs: [] }));
+    for (const run of body) {
+      const band = bands.findLast((item) => run.y <= item.top);
+      // Above the page's first row: the end of the row the page before broke off.
+      (band ?? rows.at(-1))?.runs.push({ field: fieldOf(run), run });
+    }
+    rows.push(...bands);
+  }
+  return rows.map((row) => {
+    const lines = {};
+    for (const { field, run } of row.runs) (lines[field] ??= []).push(run);
+    for (const field of Object.keys(lines)) lines[field] = runLines(lines[field]);
+    const number = (lines.dossier ?? []).find((line) => NEUVILLE_NUMBER_RE.test(line));
+    const dossier = number ? reportDossier(number, city) : null;
+    if (!dossier) return null;
+    const terrain = lines.site ?? [];
+    const details = lines.details ?? [];
+    const works = details.findIndex((line) => NEUVILLE_WORKS_RE.test(line));
+    let purpose = null;
+    if (works >= 0) {
+      const tail = details.slice(works + 1);
+      const end = tail.findIndex((line) => NEUVILLE_LABEL_RE.test(line) || NEUVILLE_WORKS_RE.test(line));
+      purpose = joined([NEUVILLE_WORKS_RE.exec(details[works])[1], ...(end < 0 ? tail : tail.slice(0, end))]);
+    }
+    const first = (pattern, list) => list.map((line) => pattern.exec(line)?.[1]).find(Boolean) ?? null;
+    const decision = row.board === 'decisions' ? joined(lines.verdict) : null;
+    const said = DECIDED_RE.exec(decision ?? '');
+    return listRow(city, row.board, {
+      dossier, site: joined(terrain.filter((line) => !NEUVILLE_LAND_RE.test(line))), purpose,
+      filedOn: paddedDay(first(NEUVILLE_FILED_RE, lines.dates ?? [])),
+      landArea: area(first(NEUVILLE_LAND_RE, terrain)), housing: first(NEUVILLE_HOUSING_RE, details),
+      floorArea: area(first(NEUVILLE_FLOOR_RE, details)),
+      verdict: decision ? listVerdict(verdictCell([said ? said[1] : decision])) ?? verdicts.signed.fr : null,
+      decidedOn: paddedDay(said?.[2]),
+    });
+  }).filter(Boolean);
+}
+
 const cityOf = (context) => context?.city;
 
 export const SIEVE_PAGE_PROTOCOLS = Object.freeze({
@@ -313,5 +551,8 @@ export const SIEVE_PAGE_READERS = Object.freeze({
   'villeneuve-tolosane-register': (document, context) => readReportTable(document, registerSpec(cityOf(context))),
   'labelled-notice': readLabelledNotice,
   'lhuisserie-list': (document, context) => readReportTable(document, lhuisserieSpec(cityOf(context))),
+  'pomponne-filings': (document, context) => readPomponneTable(document, context, 'filings'),
+  'pomponne-decisions': (document, context) => readPomponneTable(document, context, 'decisions'),
+  'neuville-de-poitou-register': readNeuvilleRegister,
 });
 export const SIEVE_PAGE_TEXT = Object.freeze({});

@@ -5542,6 +5542,50 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Ten more towns: the last readable ones of the 128 (2026-10-04).** Five
+WordPress communes print their lists in layouts of their own (`wpMediaCities.js`).
+Lissieu prints Saint-Genis-Laval's two BIRT reports, read by `birt-*`, and
+three fixes reach Saint-Genis-Laval too: a header label is the highest of its
+runs, so a page with two families keeps both and a works line reading
+« surface » is no header; the filings take the column whose header starts
+left of a run (`rule: 'left'`), so a wrapped name's second run 65 points into
+its column stays out of the site; an edition whose rows are packed a few
+points apart keeps each row's number alone (Saint-Genis-Laval's 24 September
+editions: the same 61 and 79 rows, two of them more complete). Caissargues
+exports Nîmes's register (`register`). Les Houches posts two files every
+Friday with the applicant's own postal address beside the site; the site is
+read only where its column's cells start (`town-houches-*`). La Flotte scans
+most of its fortnightly avis de dépôt: `source.listOcr` sends a list with no
+text to the sweep's OCR, and a number read twice on one scan is dropped
+(`town-laflotte-filings`). Lion-sur-Mer stacks each filing row and prints its
+decisions as labelled cards (`town-lion-*`). Five more towns post on sites of
+their own (`sievePageCities.js`). Pomponne posts two Excel tables a week,
+every dossier since May, the applicant's own address beside the site; a
+cell's lines sit as far apart as two rows', so `pomponne-*` takes a row as
+the box its number's run is clipped to, and days printed without their year
+(« 4-mai ») take their number's year or the last before the decision.
+Neuville-de-Poitou refreshes one TCPDF file with its registers of dossiers
+under review and of decisions, the number printed last in its cell
+(`neuville-de-poitou-register`). Nueil-les-Aubiers links its scanned orders
+from two pages. Étupes serves its scans through DOCman at
+`…/<id>-avis-de-depot-dp-025-228-26-00050/file`: posted-acts reads the number
+in the folder before `/file`. Garchizy misprints its numbers
+(« DP-058-12126-N0010 », `DPC_…`, « N007 »): sieve-acts reads `DPC` as `DP`
+and pads a lettered counter of three digits; its robots.txt refuses
+`/images/`, where its acts are, overridden as for other legal postings. The
+act reader no longer takes an order recalling « Avis de dépôt affiché en
+mairie le » for a filing, reads OCR's « Article ler », dates a signature
+« ETUPES, le … », reads « Date du dépôt » and cuts « - Cadastré : … » off a
+site. Read live on 2026-10-04: Lissieu 24 filings and 36 decisions,
+Caissargues 30 and 29, Les Houches 63 and 76, La Flotte 45 filings by OCR,
+Lion-sur-Mer 31 and 21, Pomponne 14 and 10, Neuville-de-Poitou 17 and 23,
+all with their site; by OCR, Nueil-les-Aubiers 15 decisions (13 with their
+site), Étupes 10 filings and 7 decisions, Garchizy 25 decisions (21), its
+newest signed on 12 May 2026. Known gaps: La Flotte uploaded one list twice
+and its second scan misreads one certificate number; Lion-sur-Mer's lists
+start on 2 October. 38 959 inhabitants more. Left among the 128: about
+seventeen towns whose postings stopped, sit behind a login or carry no date.
+
 **Dompierre-sur-Mer and Sarralbe, PDFs refused to robots (2026-10-04).**
 Both towns' `robots.txt` refuse every PDF (`Disallow: /*.pdf`, `Disallow:
 *.pdf`), the only files their legal display is made of; neither asks for a
