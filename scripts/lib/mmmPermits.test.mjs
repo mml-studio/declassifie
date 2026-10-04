@@ -41,21 +41,21 @@ test('an edition is the file\'s rows, ranked, and the day it was written', async
   assert.equal(edition.day, '2026-10-02');
   assert.equal(edition.rows.length, 150);
   assert.equal(edition.rows[0].rank, 0);
-  assert.equal(await readMmmEdition(mmmCommuneFor('34129'), http), null);
+  assert.equal(await readMmmEdition(mmmCommuneFor('34198'), http), null);
 });
 
 test('the sweep archives every file, paced, and the next night\'s new dossier is dated', async (t) => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'mmm-archive-'));
   t.after(() => fsp.rm(dir, { recursive: true, force: true }));
   const store = createCartdsArchiveStore(dir, { warn: () => {} }, MMM_ROWS);
-  const communes = [mmmCommuneFor('34172'), mmmCommuneFor('34129')];
+  const communes = [mmmCommuneFor('34172'), mmmCommuneFor('34198')];
   const pauses = [];
   const sleep = async (ms) => { pauses.push(ms); };
   const quiet = { log: () => {} };
 
   const night1 = fakeHost({ Montpellier: { modified: 'Thu, 01 Oct 2026 05:00:21 GMT', csv: [HEADER, ...stock].join('\n') } });
   const first = await sweepMmmArchive({ communes, store, http: night1, day: '2026-10-01', sleep, log: quiet });
-  assert.deepEqual([first.read, first.added, first.failed, first.editions], [1, 150, ['34129'], { '2026-10-01': 1 }]);
+  assert.deepEqual([first.read, first.added, first.failed, first.editions], [1, 150, ['34198'], { '2026-10-01': 1 }]);
   assert.deepEqual(pauses, [MMM_CRAWL_DELAY_MS]);
 
   // Every id renumbered overnight, and one dossier more.

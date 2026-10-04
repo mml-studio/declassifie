@@ -89,10 +89,12 @@ test('a dossier Sitadel already holds on the same parcel is dropped, not drawn t
   assert.equal(dropSitadelTwins([pc], [{ ...sitadel('PC', 2025), parcelIdus: [{ idu: '34172000AC0099' }] }]).twins, 0);
 });
 
-test('the registry names 28 communes and their files', () => {
-  assert.equal(MMM_COMMUNES.length, 28);
+test('the registry names 27 communes and their files', () => {
+  // 28 publish the file; Lattes is read from the orders it posts (digilor-lattes).
+  assert.equal(MMM_COMMUNES.length, 27);
   for (const commune of MMM_COMMUNES) assert.match(commune.insee, COMMUNE_CODE_PATTERN);
-  assert.equal(mmmCsvUrl(mmmCommuneFor('34129')), 'https://data.montpellier3m.fr/sites/default/files/ressources/Lattes_MMM_PermisConst.csv');
+  assert.equal(mmmCsvUrl(mmmCommuneFor('34198')), 'https://data.montpellier3m.fr/sites/default/files/ressources/Perols_MMM_PermisConst.csv');
+  assert.equal(mmmCommuneFor('34129'), null);
   assert.equal(mmmCommuneFor('75056'), null);
 });
 

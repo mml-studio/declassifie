@@ -886,7 +886,8 @@ async function readWebdelibCity(city, http, { dir, allows, months, day }) {
     if (!response?.ok) return null;
     const html = await http.text(response, PAGE_MAX_BYTES);
     if (html === null) return null;
-    const found = parseWebdelibActs(html, url);
+    // The act's own day (its first date) is the decision's, for an act reader.
+    const found = parseWebdelibActs(html, url, { actDate: true });
     acts.push(...found);
     if (closed) {
       try {
@@ -899,7 +900,8 @@ async function readWebdelibCity(city, http, { dir, allows, months, day }) {
   const lists = [];
   let failed = 0;
   for (const list of webdelibLists(city, acts)) {
-    const answer = await readWebdelibAct(list, http, { dir, allows });
+    // An act reader (Jouy-en-Josas's, `dematdoc-notice`) needs the city and the act's title.
+    const answer = await readWebdelibAct(list, http, { dir, allows }, { city, file: list });
     if (!answer) { failed += 1; continue; }
     for (const row of answer.rows) (boards[row.board] ??= []).push(row.cells);
     lists.push({ board: list.board, url: list.url, title: list.title, rows: answer.rows.length, reused: answer.reused });

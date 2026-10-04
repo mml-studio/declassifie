@@ -68,14 +68,16 @@ export const MMM_LICENCE = 'ODbL 1.0';
 /**
  * The communes that publish the file, by the name their file goes by. 28 of
  * the métropole's 31 on 2026-10-01; Baillargues and Castelnau-le-Lez are
- * instructed outside it, and Villeneuve-lès-Maguelone publishes none.
+ * instructed outside it, and Villeneuve-lès-Maguelone publishes none. Lattes
+ * (`Lattes_MMM_PermisConst.csv`) is read from the orders it posts itself
+ * instead, each with its number, site and day (`digilor-lattes`): 27 here.
  */
 // i18n-ignore-start — commune names, proper nouns relayed as published
 export const MMM_COMMUNES = Object.freeze([
   ['34172', 'Montpellier', 'Montpellier'], ['34027', 'Beaulieu', 'Beaulieu'], ['34058', 'Castries', 'Castries'],
   ['34077', 'Clapiers', 'Clapiers'], ['34087', 'Cournonsec', 'Cournonsec'], ['34088', 'Cournonterral', 'Cournonterral'],
   ['34090', 'Cres', 'Le Crès'], ['34095', 'Fabregues', 'Fabrègues'], ['34116', 'Grabels', 'Grabels'],
-  ['34120', 'Jacou', 'Jacou'], ['34123', 'Juvignac', 'Juvignac'], ['34129', 'Lattes', 'Lattes'],
+  ['34120', 'Jacou', 'Jacou'], ['34123', 'Juvignac', 'Juvignac'],
   ['34134', 'Laverune', 'Lavérune'], ['34164', 'Montaud', 'Montaud'], ['34169', 'Montferrier', 'Montferrier-sur-Lez'],
   ['34179', 'Murviel', 'Murviel-lès-Montpellier'], ['34198', 'Perols', 'Pérols'], ['34202', 'Pignan', 'Pignan'],
   ['34217', 'Prades', 'Prades-le-Lez'], ['34227', 'Restinclieres', 'Restinclières'], ['34244', 'Saint_bres', 'Saint-Brès'],

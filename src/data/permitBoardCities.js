@@ -46,6 +46,10 @@ const CITIES = [
   // Chemillé-en-Anjou's A2Display kiosk: category 760, « Permis et autorisations ».
   { key: 'chemille-en-anjou', insee: '49092', postcode: '49120', label: 'Ville de Chemillé-en-Anjou — permis et autorisations d’urbanisme',
     page: 'https://www.chemille-en-anjou.fr/consultez-les-actes-administratifs/', source: { protocol: 'a2display-kiosk', categories: [760], ocr: true } },
+  // Saint-Étienne-au-Mont's A2Display legal display: category 8137, « Urbanisme », one file per step.
+  { key: 'saint-etienne-au-mont', insee: '62746', postcode: '62360', label: 'Ville de Saint-Étienne-au-Mont — affichage légal d’urbanisme',
+    page: 'https://stream.a2display.fr/l/TFjwYLwQBu2Qf97HVED8MHOdcGyCBAtEY0hzvPkvZlUUm48aPOdel46R5xX9p3WI',
+    source: { protocol: 'a2display-display', display: 'TFjwYLwQBu2Qf97HVED8MHOdcGyCBAtEY0hzvPkvZlUUm48aPOdel46R5xX9p3WI', categories: [8137] } },
   // Public boards confirmed during the outer Paris suburbs survey on 2026-10-02.
   { key: 'pontault-combault', insee: '77373', postcode: '77340', label: 'Ville de Pontault-Combault — dépôts et autorisations d’urbanisme',
     page: 'https://actes.pontault-combault.fr/docs/', source: { protocol: 'outer-pontault' } },
