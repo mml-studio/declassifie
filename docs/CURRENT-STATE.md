@@ -5907,6 +5907,25 @@ SMICA's portal and Galiax and Cazaux-Villecomtal on the Val d'Adour board
 likewise. Ten communes of fewer than 650 inhabitants posted nothing in the
 last 92 days and leave. Coverage 34.41 % → 34.60 %.
 
+**Who instructs permits where the map is empty (2026-10-04).** Coverage
+per department shows whole departments near zero (Somme 0.2 %, Vienne 1.3 %,
+Saône-et-Loire 3.1 %, Seine-Maritime 5.6 %; Indre, Cantal, Creuse, Lozère,
+Territoire de Belfort and Haute-Corse none). Looking at the body that
+instructs permits for each found mostly boards installed with no commune
+enabled, or Operis portals that take filings and post nothing; four boards
+post. The PETR Centre-Cher's ADS service, which instructs for 62 communes
+of four intercommunalities, posts on its own Sirap tenant
+(`adspetr18.pu.sirap.com`): 55 communes posted within 92 days (568 rows, 34
+communes within 14 days) and join `sirapFeed.js`, the scan asking the tenant
+again; Saint-Martin-d'Auxigny, also on it, stays with the list
+`wpMediaCities.js` reads. Three Cart@DS boards with one commune each join
+`cartdsFeed.js`: La Plaine-des-Palmistes's own host (55 filings and 52
+decisions to 29 September; it answers HTTP/1.1 only, which Node 24's fetch
+uses and Node 26's does not), Appietto's (`Disallow: /`, the `geosphere.fr`
+default, read by the project's decision) and Coutances Mer et Bocage's, whose
+menu names Agon-Coutainville alone (a seed the scan of 4 October did not ask).
+62 935 inhabitants more; coverage 34.60 % → 34.69 %.
+
 **Thirty-eight towns found without walking their sites (2026-10-04).**
 The sieve of 2026-10-03 walked each commune's site from its home page and
 missed most pages that post permits (recall 0.10-0.14 on labelled communes).

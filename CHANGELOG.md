@@ -6,6 +6,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **55 communes of the Cher, La Plaine-des-Palmistes, Appietto and
+  Agon-Coutainville now show the permits their instruction boards post**,
+  62,935 inhabitants, bringing current-source coverage from 34.60% to 34.69%.
+  They were found by looking, department by department, at who instructs
+  permits where the coverage map stayed empty: the PETR Centre-Cher's ADS
+  service posts on a Sirap portal of its own (568 rows, newest 2 October), and
+  three Cart@DS boards each post for one commune.
 - **Bourg-en-Bresse, Enghien-les-Bains, Pont-du-Château, Gerzat and 15 more
   communes now show the permits their instruction boards post**, 129,293
   inhabitants, bringing current-source coverage from 34.41% to 34.60%. A new

@@ -241,6 +241,35 @@ const CARTDS_DOCUMENTED_INSTANCES = Object.freeze([
     codes: 'number',
     communes: Object.freeze(['14047']),
   }),
+  // Three boards found on 2026-10-04 while looking at who instructs permits in
+  // the departments the map left empty, each with one commune in its menu.
+  // La Plaine-des-Palmistes's own host answers HTTP/1.1 only: Node 26's fetch
+  // offers HTTP/2 and is refused (NGHTTP2_HTTP_1_1_REQUIRED); Node 24, the
+  // server's, reads it (55 filings and 52 decisions, newest 29 September).
+  Object.freeze({
+    key: 'plainedespalmistes',
+    base: 'https://vpsurba.ville-plainedespalmistes.fr/guichet-unique',
+    label: 'La Plaine-des-Palmistes — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    communes: Object.freeze(['97406']),
+  }),
+  Object.freeze({
+    key: 'appietto',
+    base: 'https://appietto.geosphere.fr/guichet-unique',
+    label: 'Appietto — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'number',
+    robots: 'overridden',
+    communes: Object.freeze(['2A017']),
+  }),
+  // Coutances Mer et Bocage's board, a seed of the scan that the scan of
+  // 2026-10-04 did not ask: Agon-Coutainville alone in its menu.
+  Object.freeze({
+    key: 'coutances',
+    base: 'https://cartads.communaute-coutances.fr/guichet-unique',
+    label: 'Coutances Mer et Bocage — affichage réglementaire', // i18n-ignore-line — the publisher and its page title
+    codes: 'insee',
+    communes: Object.freeze(['50003']),
+  }),
   Object.freeze({
     key: 'atd24',
     base: 'https://atd24.geosphere.fr/guichet-unique',

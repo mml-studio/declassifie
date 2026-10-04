@@ -228,6 +228,10 @@ export const SIRAP_SCAN_HOSTS = Object.freeze([
   // The Ain's SIEA moved its public portal to this host in December 2025.
   // Bugey-Sud and municipal websites link it; it uses the same PU API.
   'puu.siea-sig.fr',
+  // The PETR Centre-Cher's ADS service (Cher), found on 2026-10-04; written by
+  // hand in `sirapFeed.js`, asked again so that a commune that starts posting
+  // joins.
+  'adspetr18.pu.sirap.com',
   // Tenants of the `*.pu.sirap.com` wildcard named by guessing, on 2026-10-01
   // (the Wayback Machine's `sve-<tenant>.sirap.fr`) and 2026-10-03 (names
   // drawn from intercommunalities, syndicates and communes; an unknown name
