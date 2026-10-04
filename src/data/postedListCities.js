@@ -11,7 +11,7 @@ export const POSTED_LIST_CITIES = [
   // Scanned tables: applicants and their residential addresses are never read.
   { key: 'selestat', insee: '67462', postcode: '67600', label: 'Ville de Sélestat — dépôts et décisions d’urbanisme',
     page: 'https://www.selestat.fr/mon-quotidien/logement-et-urbanisme/recepisses-et-autorisations',
-    source: { protocol: 'posted-lists', latestOnly: true, ocr: true, ocrPsm: 6,
+    source: { protocol: 'posted-lists', latestOnly: true, listOcr: 'scan', ocrPsm: 6,
       layouts: { filings: 'selestat-register', decisions: 'selestat-register' } } },
   // Osny replaces some dated URLs in place; validators keep those lists current.
   { key: 'osny', insee: '95476', postcode: '95520', underReview: true, label: 'Ville d’Osny — dépôts et décisions d’urbanisme',

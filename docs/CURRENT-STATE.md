@@ -5587,8 +5587,12 @@ The municipality (`67462`, 19,589 residents) joins `postedListCities.js`
 through `posted-lists`, keeping the newest filing and decision list with
 `source.latestOnly`. Both are image-only landscape Cart@DS exports.
 `source.ocrPsm: 6` selects uniform-block Tesseract segmentation in the existing
-daily collector; the default remains 4 for other sources. `scan: true`
-keeps visitors from downloading these scans or running OCR.
+daily collector; the default remains 4 for other sources. `source.listOcr:
+'scan'` marks its lists `scan: true`, which keeps visitors from downloading
+these scans or running OCR. (Until the same day's fix, the flag was
+`source.ocr`, which every WordPress commune carries for its scanned acts:
+the 70 towns' text lists were marked as scans too, left to the sweep's OCR
+and never read as text.)
 `permitBoardsSelestat.js` verifies the publisher, orientation and identifying
 headers before reading fixed project columns, including headerless
 continuation pages. The applicant's residential address column is never read.
