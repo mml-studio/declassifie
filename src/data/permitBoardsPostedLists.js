@@ -109,7 +109,9 @@ function listFiles(city, links) {
       rolling.add(board);
     }
     files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }),
-      ...(city.source?.rolling ? { rolling: true } : {}) });
+      ...(city.source?.rolling ? { rolling: true } : {}),
+      ...(city.source?.ocr ? { ocr: true, scan: true,
+        ...(city.source.ocrPsm ? { ocrPsm: city.source.ocrPsm } : {}) } : {}) });
   }
   if (!files.length) return null;
   files.sort((a, b) => (b.published ?? '9').localeCompare(a.published ?? '9'));

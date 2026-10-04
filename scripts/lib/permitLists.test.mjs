@@ -1105,6 +1105,43 @@ test('a board\'s scans are never downloaded for a visitor, and the sweep reads t
   assert.deepEqual(swept.boards.decisions.map((cells) => [cells[4], cells[8]]), [['12 rue Exemple', 'Non-opposition'], ['12 rue Exemple', 'Non-opposition']]);
 });
 
+test('Sélestat scans pass their table OCR mode only to the sweep, then visitors reuse scrubbed rows', async () => {
+  const dir = await tempDir();
+  const city = PERMIT_LISTS.find((c) => c.key === 'selestat');
+  const page = '<a href="/filings.pdf">Liste des avis de dépôt au 22 septembre 2026</a>'
+    + '<a href="/decisions.pdf">Liste des décisions au 22 septembre 2026</a>';
+  const files = Object.fromEntries(['filings', 'decisions'].map((board) => [`https://www.selestat.fr/${board}.pdf`,
+    { bytes: new Uint8Array(Buffer.from('%PDF-1.7\nscanned')) }]));
+  const visitor = fakeHttp({ pages: { [city.page]: page }, files });
+  const seen = await readPermitCity(city, visitor, { dir, day: '2026-10-04' });
+  assert.equal(seen.pendingOcr, 2);
+  assert.ok(!visitor.calls.some((call) => call.url.endsWith('.pdf')));
+  const asked = [];
+  const run = (text, x, y) => ({ text, x, x1: x + text.length * 2, y });
+  const ocr = async (_bytes, options) => {
+    asked.push(options);
+    return { document: { pages: [{ width: 842, height: 595, runs: [
+      run('67462 - SELESTAT', 58, 548), run('N° de dossier', 58, 502),
+      run('Objet des travaux', 480, 502), run('Références cadastrales', 324, 488),
+      run('DP 067 462 26 M0012', 58, 470), run('01/09/2026', 58, 451),
+      run('PRIVATE PERSON', 186, 470), run('99 rue Private', 186, 451),
+      run('12 rue du Projet', 324, 470), run('Pergola', 480, 465), run('26/08/2026', 730, 451),
+    ] }] } };
+  };
+  const swept = await readPermitCity(city, fakeHttp({ pages: { [city.page]: page }, files }),
+    { dir, day: '2026-10-04', ocr, background: true });
+  assert.equal(swept.pendingOcr, 0);
+  assert.equal(asked.length, 2);
+  assert.ok(asked.every((options) => options.psm === 6 && options.positioned));
+  assert.equal(swept.boards.filings[0][4], '12 rue du Projet');
+  const cachedVisitor = fakeHttp({ pages: { [city.page]: page }, files });
+  const cached = await readPermitCity(city, cachedVisitor, { dir, day: '2026-10-04', ocr });
+  assert.equal(cached.reused, 2);
+  assert.equal(asked.length, 2);
+  assert.ok(!cachedVisitor.calls.some((call) => call.url.endsWith('.pdf')));
+  for (const file of await fsp.readdir(dir)) assert.doesNotMatch(await fsp.readFile(path.join(dir, file), 'utf8'), /PRIVATE|Private|scanned/);
+});
+
 test('a city\'s own User-Agent goes with every request to its host, robots.txt included', async () => {
   const city = BOARD_PERMIT_SOURCES.find((c) => c.key === 'boulogne-sur-mer');
   const http = fakeHttp({ robots: { 'www.ville-boulogne-sur-mer.fr': 'User-agent: *\nDisallow: /app/\n' } });

@@ -90,7 +90,7 @@ export async function pdfOcrAvailable({ run = runProgram } = {}) {
  * @param {string} [options.tmpdir]
  * @param {string} [options.lang]
  * @returns {(bytes: Uint8Array, opts?: {screen?: (band: string) => boolean, positioned?: boolean, rotate?: number,
- *   maxPages?: ?number, typeColumn?: object}) =>
+ *   maxPages?: ?number, typeColumn?: object, psm?: 4 | 6}) =>
  *   Promise<?{pages: Array<string>, read: number, ms: number}>} Each page's
  *   text — the band's alone for a page the screen set aside — and how many
  *   were read whole; null when the file could not be rendered or read, a
@@ -99,9 +99,12 @@ export async function pdfOcrAvailable({ run = runProgram } = {}) {
  *   `maxPages`: the first pages only, for a form whose fields are on page 1.
  *   `typeColumn`: reread tiny permit-family cells at 400 dpi, alongside
  *   year anchors in a measured table. Whole-page OCR can omit these cells.
+ *   `psm`: Tesseract page segmentation; 4 keeps column detection, while 6
+ *   reads a uniform block in a table whose fixed cells are separated later.
  */
 export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'fra' } = {}) {
-  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0, maxPages = null, typeColumn = null } = {}) {
+  return async function readScannedPdf(bytes, { screen = null, positioned = false, rotate = 0, maxPages = null, typeColumn = null, psm = 4 } = {}) {
+    if (![4, 6].includes(psm)) return null;
     const started = Date.now();
     let dir = null;
     try {
@@ -129,7 +132,7 @@ export function createPdfOcr({ run = runProgram, tmpdir = os.tmpdir(), lang = 'f
         const image = path.join(dir, 'page');
         if (await run('pdftoppm', [...at, pdf, image]) === null) return null;
         if (rotate) await fsp.writeFile(`${image}.pgm`, rotatePgm(await fsp.readFile(`${image}.pgm`), rotate));
-        const text = await run('tesseract', [`${image}.pgm`, '-', '-l', lang, '--psm', '4', ...(positioned ? ['tsv'] : [])]);
+        const text = await run('tesseract', [`${image}.pgm`, '-', '-l', lang, '--psm', String(psm), ...(positioned ? ['tsv'] : [])]);
         await fsp.rm(`${image}.pgm`, { force: true });
         if (text === null) return null;
         if (positioned) {

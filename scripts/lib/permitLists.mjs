@@ -1073,6 +1073,7 @@ async function readBoardCity(city, http, { dir, allows, months, day, maxFiles, o
             if (canOcr()) {
               ocrRuns += 1;
               scanned = await ocr(bytes, { positioned: true, maxPages: file.ocrPages,
+                ...(file.ocrPsm ? { psm: file.ocrPsm } : {}),
                 ...(file.ocrRotate ? { rotate: file.ocrRotate } : {}),
                 ...(file.ocrTypeColumn ? { typeColumn: file.ocrTypeColumn } : {}) });
             }
