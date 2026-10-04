@@ -43,6 +43,10 @@ const CITIES = [
   // Rochefort's own legal-display app; its back end serves the page's JSON.
   { key: 'rochefort', insee: '17299', postcode: '17300', label: 'Ville de Rochefort — affichage légal d’urbanisme',
     page: 'https://www.ville-rochefort.fr/affichage-legal', source: { ocr: true } },
+  // Vienne's LEGALView portal: the theme « Autorisations d'urbanisme », one order per document.
+  { key: 'vienne', insee: '38544', postcode: '38200', label: 'Ville de Vienne — autorisations d’urbanisme',
+    page: 'https://www.saas-legalview.fr/public/legalview/mairie-de-vienne/theme/62cd32431fe54a22bc7c2235',
+    source: { protocol: 'legalview', org: 'mairie-de-vienne', theme: '62cd32431fe54a22bc7c2235' } },
   // Chemillé-en-Anjou's A2Display kiosk: category 760, « Permis et autorisations ».
   { key: 'chemille-en-anjou', insee: '49092', postcode: '49120', label: 'Ville de Chemillé-en-Anjou — permis et autorisations d’urbanisme',
     page: 'https://www.chemille-en-anjou.fr/consultez-les-actes-administratifs/', source: { protocol: 'a2display-kiosk', categories: [760], ocr: true } },
