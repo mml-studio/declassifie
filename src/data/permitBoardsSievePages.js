@@ -139,46 +139,6 @@ function listRow(city, board, fields) {
   };
 }
 
-// i18n-ignore-start — the Word tables' headers
-const WORD_LIST_COLUMNS = {
-  filings: [
-    ['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'PETITIONNAIRE'],
-    ['site', 'ADRESSE DU PROJET'], ['purpose', 'DESCRIPTION DU PROJET'],
-  ],
-  decisions: [
-    // Noisy-le-Roi breaks « Numéro de dossier » over two lines, Auchel does not.
-    ['dossier', 'NUMERO DE DOSSIER', { optional: true }], ['dossier', 'NUMERO DE', { optional: true }],
-    ['applicant', 'PETITIONNAIRE'], ['verdict', 'DECISION'], ['decidedOn', 'DATE DE'],
-    ['purpose', 'NATURE DES TRAVAUX'], ['site', 'ADRESSE DES TRAVAUX'], ['floor', 'SURFACE'],
-  ],
-};
-// i18n-ignore-end
-
-/**
- * Noisy-le-Roi and Auchel type the same two Word tables, « Dossiers déposés
- * avant le … » and « Dossiers décidés jusqu'au … », renamed each edition
- * (`Depots_2026_09_25.pdf`, `depot28.09.2026.pdf`). Every cell hangs from its
- * row's top and starts at or a little left of its header, which the first
- * page centres: a run goes to the header starting nearest it. The site prints
- * its postcode and commune on a second line; the applicant cell stacks a
- * person over a company, of which only an organisation read whole is kept.
- * The editions of 25 and 28 September 2026: Noisy-le-Roi 24 filings and 23
- * decisions, Auchel 10 filings and 42 decisions.
- */
-function wordListSpec(city, board) {
-  return {
-    columns: WORD_LIST_COLUMNS[board], extra: ['DOSSIER', 'SIGNATURE'], rule: 'nearest', place: 'top',
-    head: HEAD_RE, noise: /^Page \d+/i, anchor: (text) => reportDossier(text, city), // i18n-ignore-line — the footer's word
-    build: (cells, section, dossier) => listRow(city, board, {
-      dossier, site: joined(cells.site), applicant: reportApplicant(cells.applicant, { wrapped: true }), purpose: joined(cells.purpose),
-      filedOn: board === 'filings' ? paddedDay(joined(cells.filedOn)) : null,
-      verdict: board === 'decisions' ? listVerdict(verdictCell(cells.verdict)) ?? verdicts.signed.fr : null,
-      decidedOn: board === 'decisions' ? paddedDay(joined(cells.decidedOn)) : null,
-      floorArea: area(joined(cells.floor)),
-    }),
-  };
-}
-
 // i18n-ignore-start — Chambray-lès-Tours's headers, family titles and footer
 const CHAMBRAY_COLUMNS = [
   ['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DU DOSSIER'], ['applicant', 'DEMANDEUR'],
@@ -349,8 +309,6 @@ export const SIEVE_PAGE_PROTOCOLS = Object.freeze({
   'sieve-acts': Object.freeze(sieveActsProtocol),
 });
 export const SIEVE_PAGE_READERS = Object.freeze({
-  'word-list-filings': (document, context) => readReportTable(document, wordListSpec(cityOf(context), 'filings')),
-  'word-list-decisions': (document, context) => readReportTable(document, wordListSpec(cityOf(context), 'decisions')),
   'chambray-filings': (document, context) => readReportTable(document, chambraySpec(cityOf(context))),
   'villeneuve-tolosane-register': (document, context) => readReportTable(document, registerSpec(cityOf(context))),
   'labelled-notice': readLabelledNotice,

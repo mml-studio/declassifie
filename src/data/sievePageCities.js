@@ -37,12 +37,12 @@ export const SIEVE_PAGE_CITIES = [
   { key: 'noisy-le-roi', insee: '78455', postcode: '78590', label: 'Ville de Noisy-le-Roi — dépôts et décisions d’urbanisme',
     page: 'https://www.noisyleroi.fr/817/mairie/urbanisme/autorisations-d-urbanisme.htm',
     source: { protocol: 'posted-lists', lists: { filings: '/DEPOTS 20\\d\\d', decisions: '/DECISIONS 20\\d\\d' },
-      layouts: { filings: 'word-list-filings', decisions: 'word-list-decisions' } } },
+      layouts: { filings: 'town-filed-before', decisions: 'town-decided-until' } } },
   // The same two Word tables (`depot28.09.2026.pdf`, `decision28092026.pdf`).
   { key: 'auchel', insee: '62048', postcode: '62260', label: 'Ville d’Auchel — dossiers d’urbanisme déposés et décidés',
     page: 'https://www.auchel.fr/les-arretes-durbanisme/',
     source: { protocol: 'posted-lists', lists: { filings: '/DEPOT ?\\d', decisions: '/DECISION ?\\d' },
-      layouts: { filings: 'word-list-filings', decisions: 'word-list-decisions' } } },
+      layouts: { filings: 'town-filed-before', decisions: 'town-decided-until' } } },
   // Every act of the town on one page, a link each: « AV DP 071 105 26 00124 - [name] N° … Mise en
   // ligne le jeudi 01 octobre 2026 »; some file names swap the day and the month.
   { key: 'charnay-les-macon', insee: '71105', postcode: '71850', label: 'Ville de Charnay-lès-Mâcon — avis de dépôt et arrêtés d’urbanisme',

@@ -8,14 +8,17 @@
  * column of its own; a reader takes the columns it names and keeps an
  * organisation at most.
  */
-import { listVerdict } from './permitBoardsLists.js';
+import { listVerdict, verdictCell } from './permitBoardsLists.js';
 import { paddedDay, readReportTable, reportApplicant, reportDossier } from './permitBoardsReports.js';
 import { municipalDate, municipalSite } from './municipalPermitsFeed.js';
-import { DIGILOR_C_BOARD_READERS } from './permitBoardsDigilorC.js';
+import messages from './municipalPermitsFeed.i18n.js';
+
+const verdicts = messages.definition;
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const joined = (lines) => clean((lines ?? []).join(' ')) || null;
 const fold = (value) => clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+const area = (value) => /(\d[\d\s]*(?:[.,]\d+)?)/.exec(clean(value))?.[1]?.replace(/\s/g, '') ?? null;
 
 // i18n-ignore-start — the lists' own headers and family titles
 /** A number's first line: `DP 29150 26 00111`, `PC 017347`. */
@@ -27,6 +30,12 @@ const DAY_RE = /^\d{2}\/\d{2}\/\d{4}$/;
 const FILED_BEFORE_COLUMNS = [
   ['filedOn', 'DATE DE DEPOT'], ['dossier', 'NUMERO DE DOSSIER', { optional: true }], ['dossier', 'NUMERO DE', { optional: true }],
   ['applicant', 'PETITIONNAIRE'], ['site', 'ADRESSE DU PROJET'], ['purpose', 'DESCRIPTION DU PROJET'],
+];
+/** « Dossiers décidés jusqu'au … »: Noisy-le-Roi breaks « Numéro de dossier » over two lines, Auchel does not. */
+const DECIDED_UNTIL_COLUMNS = [
+  ['dossier', 'NUMERO DE DOSSIER', { optional: true }], ['dossier', 'NUMERO DE', { optional: true }],
+  ['applicant', 'PETITIONNAIRE'], ['verdict', 'DECISION'], ['decidedOn', 'DATE DE'],
+  ['purpose', 'NATURE DES TRAVAUX'], ['site', 'ADRESSE DES TRAVAUX'], ['floor', 'SURFACE'],
 ];
 /** Cesson-Sévigné's export: raw field names, one misspelt (« Natrue »), set over the cells as typed. */
 const CIM_COLUMNS = [
@@ -86,17 +95,38 @@ function row(city, board, fields) {
   };
 }
 
+/** The town's name as its label gives it, letters only: `Ville de Limeil-Brévannes — …` → `LIMEILBREVANNES`. */
+const townLetters = (city) => fold(String(city?.label ?? '').split(/\s+[—–]\s+/)[0]
+  .replace(/^(?:Ville|Commune) (?:de la |de l[’']|de |d[’']|du |des )/i, '')).replace(/[^A-Z]/g, '');
+
+/**
+ * A row whose site cell names no site — the postcode and town alone
+ * (Moëlan's « 29350 Moëlan-sur-Mer », Saint-Cyr-l'École's « 78210 SAINT-CYR-
+ * L'ÉCOLE »), the town's name alone (Limeil-Brévannes), or glyphs the PDF's
+ * font maps to nothing (Saint-Cyr-l'École's « ���� ») — keeps its dossier
+ * and loses the site, rather than standing at the town's centre.
+ */
+function namedSite(item, city) {
+  const address = item.address ?? '';
+  const letters = fold(address).replace(/[^A-Z]/g, '');
+  const none = /^\d{5}\b/.test(address) || address.includes('\uFFFD') || !letters || letters === townLetters(city);
+  return item.address && none ? { ...item, address: null } : item;
+}
+
 /**
  * « Dossiers déposés avant le 23 septembre 2026 », under « VILLE DE … /
  * URBANISME »: every dossier still under instruction, a family to a section
  * and a row per dossier under Date de dépôt | Numéro de dossier |
  * Pétitionnaire | Adresse du projet | Description du projet, each cell
- * hanging from the row's top, the street over the postcode and town. Moëlan-
- * sur-Mer posts it every month or so (ten pages on 23 September 2026), and
- * its decisions as « Dossiers décidés jusqu'au … », which
- * `digilor-pontdeclaix-decisions` reads; Saint-Jean-d'Angély posts a
- * one-row edition per avis de dépôt. Columns are where the rows' cells start
- * ({@link dataColumns}): a list with no full row is read as none.
+ * hanging from the row's top, the street over the postcode and town. One
+ * software prints it, typed over in Word by some towns: Moëlan-sur-Mer
+ * (ten pages on 23 September 2026), Limeil-Brévannes, Saint-Cyr-l'École,
+ * Noisy-le-Roi, Auchel, Champhol and Saint-Rémy, every few weeks;
+ * Saint-Jean-d'Angély posts a one-row edition per avis de dépôt. Columns
+ * are where the rows' cells start ({@link dataColumns}), since each town
+ * sets its headers its own way: a list with no full row is read as none.
+ * On the editions of late September 2026 it read 28 filings at Moëlan
+ * where header-placed columns read 25 and Word's cell boxes 23.
  */
 export function readFiledBeforeList(document, { city, file }) {
   const field = dataColumns(document, ['filedOn', 'dossier', 'applicant', 'site', 'purpose'], DAY_RE);
@@ -105,22 +135,40 @@ export function readFiledBeforeList(document, { city, file }) {
     columns: FILED_BEFORE_COLUMNS, rule: 'nearest', field, place: 'top', head: HEAD_RE, noise: NOISE_RE,
     anchor: (text) => reportDossier(text, city),
     section: (text) => (FAMILY_RE.test(text) ? { title: text } : null),
-    build: (cells, section, dossier) => row(city, 'filings', {
+    build: (cells, section, dossier) => namedSite(row(city, 'filings', {
       dossier, site: joined(cells.site), applicant: reportApplicant(cells.applicant),
       purpose: joined(cells.purpose), filedOn: paddedDay(joined(cells.filedOn)), postedOn: file?.published ?? null,
-    }),
+    }), city),
   });
 }
 
 /**
- * « Dossiers décidés jusqu'au … », the same software's decisions: Le
- * Pont-de-Claix's columns (`digilor-pontdeclaix-decisions`). A site whose
- * street cell is empty prints the postcode and town alone (Moëlan's
- * « 29350 Moëlan-sur-Mer »): no site, rather than the town's centre.
+ * « Dossiers décidés jusqu'au … », the same software's decisions: Numéro de
+ * dossier | Pétitionnaire | Décision | Date de signature | Nature des
+ * travaux | Adresse des travaux | Surface. Every cell hangs from its row's
+ * top and starts at or a little left of its header: a run goes to the
+ * header starting nearest it. The applicant cell stacks a person over a
+ * company: its first line that reads as an organisation is kept, never a
+ * person ({@link reportApplicant}), as on the filings. A site cell
+ * holding the town alone is no site ({@link namedSite}). On the editions of
+ * September 2026: Moëlan 65 decisions, Limeil-Brévannes 44, Auchel 42,
+ * Noisy-le-Roi 23, Saint-Cyr-l'École 21, Saint-Rémy 19 — at Saint-Rémy two
+ * sites on consecutive rows stay apart, where centred columns ran them
+ * together.
  */
-export function readDecidedUntilList(document, context) {
-  return DIGILOR_C_BOARD_READERS['digilor-pontdeclaix-decisions'](document, context)
-    .map((item) => (/^\d{5}\b/.test(item.address ?? '') ? { ...item, address: null } : item));
+export function readDecidedUntilList(document, { city, file }) {
+  return readReportTable(document, {
+    columns: DECIDED_UNTIL_COLUMNS, extra: ['DOSSIER', 'SIGNATURE'], rule: 'nearest', place: 'top',
+    head: HEAD_RE, noise: /^Page \d+/i, anchor: (text) => reportDossier(text, city), // i18n-ignore-line — the footer's word
+    build: (cells, section, dossier) => namedSite({
+      ...row(city, 'decisions', {
+        dossier, site: joined(cells.site), applicant: reportApplicant(cells.applicant), purpose: joined(cells.purpose),
+        verdict: listVerdict(verdictCell(cells.verdict)) ?? verdicts.signed.fr, decidedOn: paddedDay(joined(cells.decidedOn)),
+        postedOn: file?.published ?? null,
+      }),
+      floorArea: area(joined(cells.floor)),
+    }, city),
+  });
 }
 
 /**

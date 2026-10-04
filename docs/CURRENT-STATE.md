@@ -5542,6 +5542,30 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**One reader per list template (2026-10-04).** « Dossiers déposés avant
+le … » and « Dossiers décidés jusqu'au … » come out of one instruction
+software, sometimes typed over in Word, and three pull requests had each
+written a reader for them: `limeil-*` (Limeil-Brévannes, Saint-Cyr-l'École),
+`word-list-*` (Noisy-le-Roi, Auchel) and `town-filed-before` /
+`town-decided-until` (Moëlan-sur-Mer, Champhol, Saint-Rémy, Osny,
+Quimperlé's quarter-turn tables, Saint-Jean-d'Angély's one-row editions).
+Run on the same 26 editions of late September, the filings reader that
+takes its columns where the rows' cells start read the most rows everywhere
+(Moëlan 28 where header-placed columns read 25 and Word's cell boxes 23),
+and on the decisions the reader sending each run to the header starting
+nearest it did (Limeil-Brévannes 44 against 43 and 41; at Saint-Rémy it
+keeps the sites of two consecutive rows apart where centred columns ran
+them together). `town-filed-before` and `town-decided-until` are now those
+two, and every town of the template names them; `limeil-*` and
+`word-list-*` are gone, and Le Pont-de-Claix keeps its Digilor reader. Both
+drop a site cell that holds the town alone or glyphs the PDF's font maps to
+nothing (Saint-Cyr-l'École's « ���� ») rather than place the dossier at the
+town's centre: 8 dossiers lose such a site, none is gained or lost.
+Applicants follow the filings' rule on both boards — the first line that
+reads as an organisation, never a person, never two lines joined — so
+Limeil-Brévannes and Saint-Cyr-l'École, whose readers never looked at that
+column, now show the companies that file there.
+
 **Osny and Quimperlé whole-register snapshots (2026-10-04).**
 Both municipal pages join `postedListCities.js` through `posted-lists`.
 `source.latestOnly` keeps the newest snapshot of each board, so departed
@@ -5681,7 +5705,8 @@ patterns. The new `town-filed-before` reader (`permitBoardsTownLists.js`)
 takes each column where the rows' cells start, the median over the rows that
 print all five: Moëlan sets each cell 30 to 70 points right of its header, and
 a header-based rule put the applicant's name in the site. `town-decided-until`
-drops a site that is only the postcode and town. Saint-Jean-d'Angély prints
+drops a site that is only the postcode and town (since 2026-10-04 both are
+the template's only readers, see « One reader per list template »). Saint-Jean-d'Angély prints
 each avis de dépôt as a one-row edition of the same list and names its files
 by their site, street first (`DP173472600138-rue-des-Marechaux-au-n°-4.pdf`):
 `posted-acts` now reads that street, takes « Avis depot » for a filing, and
@@ -5745,8 +5770,8 @@ read by their labels (`labelled-notice`): Charnay's « Avis de dépôt »
 filing service prints (« Enregistrée sous le numéro », « Concernant les travaux
 sis »; a « Décision tacite » is a tacit decision). Five tables get a
 `readReportTable` spec: the Word tables « Dossiers déposés avant le … /
-décidés jusqu'au … » that Noisy-le-Roi and Auchel both type (`word-list-*`,
-a run going to the header starting nearest it), Chambray-lès-Tours's Excel
+décidés jusqu'au … » that Noisy-le-Roi and Auchel both type (read since
+2026-10-04 by `town-filed-before` and `town-decided-until`), Chambray-lès-Tours's Excel
 table of dossiers under review, Villeneuve-Tolosane's year registers and
 L'Huisserie's two tables, these last two every dossier of the year, a row a
 decision once it has a verdict. Chambray's applicant cell and Villeneuve-
@@ -5788,7 +5813,8 @@ inhabitants more.
 posts Limeil-Brévannes's two Word tables every month, « Dossiers déposés
 avant le … » and « Dossiers décidés jusqu'au … », renamed with each edition's
 day (`AFFICHAGE-DEPOT-090926.pdf`): one line of `postedListCities.js`, whose
-`layouts` name the `limeil-filings` and `limeil-decisions` readers. Read live:
+`layouts` name the template's readers (`town-filed-before` and
+`town-decided-until` since 2026-10-04). Read live:
 9 filings and 21 decisions, every row with its site.
 Mantes-la-Ville links one PDF per decision, twelve a page: it joins the
 posted acts with its first five pages, and a number typed without the

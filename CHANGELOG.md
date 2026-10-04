@@ -840,6 +840,15 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   of twice.
 
 ### Fixed
+- **The « Dossiers déposés avant le … » lists no longer place a dossier at
+  the town's centre.** Three readers of that one template become one per
+  board: the filings reader that finds columns from the rows themselves
+  (most rows on every edition tried), the decisions reader that keeps two
+  consecutive sites apart (Saint-Rémy). A site cell holding only the town or
+  unmapped glyphs is no site: eight dossiers at Limeil-Brévannes,
+  Saint-Cyr-l'École, Moëlan-sur-Mer and Osny lose a false site. Limeil-
+  Brévannes and Saint-Cyr-l'École now name the companies that file, never a
+  person.
 - **An order whose operative article grants or does not oppose, then names
   the withdrawal the law allows, no longer reads as withdrawn.** The act
   reader DematDOC communes and posted acts share now takes the verdict from

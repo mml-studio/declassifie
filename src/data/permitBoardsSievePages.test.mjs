@@ -20,7 +20,7 @@ test('the sieve communes are in the permit registry, their protocols and layouts
   }
   assert.equal(new Set(SIEVE_PAGE_CITIES.map((source) => source.insee)).size, SIEVE_PAGE_CITIES.length, 'one board per commune');
   assert.equal(BOARD_PROTOCOLS['sieve-acts'], protocol);
-  assert.equal(BOARD_READERS['word-list-filings'], SIEVE_PAGE_READERS['word-list-filings']);
+  assert.equal(BOARD_READERS['chambray-filings'], SIEVE_PAGE_READERS['chambray-filings']);
 });
 
 test('a link’s number and day are spelled out the way posted-acts reads them', () => {
@@ -82,10 +82,10 @@ test('a town whose names swap day and month has the day its words say, its notic
     ['decisions', 'DP 038337 26 10064', '205 avenue jean jaures', '2026-07-03', 'AR 116', 'Agrandissement balcon', 'Accord tacite']);
 });
 
-test('the Word tables of Noisy-le-Roi and Auchel: a run goes to the header starting nearest it', () => {
+test('the Word tables of Noisy-le-Roi and Auchel are read by the town-list readers of their template', () => {
   const header = [run(28.3, 390.6, 'Date de dépôt'), run(153.7, 390.6, 'Numéro de dossier'), run(278.8, 390.6, 'Pétitionnaire'),
     run(408.8, 390.6, 'Adresse du projet'), run(573.8, 390.6, 'Description du projet')];
-  const rows = read('word-list-filings', 'auchel', doc([
+  const rows = read('town-filed-before', 'auchel', doc([
     ...header,
     run(28.3, 352, "AUTORISATION DE CONSTRUIRE, D'AMENAGER OU DE MODIFIER UN ETABLISSEMENT RECEVANT DU PUBLIC (ERP)"),
     run(28.3, 314.8, '07/09/2026'), run(153.7, 314.8, 'DP 62048 26 00129'), run(281.9, 314.8, 'PRIVATE Youssef'), run(278.8, 302.1, 'SARL DIMO'),
@@ -94,11 +94,11 @@ test('the Word tables of Noisy-le-Roi and Auchel: a run goes to the header start
     run(408.8, 280, '33 Rue Pierre Curie'), run(573.8, 280, 'Création d’une extension'),
   ]));
   assert.deepEqual(rows.map((row) => [row.dossier, row.address, row.filedOn, row.applicant]), [
-    ['DP 062048 26 00129', '19 rue Florent Evrard', '2026-09-07', null],
+    ['DP 062048 26 00129', '19 rue Florent Evrard', '2026-09-07', 'SARL DIMO'],
     ['DP 062048 25 00148 M01', '33 Rue Pierre Curie', '2026-09-18', null],
-  ]);
+  ], 'the company under the person is kept, the person never');
   assert.doesNotMatch(JSON.stringify(rows), /PRIVATE/);
-  const decisions = read('word-list-decisions', 'noisy-le-roi', doc([
+  const decisions = read('town-decided-until', 'noisy-le-roi', doc([
     run(55.6, 435.8, 'Numéro de'), run(64.8, 423.1, 'dossier'), run(166.1, 435.8, 'Pétitionnaire'), run(274, 435.8, 'Décision'),
     run(354.5, 435.8, 'Date de'), run(349.7, 423.1, 'signature'), run(455, 435.8, 'Nature des travaux'), run(628.1, 435.8, 'Adresse des travaux'),
     run(778.8, 435.8, 'Surface'),
