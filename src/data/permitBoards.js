@@ -15,7 +15,7 @@
  * `json` or `text`: how its answer is handed to `index` (JSON parsed).
  *
  * A FILE is a PDF to read: `{url, board, layout, published?, row?, rolling?,
- * ocr?, scan?, ocrPages?, ocrRotate?, requestUrl?, headers?}`. `layout` names its reader in
+ * ocr?, scan?, ocrPages?, ocrRotate?, ocrPsm?, requestUrl?, headers?}`. `layout` names its reader in
  * {@link BOARD_READERS} (or in `PERMIT_LIST_READERS`), called as
  * `reader(document, {city, file})`. `row` is what the index itself says of
  * the dossier (a title's number and site): kept when the file yields
@@ -26,6 +26,7 @@
  * that always is, never downloaded by a visitor's reading. `ocrPages`: OCR
  * reads that many pages at most. `ocrRotate`: clockwise quarter-turn in
  * degrees before OCR, for a publisher whose scan is sideways.
+ * `ocrPsm`: opt-in Tesseract page segmentation, 4 or 6; absent keeps 4.
  * `requestUrl`: a publisher's temporary signed download; `url` remains
  * the stable edition identity. The signed URL is never stored.
  *
@@ -55,6 +56,7 @@ import { CALUIRE_BOARD_PROTOCOLS, CALUIRE_BOARD_READERS } from './caluirePermitB
 import { TOWN_LIST_READERS, TOWN_LIST_TEXT } from './permitBoardsTownLists.js';
 import { SIEVE_PAGE_PROTOCOLS, SIEVE_PAGE_READERS, SIEVE_PAGE_TEXT } from './permitBoardsSievePages.js';
 import { LEVALLOIS_BOARD_PROTOCOLS } from './permitBoardsLevallois.js';
+import { SELESTAT_BOARD_READERS } from './permitBoardsSelestat.js';
 
 export { BOARD_PERMIT_SOURCES } from './permitBoardCities.js';
 
@@ -84,6 +86,7 @@ export const BOARD_READERS = Object.freeze({
   ...CALUIRE_BOARD_READERS,
   ...TOWN_LIST_READERS,
   ...SIEVE_PAGE_READERS,
+  ...SELESTAT_BOARD_READERS,
 });
 
 /** `extractPdfText` options by `layout`, where a layout needs its own. */

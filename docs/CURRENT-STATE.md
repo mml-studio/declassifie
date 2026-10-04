@@ -5582,6 +5582,30 @@ reads as an organisation, never a person, never two lines joined — so
 Limeil-Brévannes and Saint-Cyr-l'École, whose readers never looked at that
 column, now show the companies that file there.
 
+**Sélestat's scanned registers (2026-10-04).**
+The municipality (`67462`, 19,589 residents) joins `postedListCities.js`
+through `posted-lists`, keeping the newest filing and decision list with
+`source.latestOnly`. Both are image-only landscape Cart@DS exports.
+`source.ocrPsm: 6` selects uniform-block Tesseract segmentation in the existing
+daily collector; the default remains 4 for other sources. `scan: true`
+keeps visitors from downloading these scans or running OCR.
+`permitBoardsSelestat.js` verifies the publisher, orientation and identifying
+headers before reading fixed project columns, including headerless
+continuation pages. The applicant's residential address column is never read.
+Unread or foreign numbers and detected merged rows are withheld. Explicit
+filing/signing days, posting starts and two-month posting ends stay separate;
+future OCR dates are withheld rather than repaired. Unknown verdicts remain
+signed decisions. The source does not assert current-under-review status.
+The two 22 September lists retain 100 filings and 21 decisions, all distinct
+and with an extracted project address; BAN geocodes 118, leaving three
+unplaced. OCR extraction remains partial despite successful file collection.
+Source coverage rises from 4,304 to 4,305 municipalities, 22,880,982 to
+22,900,571 residents, or 33.4758% to 33.5045% of the same 68,350,798-resident
+snapshot. Robots rules allow the page and files; no override or account is
+needed. Twelve additional population-priority screenings are recorded as
+unconfirmed, including HTTP failures, without claiming that no register
+exists. [Research and validation](research/selestat-permits-2026-10-04.md).
+
 **Osny and Quimperlé whole-register snapshots (2026-10-04).**
 Both municipal pages join `postedListCities.js` through `posted-lists`.
 `source.latestOnly` keeps the newest snapshot of each board, so departed

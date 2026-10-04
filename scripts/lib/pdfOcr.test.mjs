@@ -41,6 +41,16 @@ test('positioned mode requests TSV and returns words to the list readers', async
   assert.equal(calls.find(([file]) => file === 'tesseract').at(-1), 'tsv');
 });
 
+test('a dense scanned table can request uniform-block OCR without changing the default or screen', async () => {
+  const { run, calls } = fakePrograms(['Table']);
+  await createPdfOcr({ run })(new Uint8Array([1]), { psm: 6 });
+  const command = calls.find(([file]) => file === 'tesseract');
+  assert.equal(command[command.indexOf('--psm') + 1], '6');
+  const before = calls.length;
+  assert.equal(await createPdfOcr({ run })(new Uint8Array([1]), { psm: 99 }), null);
+  assert.equal(calls.length, before);
+});
+
 test('tiny permit types are reread alongside year anchors, without guessing an unread family', async () => {
   const tsv = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n'
     + '1\t1\t0\t0\t0\t0\t0\t0\t1000\t2000\t-1\t\n'
