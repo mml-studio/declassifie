@@ -58,7 +58,9 @@ function pageLinks(html, base) {
  * failing that, the upload month of a WordPress or Drupal path.
  */
 export function postedListDay(name, words = '') {
-  const text = fold(`${name} ${words}`);
+  // Do not combine the upload directory with a numeric filename into a day
+  // (Quimperlé's /2026/09/09-24-… is the edition of 24 September).
+  const text = fold(`${words} ${name.split('/').at(-1)}`);
   const iso = (y, m, d) => {
     const year = y.length === 2 ? `20${y}` : y;
     if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31 || year < '2015' || year > '2099') return null;
@@ -106,9 +108,22 @@ function listFiles(city, links) {
       if (rolling.has(board)) continue;
       rolling.add(board);
     }
-    files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }) });
+    files.push({ url: link.url, board, layout: layouts[board], ...(published ? { published } : { rolling: true }),
+      ...(city.source?.rolling ? { rolling: true } : {}) });
   }
-  return files.length ? files.sort((a, b) => (b.published ?? '9').localeCompare(a.published ?? '9')) : null;
+  if (!files.length) return null;
+  files.sort((a, b) => (b.published ?? '9').localeCompare(a.published ?? '9'));
+  // Whole-register snapshots repeat dossiers. Older filings that left the
+  // newest list must not become current again on the archive's first sweep.
+  if (city.source?.latestOnly) {
+    const boards = new Set();
+    return files.filter((file) => {
+      if (boards.has(file.board)) return false;
+      boards.add(file.board);
+      return true;
+    });
+  }
+  return files;
 }
 
 /**

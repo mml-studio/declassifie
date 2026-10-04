@@ -6,6 +6,22 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Osny and Quimperlé now show current municipal filings and decisions**,
+  adding 30,423 residents to municipal-source coverage. The newest register
+  snapshots yield 234 distinct dossiers, 231 with project addresses and 223
+  geocoded. Older snapshots no longer revive departed pending filings;
+  Osny's replaced files are revalidated and Quimperlé's rotated PDF tables
+  are read with their project and applicant columns kept separate.
+  [Research and limits](docs/research/osny-quimperle-permits-2026-10-04.md).
+- **Levallois-Perret's current filing lists and planning orders now join the
+  permit layer**, adding 68,092 residents to municipal-source coverage.
+  Its public Webdelib board yielded 62 pending filings with project addresses
+  and 27 decisions; six decision addresses were read safely, while the others
+  retain index fields until a project site is safely known. Anonymous public-session
+  initialization needs no account and preserves no cookies on disk. Population-first discovery
+  now remembers previous research and defers checked municipalities, including
+  Saint-Denis (La Réunion) and Vénissieux, until a scheduled or explicit revisit.
+  [Research and limits](docs/research/levallois-permits-2026-10-03.md).
 - **Cesson-Sévigné, Mauges-sur-Loire, Aytré, Margny-lès-Compiègne, La
   Salvetat-Saint-Gilles, Romagnat, Coursan and Cordemais now show their fresh
   permits**, 82,033 inhabitants. Five new readers take the lists these towns

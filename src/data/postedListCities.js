@@ -8,6 +8,18 @@
  */
 // i18n-ignore-start — publishers' names and the titles of their legal boards
 export const POSTED_LIST_CITIES = [
+  // Osny replaces some dated URLs in place; validators keep those lists current.
+  { key: 'osny', insee: '95476', postcode: '95520', underReview: true, label: 'Ville d’Osny — dépôts et décisions d’urbanisme',
+    page: 'https://osny.fr/les-services/urbanisme/autorisations-durbanisme',
+    source: { protocol: 'posted-lists', rolling: true, latestOnly: true,
+      lists: { filings: '\\bAFFICHAGE DEPOTS?\\b', decisions: '\\bAFFICHAGE DECISIONS?\\b' },
+      layouts: { filings: 'town-filed-before', decisions: 'town-decided-until' } } },
+  // Its A3 exports turn the text coordinates by 90 degrees, including continuations.
+  { key: 'quimperle', insee: '29233', postcode: '29300', underReview: true, label: 'Ville de Quimperlé — dépôts et décisions d’urbanisme',
+    page: 'https://www.quimperle.bzh/vivre-a-quimperle/habitat-urbanisme/demarches-durbanisme-rdv/',
+    source: { protocol: 'posted-lists', latestOnly: true,
+      lists: { filings: '\\bDOSSIERS DEPOSES AVANT\\b', decisions: '\\bAUTORISATIONS DELIVREES JUSQU\\b|\\bDOSSIERS DECIDES JUSQU\\b' },
+      layouts: { filings: 'town-quarter-turn-filings', decisions: 'town-quarter-turn-decisions' } } },
   // Haguenau renames both files every week: `28 09 2026 VILLE DE HAGUENAU
   // DEPOTS.pdf` and `… AUTORISATIONS.pdf`, Cart@DS exports.
   { key: 'haguenau', insee: '67180', postcode: '67500', label: 'Ville de Haguenau — dépôts et autorisations d’urbanisme',

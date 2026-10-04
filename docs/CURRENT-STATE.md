@@ -5542,6 +5542,52 @@ shelves held permit titles since July, they are the ones whose eight newest
 acts gave placeable rows without OCR. Lattes also posts there and stays with
 Montpellier Méditerranée Métropole's open data. 720 022 inhabitants more.
 
+**Osny and Quimperlé whole-register snapshots (2026-10-04).**
+Both municipal pages join `postedListCities.js` through `posted-lists`.
+`source.latestOnly` keeps the newest snapshot of each board, so departed
+filings from an older edition never become current on the same sweep.
+Both sources mark retained filings as under review; the existing archive
+keeps departed dossiers as filings without that current status.
+Osny's dated URLs are replaced in place and use `source.rolling` for HTTP
+revalidation. Quimperlé's A3 `/Rotate 90` exports use the header-checked
+`town-quarter-turn-filings` and `town-quarter-turn-decisions` readers,
+which normalize every page's coordinates before the existing table readers.
+`postedListDay` no longer combines upload directories with numeric filenames
+into an invented edition day. The latest four PDFs retain 104 filings and
+130 decisions, all distinct dossiers; 231 have an extracted project address
+and 223 are geocoded. Eleven remain unplaced. No file failed or awaits OCR.
+The source gain against the preceding Levallois batch, after rebasing on
+main at `22e42803`, is 30,423 residents: 4,290 to 4,292 municipalities and
+33.2319% to 33.2764% of the same
+68,350,798-resident snapshot. Private applicant columns are excluded.
+Both pages and files honor robots rules; no new override or account is needed.
+[Research and validation](research/osny-quimperle-permits-2026-10-04.md).
+
+**Levallois-Perret and persistent research history (2026-10-03).**
+The city's public Webdelib urbanism tab joins `permitBoardCities.js` through
+`permitBoardsLevallois.js`. Monthly indexes select the newest PC, DP and PD
+filing list, plus PC/DP/PA/PD decisions within the publication window. The
+`levallois-filings` reader separates bottom-aligned spreadsheet rows and
+project addresses from the applicant's residential-address column; height
+does not become created floor area. The lists posted on 2 October yielded
+62 pending filings (nine PC, 53 DP, zero PD), all with project addresses and
+filing dates. The September–October collection retained 27 decisions, six
+with safely extracted project addresses after first-page background OCR.
+The other 21 decision rows have no extracted address and cannot be placed on
+their own; the ordinary dossier fold can recover a matching filing's site.
+The local proxy folded 89 posting rows to 88 distinct dossiers and geocoded
+68, leaving 20 unplaced. Publication dates never stand in for signing dates.
+All 30 selected PDFs were downloaded without a failure.
+The public site initializes an anonymous cookie through a literal same-origin
+redirect. The collector follows that bounded initialization without executing
+JavaScript, login or challenge handling; cookies live only in the collection's
+memory. Robots checks remain enabled and allowed the index and PDF paths.
+Levallois adds 68,092 residents against main at `35e1735a`: 4,270 to 4,271
+municipalities, 22,508,136 to 22,576,228 residents, 32.9303% to 33.0299%
+of the same 68,350,798 population snapshot. This is municipal-source coverage,
+not a claim that every dossier or address is extracted.
+[Research and limits](research/levallois-permits-2026-10-03.md).
+
 **Manosque and population-first discovery (2026-10-03).** Manosque's public
 Datahall app 327 posts individual scanned filing notices on category 3608,
 sub-category 0. It joins `digilorTownsB.js` through the existing
@@ -5562,6 +5608,17 @@ reports uncovered towns of at least 50,000 residents and intermunicipalities
 ranked by the sum of their uncovered population. It reads current source
 registries at invocation, accepts a saved Geo API municipality snapshot and
 optional verified candidate reports, and never changes a source registry.
+It now reads `docs/research/permit-research-history.json` by default and
+returns checked towns separately as `deferredTowns`, without counting them
+as covered or adding their population to intermunicipal research priorities.
+Entries name the INSEE code, check date, finding and revisit date; a null
+revisit date is an explicit hold. Saint-Denis (`97411`, La Réunion) and
+Vénissieux (`69259`) are held because the user confirmed they were already
+checked; their previous outcome is not invented. Toulouse stays on hold
+following the previous research instruction. `--research <file>` replaces
+the history and `--revisit <INSEE>` explicitly reopens a checked town;
+`--exclude` still takes precedence. Partial website screenings are recorded
+as unconfirmed, never as evidence that no public source exists.
 Overlapping candidate gains are counted once; old, future or unverified
 publication dates contribute no verified gain. Annual Montpellier data and
 national Sitadel do not remove a town from the current-board research queue.

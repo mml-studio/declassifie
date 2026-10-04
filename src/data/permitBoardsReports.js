@@ -142,7 +142,8 @@ function textLines(runs) {
  * `centre`: each column's lines fall into blocks, and a block goes to the
  * dossier centred nearest among those whose centre it spans — a cell centred
  * on its row spans the row's centre, whatever its height. `top`: lines go to
- * the last dossier at or above them.
+ * the last dossier at or above them. `bottom`: lines go to the first dossier
+ * at or below them, for Levallois's cells aligned along their lower edge.
  */
 function bandRows(band, header, spec) {
   const byField = new Map();
@@ -159,7 +160,16 @@ function bandRows(band, header, spec) {
     const into = anchor ? anchor.cells : before;
     (into[field] ??= []).push(...lines);
   };
-  if (spec.place === 'top') {
+  if (spec.place === 'bottom') {
+    for (const line of dossierLines) {
+      if (startsNumber(line.text)) anchors.push({ dossier: spec.anchor(line.text), bottom: line.y - 0.6 * line.size,
+        section: band.section, cells: {} });
+    }
+    for (const [field, runs] of byField) for (const line of textLines(runs)) {
+      const anchor = anchors.find((item) => line.y >= item.bottom);
+      if (anchor) keep(anchor, field, [line.text]);
+    }
+  } else if (spec.place === 'top') {
     dossierLines.forEach((line, i) => {
       if (!startsNumber(line.text)) return;
       const tail = [];
@@ -234,7 +244,7 @@ function bandRows(band, header, spec) {
  *
  * @param {?{pages: Array<{runs: Array<object>}>}} document
  * @param {{columns?: Array<[string, string, {optional?: boolean}?]>, derive?: Array<string>, extra?: Array<string>,
- *   rule: 'nearest'|'centre'|'right', place: 'centre'|'top', gap?: number,
+ *   rule: 'nearest'|'centre'|'right', place: 'centre'|'top'|'bottom', gap?: number,
  *   head: RegExp, anchor: (text: string) => ?string, section?: (text: string) => ?object,
  *   field?: (run: object) => ?string, noise?: RegExp, build: (cells: Record<string, Array<string>>, section: ?object, dossier: string) => ?object}} spec
  * @returns {Array<object>}
@@ -601,7 +611,29 @@ function saintCloudSpec(city, board) {
 
 const cityOf = (context) => context?.city;
 
+/** Levallois separates the applicant's address from the works' address. */
+function levalloisSpec(city) {
+  return {
+    // i18n-ignore-start — the publisher's column labels
+    columns: [['filedOn', 'RECU EN'], ['dossier', 'NUMERO DE DOSSIER'], ['applicant', 'DEMANDEUR'],
+      ['privateAddress', 'ADRESSE DU DEMANDEUR'], ['site', 'ADRESSE PRINCIPALE DES'],
+      ['purpose', 'NATURE DES TRAVAUX'], ['floor', 'SDP', { optional: true }],
+      ['height', 'HAUTEUR', { optional: true }], ['demolition', 'TYPE DE DEMOLITION', { optional: true }]],
+    extra: ['MAIRIE', 'TRAVAUX', 'CREEE', '(EN M²)', 'HAUTEUR', '(EN M)', 'TYPE DE DEMOLITION'],
+    noise: /^(?:Nb de dossier|Page \d|\d+ \/ \d+)$/i,
+    // i18n-ignore-end
+    rule: 'centre', place: 'bottom', head: HEAD_RE,
+    anchor: (text) => reportDossier(text, city),
+    build: (cells, section, dossier) => reportRow(city, 'filings', {
+      dossier, filedOn: municipalDate(joined(cells.filedOn)), site: joined(cells.site),
+      purpose: joined(cells.purpose), floorArea: area(joined(cells.floor)),
+      applicant: reportApplicant(cells.applicant, { wrapped: true }),
+    }),
+  };
+}
+
 export const REPORT_BOARD_READERS = Object.freeze({
+  'levallois-filings': (document, context) => readReportTable(document, levalloisSpec(cityOf(context))),
   'cartds-report-filings': (document, context) => readReportTable(document, cartdsSpec(cityOf(context), 'filings')),
   'cartds-report-decisions': (document, context) => readReportTable(document, cartdsSpec(cityOf(context), 'decisions')),
   'arles-filings': (document, context) => readReportTable(document, arlesSpec(cityOf(context), 'filings')),
