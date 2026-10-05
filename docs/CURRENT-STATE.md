@@ -5907,6 +5907,27 @@ SMICA's portal and Galiax and Cazaux-Villecomtal on the Val d'Adour board
 likewise. Ten communes of fewer than 650 inhabitants posted nothing in the
 last 92 days and leave. Coverage 34.41 % → 34.60 %.
 
+**Vienne on LEGALView (2026-10-04).** Vienne (Isère) posts each planning
+order on LEGALView, IPO Technologie's legal-display service. Its portal is an
+Angular app over a public JSON API (no key, no robots.txt, 30 requests a
+minute): `/api/public/legalview/org/<slug>/theme/<id>` answers a theme's
+documents, newest posted first, a page of 100 at a time, each with its title,
+its posting time and the text the platform read from the scan.
+`src/data/permitBoardsLegalview.js` reads the theme « Autorisations
+d'urbanisme » and makes one row per order, with no file to download. The
+clerk titles each order with the act's number, the kind of decision, the
+dossier's number, the applicant, then « pour », the works and the site; the
+number, the verdict the kind says (`REFUS DE DP`, `ANNULATION DE PC`,
+`TRANSFERT DE PC`; a plain DP is a non-opposition, a plain permit a grant),
+the works and the last street of the title are taken, never what precedes
+« pour ». The platform's text gives the filing day — not the original
+dossier's, for a modification or a transfer — and the parcels; the signing
+day is a stamp OCR cannot read, so an order has its posting day. A lapse or
+an extension decides no project and is left. On the 272 orders posted from
+12 April to 1 October: 268 rows, 263 with their site, 263 with their filing
+day, 256 with their parcels. The fortnightly « Avis de dépôt » lists are not
+read yet. 31 778 inhabitants more; coverage 34.69 % → 34.73 %.
+
 **Who instructs permits where the map is empty (2026-10-04).** Coverage
 per department shows whole departments near zero (Somme 0.2 %, Vienne 1.3 %,
 Saône-et-Loire 3.1 %, Seine-Maritime 5.6 %; Indre, Cantal, Creuse, Lozère,

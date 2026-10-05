@@ -6,6 +6,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **Vienne (Isère) now shows the planning orders it posts**, 31,778
+  inhabitants, bringing current-source coverage from 34.69% to 34.73%. The
+  town posts each order on LEGALView, a legal-display service whose public
+  API gives the order's title and the text read from its scan: the number,
+  the verdict, the works, the site, the filing day and the parcels come from
+  them, never the applicant.
 - **55 communes of the Cher, La Plaine-des-Palmistes, Appietto and
   Agon-Coutainville now show the permits their instruction boards post**,
   62,935 inhabitants, bringing current-source coverage from 34.60% to 34.69%.
