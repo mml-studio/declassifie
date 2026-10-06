@@ -54,6 +54,14 @@ test('the English page credits the project the globe is built on, with both link
   assert.match(credit, /<a href="https:\/\/github\.com\/bilawalsidhu">Bilawal Sidhu<\/a>/);
 });
 
+test('both languages name the author, with a link to the project page of the author’s site', () => {
+  const line = SHOWCASE.match(/<p class="footer-author"[^>]*>[\s\S]*?<\/p>/)?.[0] || '';
+  assert.doesNotMatch(line, /data-locale-only/);
+  assert.match(line, /<span data-i18n="vitrine\.footer\.author">Conçu par<\/span>/);
+  assert.match(line, /<a href="https:\/\/melvynraymond\.com\/surplomb" rel="author"[^>]*translate="no">Melvyn Raymond<\/a>/);
+  assert.equal(markupMessages('en').vitrine.footer.author, 'Designed by');
+});
+
 test('the language links: each names the other language, and only one shows', () => {
   const links = tagsWith('data-locale-link');
   assert.equal(links.length, 2);
