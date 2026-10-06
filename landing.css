@@ -880,13 +880,15 @@ html[data-input="coarse"] #vitrine .field input { font-size: 16px; }
   line-height: 1.5;
   max-width: 580px;
 }
-#vitrine .footer-credit {
+#vitrine .footer-credit,
+#vitrine .footer-author {
   margin-top: 18px;
   max-width: 580px;
   font-size: 15px;
   line-height: 1.5;
 }
-#vitrine .footer-credit a {
+#vitrine .footer-credit a,
+#vitrine .footer-author a {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -1014,7 +1016,8 @@ html[data-input="coarse"] #vitrine .field input { font-size: 16px; }
   #vitrine .voice-answer { margin-top: 30px; }
   #vitrine .footer-info { padding: 60px; }
   #vitrine .footer-copy { font-size: 21px; max-width: 750px; }
-  #vitrine .footer-credit { font-size: 16px; max-width: 750px; margin-top: 22px; }
+  #vitrine .footer-credit,
+  #vitrine .footer-author { font-size: 16px; max-width: 750px; margin-top: 22px; }
   #vitrine .footer-links { flex-direction: row; flex-wrap: wrap; gap: 16px 35px; }
   #vitrine .footer-ending { min-height: 570px; }
   #vitrine .closing-brand { font-size: 72px; gap: 22px; padding: 22px 40px 30px; }

@@ -770,6 +770,11 @@ export default defineMessages({
     },
     footer: {
       nav: { fr: 'Liens de pied de page', en: 'Footer links' },
+      author: {
+        fr: 'Conçu par',
+        en: 'Designed by',
+        note: 'Followed by the author’s name, a link the page never translates (translate="no").',
+      },
       code: { fr: 'Voir le code', en: 'See the code' },
       codeAria: { fr: 'Voir le code open source', en: 'See the open-source code' },
       legal: { fr: 'Mentions légales', en: 'Legal notice', note: 'The page it opens is in French (hreflang="fr").' },

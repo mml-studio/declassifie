@@ -6,6 +6,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ## [Unreleased] — 2026-09-15
 
 ### Added
+- **The landing page now says who made Surplomb.** Its footer carries
+  « Conçu par Melvyn Raymond » (“Designed by Melvyn Raymond” on the English
+  page), the name linked to the project page of the author's site,
+  melvynraymond.com/surplomb. The name was in the licence, `package.json` and
+  the README, never on the page a visitor reads.
 - **Vienne (Isère) now shows the planning orders it posts**, 31,778
   inhabitants, bringing current-source coverage from 34.69% to 34.73%. The
   town posts each order on LEGALView, a legal-display service whose public

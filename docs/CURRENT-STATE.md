@@ -622,6 +622,11 @@ Updated: September 24, 2026
 >   View, the open-source globe created by Bilawal Sidhu”, both linked — is
 >   English only, in the footer (decision of 2026-09-22). `landing.css` hides
 >   each in the other language, and the i18n scanner does not ask them for a key.
+> - **The author line is in both languages.** Under the footer's copy,
+>   « Conçu par Melvyn Raymond » / “Designed by Melvyn Raymond” (decision of
+>   2026-10-06); the name is `translate="no"` and links to
+>   `https://melvynraymond.com/surplomb` with `rel="author"`. Only the two
+>   words before it have a key (`vitrine.footer.author`).
 > - **The ratchets now count the landing page.** `src/vitrine/` lost its R1,
 >   R2, R4 exemption and `#vitrine` its R3 one; all stay at zero. A `<br>`
 >   inside a sentence no longer splits it for R3 or `markup.test.mjs`.
